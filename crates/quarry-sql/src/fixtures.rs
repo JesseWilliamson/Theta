@@ -45,7 +45,13 @@ pub fn index(name: &str, cols: &[&str], unique: bool, primary: bool) -> Index {
     }
 }
 
-pub fn table(name: &str, columns: Vec<ColumnInfo>, pk: &[&str], fks: Vec<ForeignKey>, rows: Option<u64>) -> Table {
+pub fn table(
+    name: &str,
+    columns: Vec<ColumnInfo>,
+    pk: &[&str],
+    fks: Vec<ForeignKey>,
+    rows: Option<u64>,
+) -> Table {
     let mut indexes = Vec::new();
     if !pk.is_empty() {
         indexes.push(index(&format!("{name}_pkey"), pk, true, true));
@@ -114,13 +120,20 @@ pub fn shop() -> Catalog {
     );
     let products = table(
         "products",
-        vec![int("id"), text("sku"), text("name"), col("price", "numeric(10,2)", TypeKind::Decimal), int("category_id")],
+        vec![
+            int("id"),
+            text("sku"),
+            text("name"),
+            col("price", "numeric(10,2)", TypeKind::Decimal),
+            int("category_id"),
+        ],
         &["id"],
         vec![],
         Some(850),
     );
     let mut location = col("location", "geometry(Point,4326)", TypeKind::Geometry);
-    location.geometry = Some(GeometryColumn { geometry_type: "POINT".into(), srid: Some(4326), geography: false });
+    location.geometry =
+        Some(GeometryColumn { geometry_type: "POINT".into(), srid: Some(4326), geography: false });
     let stores = table("stores", vec![int("id"), text("name"), location], &["id"], vec![], Some(42));
     let reviews = table(
         "reviews",
@@ -129,19 +142,19 @@ pub fn shop() -> Catalog {
         vec![],
         Some(90_000),
     );
-    let categories = table("categories", vec![int("id"), text("name"), int("parent_id")], &["id"], vec![], Some(30));
-    let mut active = table(
-        "active_customers",
-        vec![int("id"), text("email")],
-        &[],
-        vec![],
-        None,
-    );
+    let categories =
+        table("categories", vec![int("id"), text("name"), int("parent_id")], &["id"], vec![], Some(30));
+    let mut active = table("active_customers", vec![int("id"), text("email")], &[], vec![], None);
     active.kind = TableKind::View;
 
     let events = table(
         "events",
-        vec![int("id"), int("customer_id"), col("occurred_at", "timestamp with time zone", TypeKind::Timestamp), text("kind")],
+        vec![
+            int("id"),
+            int("customer_id"),
+            col("occurred_at", "timestamp with time zone", TypeKind::Timestamp),
+            text("kind"),
+        ],
         &["id"],
         vec![],
         Some(8_000_000),
@@ -167,7 +180,12 @@ pub fn shop() -> Catalog {
                 }],
                 sequences: vec!["orders_id_seq".into()],
             },
-            Schema { name: "analytics".into(), tables: vec![events, daily], routines: vec![], sequences: vec![] },
+            Schema {
+                name: "analytics".into(),
+                tables: vec![events, daily],
+                routines: vec![],
+                sequences: vec![],
+            },
         ],
         default_schema: Some("public".into()),
     }
@@ -184,10 +202,19 @@ pub fn big(n: usize) -> Catalog {
             let mut t = table(&format!("table_{i:04}"), cols, &["id"], vec![], Some(1000 + i as u64));
             if i > 0 {
                 t.columns.push(int("parent_id"));
-                t.foreign_keys.push(fk(&format!("fk_{i}"), &["parent_id"], None, &format!("table_{:04}", i - 1), &["id"]));
+                t.foreign_keys.push(fk(
+                    &format!("fk_{i}"),
+                    &["parent_id"],
+                    None,
+                    &format!("table_{:04}", i - 1),
+                    &["id"],
+                ));
             }
             t
         })
         .collect();
-    Catalog { schemas: vec![Schema { name: "public".into(), tables, routines: vec![], sequences: vec![] }], default_schema: Some("public".into()) }
+    Catalog {
+        schemas: vec![Schema { name: "public".into(), tables, routines: vec![], sequences: vec![] }],
+        default_schema: Some("public".into()),
+    }
 }

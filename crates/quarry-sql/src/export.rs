@@ -31,8 +31,13 @@ fn cell_text(v: &Value) -> String {
                     Value::Text(s) | Value::Unknown(s) => {
                         let needs = s.is_empty()
                             || s.eq_ignore_ascii_case("null")
-                            || s.chars().any(|c| matches!(c, ',' | '"' | '\\' | '{' | '}') || c.is_whitespace());
-                        if needs { format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")) } else { s.clone() }
+                            || s.chars()
+                                .any(|c| matches!(c, ',' | '"' | '\\' | '{' | '}') || c.is_whitespace());
+                        if needs {
+                            format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+                        } else {
+                            s.clone()
+                        }
                     }
                     other => cell_text(other),
                 })
@@ -44,11 +49,7 @@ fn cell_text(v: &Value) -> String {
 }
 
 fn csv_field(s: &str) -> String {
-    if s.contains([',', '"', '\n', '\r']) {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
+    if s.contains([',', '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() }
 }
 
 fn csv(result: &ResultSet) -> String {
@@ -190,7 +191,8 @@ fn markdown(result: &ResultSet) -> String {
     let body: Vec<Vec<String>> = result.rows.iter().map(|r| r.iter().map(md_cell).collect()).collect();
     let numeric: Vec<bool> = (0..n)
         .map(|i| {
-            let vals: Vec<&Value> = result.rows.iter().filter_map(|r| r.get(i)).filter(|v| !v.is_null()).collect();
+            let vals: Vec<&Value> =
+                result.rows.iter().filter_map(|r| r.get(i)).filter(|v| !v.is_null()).collect();
             !vals.is_empty() && vals.iter().all(|v| v.is_numeric())
         })
         .collect();
@@ -212,11 +214,17 @@ fn markdown(result: &ResultSet) -> String {
     out.push_str(&line((0..n).map(|i| pad(&header[i], widths[i], false)).collect()));
     out.push_str(&line(
         (0..n)
-            .map(|i| if numeric[i] { format!("{}:", "-".repeat(widths[i] - 1)) } else { "-".repeat(widths[i]) })
+            .map(
+                |i| {
+                    if numeric[i] { format!("{}:", "-".repeat(widths[i] - 1)) } else { "-".repeat(widths[i]) }
+                },
+            )
             .collect(),
     ));
     for r in &body {
-        out.push_str(&line((0..n).map(|i| pad(r.get(i).map_or("", |s| s.as_str()), widths[i], numeric[i])).collect()));
+        out.push_str(&line(
+            (0..n).map(|i| pad(r.get(i).map_or("", |s| s.as_str()), widths[i], numeric[i])).collect(),
+        ));
     }
     out
 }
@@ -253,14 +261,19 @@ pub fn export(result: &ResultSet, format: &ExportFormat, kind: DatabaseKind) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quarry_core::{Column, TypeKind};
     use DatabaseKind::*;
+    use quarry_core::{Column, TypeKind};
 
     fn rs(cols: &[&str], rows: Vec<Vec<Value>>) -> ResultSet {
         ResultSet {
             columns: cols
                 .iter()
-                .map(|n| Column { name: n.to_string(), type_name: "text".into(), kind: TypeKind::Text, origin: None })
+                .map(|n| Column {
+                    name: n.to_string(),
+                    type_name: "text".into(),
+                    kind: TypeKind::Text,
+                    origin: None,
+                })
                 .collect(),
             rows,
             truncated: false,
@@ -271,7 +284,10 @@ mod tests {
     fn csv_quoting() {
         let r = rs(
             &["a", "b,c"],
-            vec![vec![Value::Text("x\"y".into()), Value::Text("line1\nline2".into())], vec![Value::Null, Value::Text(String::new())]],
+            vec![
+                vec![Value::Text("x\"y".into()), Value::Text("line1\nline2".into())],
+                vec![Value::Null, Value::Text(String::new())],
+            ],
         );
         let out = export(&r, &ExportFormat::Csv, Postgres);
         assert_eq!(out, "a,\"b,c\"\r\n\"x\"\"y\",\"line1\nline2\"\r\n,\"\"\r\n");
@@ -279,7 +295,10 @@ mod tests {
 
     #[test]
     fn csv_values() {
-        let r = rs(&["n", "f", "t", "b"], vec![vec![Value::Int(1), Value::Float(2.5), Value::Bool(true), Value::Bytes(vec![255, 0])]]);
+        let r = rs(
+            &["n", "f", "t", "b"],
+            vec![vec![Value::Int(1), Value::Float(2.5), Value::Bool(true), Value::Bytes(vec![255, 0])]],
+        );
         assert_eq!(export(&r, &ExportFormat::Csv, Postgres), "n,f,t,b\r\n1,2.5,true,\\xff00\r\n");
     }
 
@@ -325,12 +344,17 @@ mod tests {
         let out = export(&r, &ExportFormat::Json, Postgres);
         assert!(serde_json::from_str::<serde_json::Value>(&out).is_ok());
         let r = rs(&["d"], vec![vec![Value::Decimal("+1".into())], vec![Value::Float(f64::NAN)]]);
-        assert!(serde_json::from_str::<serde_json::Value>(&export(&r, &ExportFormat::Json, Postgres)).is_ok());
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&export(&r, &ExportFormat::Json, Postgres)).is_ok()
+        );
     }
 
     #[test]
     fn markdown_table_alignment_and_escaping() {
-        let r = rs(&["name", "qty"], vec![vec![Value::Text("a|b".into()), Value::Int(5)], vec![Value::Null, Value::Int(1000)]]);
+        let r = rs(
+            &["name", "qty"],
+            vec![vec![Value::Text("a|b".into()), Value::Int(5)], vec![Value::Null, Value::Int(1000)]],
+        );
         let out = export(&r, &ExportFormat::Markdown, Postgres);
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines[0], "| name | qty  |");
@@ -350,7 +374,10 @@ mod tests {
 
     #[test]
     fn array_cells_are_pg_array_literals() {
-        let r = rs(&["a"], vec![vec![Value::Array(vec![Value::Text("a b".into()), Value::Text("c".into()), Value::Null])]]);
+        let r = rs(
+            &["a"],
+            vec![vec![Value::Array(vec![Value::Text("a b".into()), Value::Text("c".into()), Value::Null])]],
+        );
         assert_eq!(export(&r, &ExportFormat::Tsv, Postgres), "a\n{\"a b\",c,NULL}\n");
     }
 }

@@ -16,21 +16,19 @@ pub(crate) struct Tok {
     pub kind: TokenKind,
     pub start: usize,
     pub end: usize,
-    pub terminated: bool,
     /// Upper-cased text for words, exact text for punctuation/operators, empty otherwise.
     pub up: String,
 }
 
 pub(crate) struct Parsed<'a> {
     pub sql: &'a str,
-    pub kind: DatabaseKind,
     pub toks: Vec<Tok>,
     /// For `(` tokens: index of the matching `)`, or `toks.len()` if unclosed.
     pub close: Vec<usize>,
 }
 
 impl<'a> Parsed<'a> {
-    pub fn new<'t>(sql: &'a str, kind: DatabaseKind, raw: impl Iterator<Item = &'t Token>) -> Self {
+    pub fn new<'t>(sql: &'a str, raw: impl Iterator<Item = &'t Token>) -> Self {
         let toks: Vec<Tok> = raw
             .filter(|t| !t.is_trivia())
             .map(|t| {
@@ -39,7 +37,7 @@ impl<'a> Parsed<'a> {
                     TokenKind::Punct | TokenKind::Operator => t.text(sql).to_string(),
                     _ => String::new(),
                 };
-                Tok { kind: t.kind, start: t.start, end: t.end, terminated: t.terminated, up }
+                Tok { kind: t.kind, start: t.start, end: t.end, up }
             })
             .collect();
         let mut close = vec![usize::MAX; toks.len()];
@@ -58,12 +56,12 @@ impl<'a> Parsed<'a> {
         for o in stack {
             close[o] = toks.len();
         }
-        Parsed { sql, kind, toks, close }
+        Parsed { sql, toks, close }
     }
 
     pub fn from_sql(sql: &'a str, kind: DatabaseKind) -> Self {
         let raw = crate::lexer::tokenize(sql, kind);
-        Parsed::new(sql, kind, raw.iter())
+        Parsed::new(sql, raw.iter())
     }
 
     pub fn len(&self) -> usize {
@@ -210,11 +208,6 @@ impl ScopeScan {
     pub fn clause_at(&self, idx: usize) -> Clause {
         self.clause_starts.iter().rev().find(|(pos, _)| *pos < idx).map_or(Clause::None, |(_, c)| *c)
     }
-
-    /// Token index where the clause active at `idx` begins.
-    pub fn clause_start_at(&self, idx: usize) -> Option<usize> {
-        self.clause_starts.iter().rev().find(|(pos, _)| *pos < idx).map(|(p, _)| *p)
-    }
 }
 
 pub(crate) struct ColumnRef {
@@ -223,11 +216,69 @@ pub(crate) struct ColumnRef {
 }
 
 const ALIAS_STOP: &[&str] = &[
-    "WHERE", "GROUP", "ORDER", "HAVING", "LIMIT", "OFFSET", "FETCH", "UNION", "INTERSECT", "EXCEPT", "JOIN", "INNER", "LEFT",
-    "RIGHT", "FULL", "CROSS", "NATURAL", "OUTER", "ON", "USING", "SET", "VALUES", "SELECT", "WITH", "RETURNING", "WINDOW",
-    "FOR", "LATERAL", "STRAIGHT_JOIN", "TABLESAMPLE", "AS", "WHEN", "THEN", "ELSE", "END", "AND", "OR", "NOT", "IN", "IS",
-    "NULL", "INTO", "FROM", "FORCE", "IGNORE", "USE", "INDEXED", "PARTITION", "CONFLICT", "DO", "ASC", "DESC", "BY",
-    "DEFAULT", "ADD", "DROP", "ALTER", "RENAME", "OWNER", "LIKE", "BETWEEN", "CASE", "EXISTS",
+    "WHERE",
+    "GROUP",
+    "ORDER",
+    "HAVING",
+    "LIMIT",
+    "OFFSET",
+    "FETCH",
+    "UNION",
+    "INTERSECT",
+    "EXCEPT",
+    "JOIN",
+    "INNER",
+    "LEFT",
+    "RIGHT",
+    "FULL",
+    "CROSS",
+    "NATURAL",
+    "OUTER",
+    "ON",
+    "USING",
+    "SET",
+    "VALUES",
+    "SELECT",
+    "WITH",
+    "RETURNING",
+    "WINDOW",
+    "FOR",
+    "LATERAL",
+    "STRAIGHT_JOIN",
+    "TABLESAMPLE",
+    "AS",
+    "WHEN",
+    "THEN",
+    "ELSE",
+    "END",
+    "AND",
+    "OR",
+    "NOT",
+    "IN",
+    "IS",
+    "NULL",
+    "INTO",
+    "FROM",
+    "FORCE",
+    "IGNORE",
+    "USE",
+    "INDEXED",
+    "PARTITION",
+    "CONFLICT",
+    "DO",
+    "ASC",
+    "DESC",
+    "BY",
+    "DEFAULT",
+    "ADD",
+    "DROP",
+    "ALTER",
+    "RENAME",
+    "OWNER",
+    "LIKE",
+    "BETWEEN",
+    "CASE",
+    "EXISTS",
 ];
 
 fn is_alias_word(p: &Parsed, i: usize) -> bool {
@@ -275,7 +326,9 @@ fn parse_factor(
             target: false,
         };
         i = (c + 1).min(to);
-    } else if p.is_ident(i) && !(p.toks[i].kind == TokenKind::Word && ALIAS_STOP.contains(&p.toks[i].up.as_str())) {
+    } else if p.is_ident(i)
+        && !(p.toks[i].kind == TokenKind::Word && ALIAS_STOP.contains(&p.toks[i].up.as_str()))
+    {
         let mut parts = vec![p.ident(i)];
         let mut name_tok = i;
         i += 1;
@@ -291,7 +344,10 @@ fn parse_factor(
         let name = parts.pop().unwrap_or_default();
         let schema = if parts.is_empty() { None } else { parts.pop() };
         // After INTO/UPDATE/DELETE/ALTER TABLE/ON, `name (` opens a column list, not a call.
-        let call_ok = !matches!(clause, Clause::Into | Clause::IndexOn | Clause::AlterTable | Clause::Update | Clause::Delete);
+        let call_ok = !matches!(
+            clause,
+            Clause::Into | Clause::IndexOn | Clause::AlterTable | Clause::Update | Clause::Delete
+        );
         if p.is_punct(i, "(") && i < to && call_ok {
             let c = p.closing(i).min(to);
             src = Source {
@@ -332,7 +388,10 @@ fn parse_factor(
     if had_as {
         j += 1;
     }
-    if j < to && is_alias_word(p, j) && (had_as || p.toks[j].kind != TokenKind::Word || !p.is_punct(j + 1, ".")) {
+    if j < to
+        && is_alias_word(p, j)
+        && (had_as || p.toks[j].kind != TokenKind::Word || !p.is_punct(j + 1, "."))
+    {
         src.alias = Some(p.ident(j));
         j += 1;
         if p.is_punct(j, "(") && matches!(src.kind, SourceKind::Derived(_) | SourceKind::Function(_)) {
@@ -410,17 +469,39 @@ fn find_depth0(p: &Parsed, from: usize, to: usize, pred: impl Fn(&Parsed, usize)
 }
 
 /// Output column names of the query in `from..to`, when they are statically obvious.
-pub(crate) fn derive_columns(p: &Parsed, from: usize, to: usize, catalog: Option<&Catalog>, ctes: &[CteDef]) -> Vec<String> {
+pub(crate) fn derive_columns(
+    p: &Parsed,
+    from: usize,
+    to: usize,
+    catalog: Option<&Catalog>,
+    ctes: &[CteDef],
+) -> Vec<String> {
     derive_columns_ex(p, from, to, catalog, ctes).into_iter().map(|(n, _)| n).collect()
 }
 
 /// Names the query defines itself with `AS x` or a bare alias (not plain column references).
-pub(crate) fn select_aliases(p: &Parsed, from: usize, to: usize, catalog: Option<&Catalog>, ctes: &[CteDef]) -> Vec<String> {
-    derive_columns_ex(p, from, to, catalog, ctes).into_iter().filter(|(_, alias)| *alias).map(|(n, _)| n).collect()
+pub(crate) fn select_aliases(
+    p: &Parsed,
+    from: usize,
+    to: usize,
+    catalog: Option<&Catalog>,
+    ctes: &[CteDef],
+) -> Vec<String> {
+    derive_columns_ex(p, from, to, catalog, ctes)
+        .into_iter()
+        .filter(|(_, alias)| *alias)
+        .map(|(n, _)| n)
+        .collect()
 }
 
 /// Like [`derive_columns`], flagging which names are explicit aliases.
-fn derive_columns_ex(p: &Parsed, from: usize, to: usize, catalog: Option<&Catalog>, ctes: &[CteDef]) -> Vec<(String, bool)> {
+fn derive_columns_ex(
+    p: &Parsed,
+    from: usize,
+    to: usize,
+    catalog: Option<&Catalog>,
+    ctes: &[CteDef],
+) -> Vec<(String, bool)> {
     let mut from = from;
     let mut local_ctes: Vec<CteDef> = ctes.to_vec();
     if p.is_word(from, "WITH") {
@@ -459,7 +540,10 @@ fn derive_columns_ex(p: &Parsed, from: usize, to: usize, catalog: Option<&Catalo
     }
     let list_end = find_depth0(p, i, to, |p, k| {
         (p.is_word(k, "FROM") && !p.is_word(k.wrapping_sub(1), "DISTINCT"))
-            || matches!(p.up(k), "UNION" | "INTERSECT" | "EXCEPT" | "WHERE" | "GROUP" | "ORDER" | "LIMIT" | "HAVING" | "INTO")
+            || matches!(
+                p.up(k),
+                "UNION" | "INTERSECT" | "EXCEPT" | "WHERE" | "GROUP" | "ORDER" | "LIMIT" | "HAVING" | "INTO"
+            )
     })
     .unwrap_or(to);
     // Split items on depth-0 commas.
@@ -498,7 +582,9 @@ fn derive_columns_ex(p: &Parsed, from: usize, to: usize, catalog: Option<&Catalo
             let sc = scan.get_or_insert_with(|| scan_scope(p, from, to, catalog, &local_ctes));
             for src in &sc.sources {
                 if qual.as_ref().is_none_or(|q| src.reference_name().eq_ignore_ascii_case(q)) {
-                    out.extend(source_columns(src, catalog, &local_ctes).into_iter().map(|c| (c.name, false)));
+                    out.extend(
+                        source_columns(src, catalog, &local_ctes).into_iter().map(|c| (c.name, false)),
+                    );
                 }
             }
             continue;
@@ -506,13 +592,17 @@ fn derive_columns_ex(p: &Parsed, from: usize, to: usize, catalog: Option<&Catalo
         let last = b - 1;
         if b - a >= 2 && p.is_word(last - 1, "AS") && p.is_ident(last) {
             out.push((p.ident(last), true));
-        } else if b - a == 1 && p.is_ident(last) {
-            out.push((p.ident(last), false));
-        } else if b - a >= 3 && p.is_ident(last) && p.is_punct(last - 1, ".") {
+        } else if (b - a == 1 && p.is_ident(last))
+            || (b - a >= 3 && p.is_ident(last) && p.is_punct(last - 1, "."))
+        {
+            // A plain column reference: the output column takes its name.
             out.push((p.ident(last), false));
         } else if b - a >= 2
             && is_alias_word(p, last)
-            && (p.is_ident(last - 1) || matches!(p.toks[last - 1].kind, TokenKind::Number | TokenKind::String) || p.is_punct(last - 1, ")") || p.is_punct(last - 1, "]"))
+            && (p.is_ident(last - 1)
+                || matches!(p.toks[last - 1].kind, TokenKind::Number | TokenKind::String)
+                || p.is_punct(last - 1, ")")
+                || p.is_punct(last - 1, "]"))
             && !p.is_punct(last - 1, ".")
         {
             out.push((p.ident(last), true));
@@ -530,7 +620,13 @@ fn first_clause_keyword<'p>(p: &'p Parsed<'_>) -> &'p str {
 }
 
 /// Scan the depth-0 tokens of `from..to` and collect table sources and clause starts.
-pub(crate) fn scan_scope(p: &Parsed, from: usize, to: usize, catalog: Option<&Catalog>, ctes: &[CteDef]) -> ScopeScan {
+pub(crate) fn scan_scope(
+    p: &Parsed,
+    from: usize,
+    to: usize,
+    catalog: Option<&Catalog>,
+    ctes: &[CteDef],
+) -> ScopeScan {
     let to = to.min(p.len());
     let mut sources: Vec<Source> = Vec::new();
     let mut starts: Vec<(usize, Clause)> = Vec::new();
@@ -693,7 +789,9 @@ pub(crate) fn source_columns(src: &Source, catalog: Option<&Catalog>, ctes: &[Ct
             .iter()
             .rev()
             .find(|c| c.name.eq_ignore_ascii_case(&src.name))
-            .map(|c| c.columns.iter().map(|n| ColumnRef { name: n.clone(), detail: "CTE column".into() }).collect())
+            .map(|c| {
+                c.columns.iter().map(|n| ColumnRef { name: n.clone(), detail: "CTE column".into() }).collect()
+            })
             .unwrap_or_default(),
         SourceKind::Table => {
             let Some((_, t)) = catalog.and_then(|c| c.find_table(src.schema.as_deref(), &src.name)) else {
@@ -706,10 +804,13 @@ pub(crate) fn source_columns(src: &Source, catalog: Option<&Catalog>, ctes: &[Ct
                     if t.primary_key.iter().any(|k| k.eq_ignore_ascii_case(&col.name)) {
                         d.push_str(" · PK");
                     }
-                    if let Some(fk) =
-                        t.foreign_keys.iter().find(|f| f.columns.iter().any(|c| c.eq_ignore_ascii_case(&col.name)))
+                    if let Some(fk) = t
+                        .foreign_keys
+                        .iter()
+                        .find(|f| f.columns.iter().any(|c| c.eq_ignore_ascii_case(&col.name)))
                     {
-                        let idx = fk.columns.iter().position(|c| c.eq_ignore_ascii_case(&col.name)).unwrap_or(0);
+                        let idx =
+                            fk.columns.iter().position(|c| c.eq_ignore_ascii_case(&col.name)).unwrap_or(0);
                         let rc = fk.referenced_columns.get(idx).map_or("", |s| s.as_str());
                         d.push_str(&format!(" · FK → {}.{}", fk.referenced_table, rc));
                     }
@@ -754,7 +855,7 @@ pub(crate) struct ScopeCtx {
 
 pub(crate) fn scope_ctx(p: &Parsed, idx: usize) -> ScopeCtx {
     let chain = enclosing_parens(p, idx);
-    let mut scopes = vec![0..p.len()];
+    let mut scopes: Vec<Range<usize>> = std::iter::once(0..p.len()).collect();
     let mut last_sub_pos: Option<usize> = None;
     for (pos, &o) in chain.iter().enumerate() {
         if p.is_subquery_paren(o) {
@@ -814,7 +915,9 @@ mod tests {
     use crate::fixtures;
     use DatabaseKind::Postgres;
 
-    fn scan(sql: &str) -> (Vec<(Option<String>, String, Option<String>)>, StmtKind) {
+    type Found = (Option<String>, String, Option<String>);
+
+    fn scan(sql: &str) -> (Vec<Found>, StmtKind) {
         let p = Parsed::from_sql(sql, Postgres);
         let s = scan_scope(&p, 0, p.len(), None, &[]);
         (s.sources.iter().map(|x| (x.schema.clone(), x.name.clone(), x.alias.clone())).collect(), s.stmt)
@@ -822,7 +925,8 @@ mod tests {
 
     #[test]
     fn from_join_aliases() {
-        let (s, k) = scan("select * from public.customers as c join orders o on o.customer_id = c.id, stores");
+        let (s, k) =
+            scan("select * from public.customers as c join orders o on o.customer_id = c.id, stores");
         assert_eq!(k, StmtKind::Select);
         assert_eq!(
             s,
@@ -865,7 +969,10 @@ mod tests {
 
     #[test]
     fn derived_table_and_cte_columns() {
-        let p = Parsed::from_sql("with x as (select id, name as n, count(*) from t) select * from x join (select a, b from y) d on true", Postgres);
+        let p = Parsed::from_sql(
+            "with x as (select id, name as n, count(*) from t) select * from x join (select a, b from y) d on true",
+            Postgres,
+        );
         let (ctes, _) = parse_with(&p, 0, p.len(), None);
         assert_eq!(ctes[0].columns, vec!["id", "n", "count"]);
         let s = scan_scope(&p, 0, p.len(), None, &ctes);
@@ -877,7 +984,10 @@ mod tests {
     #[test]
     fn explicit_cte_column_list_and_star_expansion() {
         let cat = fixtures::shop();
-        let p = Parsed::from_sql("with c(a, b) as (select 1, 2), d as (select * from customers) select 1", Postgres);
+        let p = Parsed::from_sql(
+            "with c(a, b) as (select 1, 2), d as (select * from customers) select 1",
+            Postgres,
+        );
         let (ctes, _) = parse_with(&p, 0, p.len(), Some(&cat));
         assert_eq!(ctes[0].columns, vec!["a", "b"]);
         assert_eq!(ctes[1].columns, vec!["id", "email", "name", "tier", "created_at"]);
@@ -906,7 +1016,7 @@ mod tests {
     fn scope_chain_and_branches() {
         let sql = "select * from a where id in (select x from b union select y from c where z)";
         let p = Parsed::from_sql(sql, Postgres);
-        let idx = p.toks.iter().position(|t| t.up == "Z").map_or_else(|| p.toks.iter().position(|t| p.sql[t.start..t.end] == *"z").unwrap(), |v| v);
+        let idx = p.toks.iter().position(|t| p.sql[t.start..t.end] == *"z").unwrap();
         let ctx = scope_ctx(&p, idx);
         assert_eq!(ctx.scopes.len(), 2);
         let s = scan_scope(&p, ctx.branch.start, ctx.branch.end, None, &[]);
@@ -936,7 +1046,10 @@ mod tests {
     fn values_columns_and_distinct() {
         let p = Parsed::from_sql("select * from (values (1, 2, 3)) v", Postgres);
         let s = scan_scope(&p, 0, p.len(), None, &[]);
-        assert_eq!(s.sources[0].kind, SourceKind::Derived(vec!["column1".into(), "column2".into(), "column3".into()]));
+        assert_eq!(
+            s.sources[0].kind,
+            SourceKind::Derived(vec!["column1".into(), "column2".into(), "column3".into()])
+        );
         let p = Parsed::from_sql("select distinct on (a) a, b from t", Postgres);
         assert_eq!(derive_columns(&p, 0, p.len(), None, &[]), vec!["a", "b"]);
     }

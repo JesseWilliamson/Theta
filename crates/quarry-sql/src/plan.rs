@@ -37,7 +37,7 @@ fn fmt_int(v: f64) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -46,12 +46,24 @@ fn fmt_int(v: f64) -> String {
 }
 
 fn fmt_ms(ms: f64) -> String {
-    if ms >= 1000.0 { format!("{:.2} s", ms / 1000.0) } else if ms >= 10.0 { format!("{ms:.0} ms") } else { format!("{ms:.1} ms") }
+    if ms >= 1000.0 {
+        format!("{:.2} s", ms / 1000.0)
+    } else if ms >= 10.0 {
+        format!("{ms:.0} ms")
+    } else {
+        format!("{ms:.1} ms")
+    }
 }
 
 fn fmt_pct(f: f64) -> String {
     let p = f * 100.0;
-    if p >= 99.95 { "100%".into() } else if p > 99.0 { format!("{p:.2}%") } else { format!("{p:.0}%") }
+    if p >= 99.95 {
+        "100%".into()
+    } else if p > 99.0 {
+        format!("{p:.2}%")
+    } else {
+        format!("{p:.0}%")
+    }
 }
 
 fn describe(n: &PlanNode) -> String {
@@ -84,8 +96,20 @@ fn parse_kb_after(s: &str, marker: &str) -> Option<f64> {
     let pos = s.to_ascii_lowercase().find(&marker.to_ascii_lowercase())?;
     let rest = &s[pos + marker.len()..];
     let v = parse_leading_number(rest)?;
-    let unit_part = rest.trim_start().trim_start_matches(|c: char| c.is_ascii_digit() || c == '.').trim_start().to_ascii_lowercase();
-    let mult = if unit_part.starts_with("gb") { 1024.0 * 1024.0 } else if unit_part.starts_with("mb") { 1024.0 } else if unit_part.starts_with('b') { 1.0 / 1024.0 } else { 1.0 };
+    let unit_part = rest
+        .trim_start()
+        .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
+        .trim_start()
+        .to_ascii_lowercase();
+    let mult = if unit_part.starts_with("gb") {
+        1024.0 * 1024.0
+    } else if unit_part.starts_with("mb") {
+        1024.0
+    } else if unit_part.starts_with('b') {
+        1.0 / 1024.0
+    } else {
+        1.0
+    };
     Some(v * mult)
 }
 
@@ -106,7 +130,11 @@ pub(crate) fn filter_columns(filter: &str, node: &PlanNode, kind: DatabaseKind) 
     let text = |i: usize| toks[i].text(filter);
     let is_kw = |i: usize, w: &str| toks.get(i).is_some_and(|t| t.is_kw(filter, w));
     let own = |q: &str| {
-        node.alias.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(q)) || node.relation.as_deref().is_some_and(|r| r.rsplit('.').next().unwrap_or(r).eq_ignore_ascii_case(q))
+        node.alias.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(q))
+            || node
+                .relation
+                .as_deref()
+                .is_some_and(|r| r.rsplit('.').next().unwrap_or(r).eq_ignore_ascii_case(q))
     };
     let mut eq: Vec<String> = Vec::new();
     let mut range: Vec<String> = Vec::new();
@@ -115,7 +143,32 @@ pub(crate) fn filter_columns(filter: &str, node: &PlanNode, kind: DatabaseKind) 
         let t = &toks[i];
         let is_name = matches!(t.kind, TokenKind::Word | TokenKind::QuotedIdent)
             && !(t.kind == TokenKind::Word
-                && matches!(text(i).to_ascii_uppercase().as_str(), "AND" | "OR" | "NOT" | "NULL" | "TRUE" | "FALSE" | "IS" | "IN" | "ANY" | "ALL" | "LIKE" | "ILIKE" | "BETWEEN" | "ARRAY" | "CASE" | "WHEN" | "THEN" | "ELSE" | "END" | "DISTINCT" | "FROM" | "SIMILAR" | "TO"));
+                && matches!(
+                    text(i).to_ascii_uppercase().as_str(),
+                    "AND"
+                        | "OR"
+                        | "NOT"
+                        | "NULL"
+                        | "TRUE"
+                        | "FALSE"
+                        | "IS"
+                        | "IN"
+                        | "ANY"
+                        | "ALL"
+                        | "LIKE"
+                        | "ILIKE"
+                        | "BETWEEN"
+                        | "ARRAY"
+                        | "CASE"
+                        | "WHEN"
+                        | "THEN"
+                        | "ELSE"
+                        | "END"
+                        | "DISTINCT"
+                        | "FROM"
+                        | "SIMILAR"
+                        | "TO"
+                ));
         // Skip type names after `::`, function names and qualifiers.
         let after_cast = i > 0 && toks[i - 1].kind == TokenKind::Operator && text(i - 1) == "::";
         let is_call = toks.get(i + 1).is_some_and(|n| n.is_punct(filter, "("));
@@ -143,7 +196,9 @@ pub(crate) fn filter_columns(filter: &str, node: &PlanNode, kind: DatabaseKind) 
             continue;
         }
         // Resolve `qualifier.column`.
-        let (col_idx, qualifier) = if toks.get(i + 1).is_some_and(|n| n.is_punct(filter, ".")) && toks.get(i + 2).is_some_and(|n| matches!(n.kind, TokenKind::Word | TokenKind::QuotedIdent)) {
+        let (col_idx, qualifier) = if toks.get(i + 1).is_some_and(|n| n.is_punct(filter, "."))
+            && toks.get(i + 2).is_some_and(|n| matches!(n.kind, TokenKind::Word | TokenKind::QuotedIdent))
+        {
             (i + 2, Some(crate::lexer::unquote_ident(text(i))))
         } else {
             (i, None)
@@ -157,10 +212,17 @@ pub(crate) fn filter_columns(filter: &str, node: &PlanNode, kind: DatabaseKind) 
         let col = crate::lexer::unquote_ident(text(col_idx));
         // Look right past `)` and `::type` for the operator.
         let mut j = col_idx + 1;
-        while j < toks.len() && (toks[j].is_punct(filter, ")") || (toks[j].kind == TokenKind::Operator && text(j) == "::")) {
+        while j < toks.len()
+            && (toks[j].is_punct(filter, ")") || (toks[j].kind == TokenKind::Operator && text(j) == "::"))
+        {
             if toks[j].kind == TokenKind::Operator {
                 j += 2; // `::` and the type name
-                while toks.get(j).is_some_and(|t| t.is_punct(filter, "(") || t.is_punct(filter, ")") || t.kind == TokenKind::Number || t.is_punct(filter, ",")) {
+                while toks.get(j).is_some_and(|t| {
+                    t.is_punct(filter, "(")
+                        || t.is_punct(filter, ")")
+                        || t.kind == TokenKind::Number
+                        || t.is_punct(filter, ",")
+                }) {
                     j += 1;
                 }
             } else {
@@ -170,7 +232,9 @@ pub(crate) fn filter_columns(filter: &str, node: &PlanNode, kind: DatabaseKind) 
         let op = toks.get(j).map(|t| (t.kind, text(j).to_ascii_uppercase()));
         let mut class = match op {
             Some((TokenKind::Operator, o)) if o == "=" => Some(true),
-            Some((TokenKind::Operator, o)) if matches!(o.as_str(), "<" | ">" | "<=" | ">=" | "~~" | "^@") => Some(false),
+            Some((TokenKind::Operator, o)) if matches!(o.as_str(), "<" | ">" | "<=" | ">=" | "~~" | "^@") => {
+                Some(false)
+            }
             Some((TokenKind::Word, w)) if w == "IS" && !is_kw(j + 1, "DISTINCT") => Some(true),
             Some((TokenKind::Word, w)) if w == "IN" => Some(true),
             Some((TokenKind::Word, w)) if matches!(w.as_str(), "BETWEEN" | "LIKE") => Some(false),
@@ -182,7 +246,11 @@ pub(crate) fn filter_columns(filter: &str, node: &PlanNode, kind: DatabaseKind) 
             while k > 0 && toks[k - 1].is_punct(filter, "(") {
                 k -= 1;
             }
-            if k >= 2 && toks[k - 1].kind == TokenKind::Operator && text(k - 1) == "=" && matches!(toks[k - 2].kind, TokenKind::Number | TokenKind::String) {
+            if k >= 2
+                && toks[k - 1].kind == TokenKind::Operator
+                && text(k - 1) == "="
+                && matches!(toks[k - 2].kind, TokenKind::Number | TokenKind::String)
+            {
                 class = Some(true);
             }
         }
@@ -220,13 +288,15 @@ fn create_index(kind: DatabaseKind, relation: &str, cols: &[String]) -> String {
     let mut name = format!("idx_{}_{}", rel_name, cols.join("_")).to_lowercase();
     name.retain(|c| c.is_ascii_alphanumeric() || c == '_');
     name.truncate(63);
-    let target = relation.split('.').map(|p| quote_if_needed(p.trim_matches('"'), kind)).collect::<Vec<_>>().join(".");
+    let target =
+        relation.split('.').map(|p| quote_if_needed(p.trim_matches('"'), kind)).collect::<Vec<_>>().join(".");
     let cols: Vec<String> = cols.iter().map(|c| quote_if_needed(c, kind)).collect();
     format!("CREATE INDEX {name} ON {target} ({});", cols.join(", "))
 }
 
 fn analyze_stmt(kind: DatabaseKind, relation: &str) -> String {
-    let target = relation.split('.').map(|p| quote_if_needed(p.trim_matches('"'), kind)).collect::<Vec<_>>().join(".");
+    let target =
+        relation.split('.').map(|p| quote_if_needed(p.trim_matches('"'), kind)).collect::<Vec<_>>().join(".");
     match kind {
         DatabaseKind::MySql => format!("ANALYZE TABLE {target};"),
         _ => format!("ANALYZE {target};"),
@@ -251,7 +321,10 @@ fn is_seq_scan(n: &PlanNode) -> bool {
 /// A scan that reads every row because it has no usable index (any dialect).
 fn is_unindexed_scan(n: &PlanNode) -> bool {
     let t = n.node_type.to_ascii_lowercase();
-    n.index.is_none() && (t.contains("seq scan") || t.contains("table scan") || (t.starts_with("scan") && !mentions(n, "index")))
+    n.index.is_none()
+        && (t.contains("seq scan")
+            || t.contains("table scan")
+            || (t.starts_with("scan") && !mentions(n, "index")))
 }
 
 struct Ctx<'a> {
@@ -264,7 +337,14 @@ struct Ctx<'a> {
 }
 
 impl Ctx<'_> {
-    fn push(&mut self, severity: Severity, title: String, detail: String, path: &[usize], suggestion: Option<String>) {
+    fn push(
+        &mut self,
+        severity: Severity,
+        title: String,
+        detail: String,
+        path: &[usize],
+        suggestion: Option<String>,
+    ) {
         self.out.push(Insight { severity, title, detail, node_path: path.to_vec(), suggestion });
     }
 }
@@ -304,7 +384,11 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
             let filter = n.filter.clone().unwrap_or_default();
             let cols = filter_columns(&filter, n, c.kind);
             let covered = table.filter(|_| !cols.is_empty()).and_then(|t| index_covers(t, &cols));
-            let severity = if read >= 1_000_000.0 || n.exclusive_ms().is_some_and(|m| m >= 1000.0) { Severity::Critical } else { Severity::Warning };
+            let severity = if read >= 1_000_000.0 || n.exclusive_ms().is_some_and(|m| m >= 1000.0) {
+                Severity::Critical
+            } else {
+                Severity::Warning
+            };
             let mut title = format!("Sequential scan reads {} rows of {rel}", fmt_int(read));
             if let Some(r) = returned {
                 title.push_str(&format!(" to return {}", fmt_int(r)));
@@ -324,7 +408,10 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
                 ));
                 Some(analyze_stmt(c.kind, &rel))
             } else {
-                detail.push_str(&format!(" An index on ({}) lets the database jump straight to the matching rows.", cols.join(", ")));
+                detail.push_str(&format!(
+                    " An index on ({}) lets the database jump straight to the matching rows.",
+                    cols.join(", ")
+                ));
                 Some(create_index(c.kind, &rel, &cols))
             };
             c.push(severity, title, detail, path, suggestion);
@@ -342,7 +429,8 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
         let mut rels = Vec::new();
         relations_below(n, &mut rels);
         rels.truncate(2);
-        let suggestion = (!rels.is_empty()).then(|| rels.iter().map(|r| analyze_stmt(c.kind, r)).collect::<Vec<_>>().join(" "));
+        let suggestion = (!rels.is_empty())
+            .then(|| rels.iter().map(|r| analyze_stmt(c.kind, r)).collect::<Vec<_>>().join(" "));
         c.push(
             severity,
             format!("Row estimate is off by {:.0}× at {}", ratio, describe(n)),
@@ -369,15 +457,29 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
         let per_loop = n.actual_rows.map(|a| a + n.rows_removed_by_filter.unwrap_or(0.0));
         let mut detail = format!("{} runs {} times", describe(n), fmt_int(loops));
         if let Some(p) = per_loop {
-            detail.push_str(&format!(", reading about {} rows each time ({} in total)", fmt_int(p), fmt_int(p * loops)));
+            detail.push_str(&format!(
+                ", reading about {} rows each time ({} in total)",
+                fmt_int(p),
+                fmt_int(p * loops)
+            ));
         }
         detail.push_str(". Without an index each repetition scans the whole relation.");
-        let suggestion = if cols.is_empty() || covered.is_some() { None } else { Some(create_index(c.kind, &rel, &cols)) };
+        let suggestion =
+            if cols.is_empty() || covered.is_some() { None } else { Some(create_index(c.kind, &rel, &cols)) };
         if suggestion.is_some() {
-            detail.push_str(&format!(" An index on ({}) turns each repetition into a lookup.", cols.join(", ")));
+            detail.push_str(&format!(
+                " An index on ({}) turns each repetition into a lookup.",
+                cols.join(", ")
+            ));
         }
         let severity = if loops >= 10_000.0 { Severity::Critical } else { Severity::Warning };
-        c.push(severity, format!("Scan of {rel} repeated {} times in a nested loop", fmt_int(loops)), detail, path, suggestion);
+        c.push(
+            severity,
+            format!("Scan of {rel} repeated {} times in a nested loop", fmt_int(loops)),
+            detail,
+            path,
+            suggestion,
+        );
     }
 
     // 4. Sorts and hashes that spill to disk.
@@ -385,9 +487,15 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
     if let Some(m) = sort_method
         && m.to_ascii_lowercase().contains("external")
     {
-        let disk_kb = parse_kb_after(m, "Disk:").or_else(|| extra_get(n, "Sort Space Used").and_then(|v| parse_kb_after(v, "")));
+        let disk_kb = parse_kb_after(m, "Disk:")
+            .or_else(|| extra_get(n, "Sort Space Used").and_then(|v| parse_kb_after(v, "")));
         let size = disk_kb.map(|k| format!(" ({} kB)", fmt_int(k))).unwrap_or_default();
-        let suggestion = disk_kb.map(|k| format!("SET work_mem = '{}MB';", (((k / 1024.0) * 1.5).ceil().max(4.0) as u64).next_power_of_two()));
+        let suggestion = disk_kb.map(|k| {
+            format!(
+                "SET work_mem = '{}MB';",
+                (((k / 1024.0) * 1.5).ceil().max(4.0) as u64).next_power_of_two()
+            )
+        });
         c.push(
             if disk_kb.is_some_and(|k| k >= 512.0 * 1024.0) { Severity::Critical } else { Severity::Warning },
             format!("Sort spilled to disk{size}"),
@@ -396,12 +504,17 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
             suggestion,
         );
     }
-    let batches = extra_get(n, "Hash Batches").or_else(|| extra_get(n, "Batches")).and_then(parse_leading_number);
+    let batches =
+        extra_get(n, "Hash Batches").or_else(|| extra_get(n, "Batches")).and_then(parse_leading_number);
     if let Some(b) = batches
         && b > 1.0
     {
-        let mem_kb = extra_get(n, "Peak Memory Usage").or_else(|| extra_get(n, "Memory Usage")).and_then(|v| parse_kb_after(v, ""));
-        let suggestion = mem_kb.map(|k| format!("SET work_mem = '{}MB';", (((k * b) / 1024.0).ceil().max(4.0) as u64).next_power_of_two()));
+        let mem_kb = extra_get(n, "Peak Memory Usage")
+            .or_else(|| extra_get(n, "Memory Usage"))
+            .and_then(|v| parse_kb_after(v, ""));
+        let suggestion = mem_kb.map(|k| {
+            format!("SET work_mem = '{}MB';", (((k * b) / 1024.0).ceil().max(4.0) as u64).next_power_of_two())
+        });
         c.push(
             Severity::Warning,
             format!("Hash split into {} batches (spilled to disk)", fmt_int(b)),
@@ -440,9 +553,7 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
     }
 
     // 6. Filter discarding most rows (steps rule 1 did not already explain).
-    if !seq_scan_flagged
-        && let (Some(removed), Some(actual)) = (n.rows_removed_by_filter, n.actual_rows)
-    {
+    if !seq_scan_flagged && let (Some(removed), Some(actual)) = (n.rows_removed_by_filter, n.actual_rows) {
         let loops = n.loops.unwrap_or(1.0).max(1.0);
         let (removed_total, kept_total) = (removed * loops, actual * loops);
         let read = removed_total + kept_total;
@@ -491,12 +602,15 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
 
 fn has_join_condition(n: &PlanNode) -> bool {
     n.filter.is_some()
-        || ["Join Filter", "Hash Cond", "Merge Cond", "Index Cond", "Join Condition", "Recheck Cond"].iter().any(|k| extra_get(n, k).is_some())
+        || ["Join Filter", "Hash Cond", "Merge Cond", "Index Cond", "Join Condition", "Recheck Cond"]
+            .iter()
+            .any(|k| extra_get(n, k).is_some())
 }
 
 fn cartesian_check(c: &mut Ctx, n: &PlanNode, path: &[usize]) {
     let t = n.node_type.to_ascii_lowercase();
-    let is_join = t.contains("nested loop") || t.contains("join") || t.contains("cartesian") || t.contains("cross");
+    let is_join =
+        t.contains("nested loop") || t.contains("join") || t.contains("cartesian") || t.contains("cross");
     if !is_join || n.children.len() < 2 {
         return;
     }
@@ -505,7 +619,10 @@ fn cartesian_check(c: &mut Ctx, n: &PlanNode, path: &[usize]) {
     // A parameterised inner scan (`Index Cond: (o.customer_id = c.id)`) is a join condition.
     for ch in &n.children {
         let mut found = false;
-        ch.walk(&mut |d, _| found |= extra_get(d, "Index Cond").is_some() || d.filter.is_some() && d.loops.unwrap_or(1.0) > 1.0);
+        ch.walk(&mut |d, _| {
+            found |=
+                extra_get(d, "Index Cond").is_some() || d.filter.is_some() && d.loops.unwrap_or(1.0) > 1.0
+        });
         conds |= found;
     }
     if t.contains("hash join") || t.contains("merge join") {
@@ -571,8 +688,13 @@ fn mysql_checks(c: &mut Ctx, n: &PlanNode, path: &[usize]) {
             None,
         );
     }
-    let access = extra_get(n, "type").or_else(|| extra_get(n, "access_type")).map(|s| s.to_string()).or_else(|| Some(n.node_type.clone())).or_else(|| n.detail.clone());
-    let is_all = access.as_deref().is_some_and(|a| a.trim().eq_ignore_ascii_case("ALL")) || n.detail.as_deref().is_some_and(|d| d.trim().eq_ignore_ascii_case("ALL"));
+    let access = extra_get(n, "type")
+        .or_else(|| extra_get(n, "access_type"))
+        .map(|s| s.to_string())
+        .or_else(|| Some(n.node_type.clone()))
+        .or_else(|| n.detail.clone());
+    let is_all = access.as_deref().is_some_and(|a| a.trim().eq_ignore_ascii_case("ALL"))
+        || n.detail.as_deref().is_some_and(|d| d.trim().eq_ignore_ascii_case("ALL"));
     if is_all && rows.is_none_or(|r| r >= 1000.0) {
         let cols = n.filter.as_deref().map(|f| filter_columns(f, n, c.kind)).unwrap_or_default();
         let covered = table.filter(|_| !cols.is_empty()).and_then(|t| index_covers(t, &cols));
@@ -602,14 +724,20 @@ fn sqlite_checks(c: &mut Ctx, n: &PlanNode, path: &[usize]) {
         && !mentions(n, "index")
         && !mentions(n, "constant row")
         && !mentions(n, "subquery")
-        && let Some(rel) = rel.clone().or_else(|| n.detail.as_deref().and_then(|d| d.split_whitespace().nth(1)).map(|s| s.to_string()))
+        && let Some(rel) = rel
+            .clone()
+            .or_else(|| n.detail.as_deref().and_then(|d| d.split_whitespace().nth(1)).map(|s| s.to_string()))
     {
         let table = lookup_table(c.catalog, &rel);
         let small = table.and_then(|t| t.row_estimate).is_some_and(|r| r < 1000);
         if !small {
             let cols = n.filter.as_deref().map(|f| filter_columns(f, n, c.kind)).unwrap_or_default();
             let covered = table.filter(|_| !cols.is_empty()).and_then(|t| index_covers(t, &cols));
-            let suggestion = if cols.is_empty() || covered.is_some() { None } else { Some(create_index(c.kind, &rel, &cols)) };
+            let suggestion = if cols.is_empty() || covered.is_some() {
+                None
+            } else {
+                Some(create_index(c.kind, &rel, &cols))
+            };
             c.push(
                 Severity::Warning,
                 format!("SCAN {rel} reads the whole table"),
@@ -622,7 +750,11 @@ fn sqlite_checks(c: &mut Ctx, n: &PlanNode, path: &[usize]) {
             );
         }
     }
-    for (needle, what) in [("USE TEMP B-TREE FOR ORDER BY", "ORDER BY"), ("USE TEMP B-TREE FOR GROUP BY", "GROUP BY"), ("USE TEMP B-TREE FOR DISTINCT", "DISTINCT")] {
+    for (needle, what) in [
+        ("USE TEMP B-TREE FOR ORDER BY", "ORDER BY"),
+        ("USE TEMP B-TREE FOR GROUP BY", "GROUP BY"),
+        ("USE TEMP B-TREE FOR DISTINCT", "DISTINCT"),
+    ] {
         if mentions(n, needle) {
             c.push(
                 Severity::Info,
@@ -634,7 +766,11 @@ fn sqlite_checks(c: &mut Ctx, n: &PlanNode, path: &[usize]) {
         }
     }
     // Generic "USE TEMP B-TREE" with no recognised purpose.
-    if mentions(n, "USE TEMP B-TREE") && !["ORDER BY", "GROUP BY", "DISTINCT"].iter().any(|w| mentions(n, &format!("USE TEMP B-TREE FOR {w}"))) {
+    if mentions(n, "USE TEMP B-TREE")
+        && !["ORDER BY", "GROUP BY", "DISTINCT"]
+            .iter()
+            .any(|w| mentions(n, &format!("USE TEMP B-TREE FOR {w}")))
+    {
         c.push(
             Severity::Info,
             "Temporary B-tree built".into(),
@@ -671,9 +807,20 @@ fn slowest(plan: &Plan) -> Option<Vec<usize>> {
 }
 
 /// Summarise a plan and list what is worth fixing, most severe first.
-pub fn analyze_plan(plan: &Plan, catalog: Option<&Catalog>, kind: DatabaseKind) -> (PlanSummary, Vec<Insight>) {
+pub fn analyze_plan(
+    plan: &Plan,
+    catalog: Option<&Catalog>,
+    kind: DatabaseKind,
+) -> (PlanSummary, Vec<Insight>) {
     let total_ms = plan.execution_time_ms.or(plan.root.actual_total_ms);
-    let mut ctx = Ctx { catalog, kind, analyzed: plan.analyzed, total_ms: plan.root.actual_total_ms.or(plan.execution_time_ms), out: Vec::new(), node_count: 0 };
+    let mut ctx = Ctx {
+        catalog,
+        kind,
+        analyzed: plan.analyzed,
+        total_ms: plan.root.actual_total_ms.or(plan.execution_time_ms),
+        out: Vec::new(),
+        node_count: 0,
+    };
     visit(&mut ctx, &plan.root, &mut Vec::new());
     let mut insights = std::mem::take(&mut ctx.out);
     let sev = |s: Severity| match s {
@@ -681,8 +828,18 @@ pub fn analyze_plan(plan: &Plan, catalog: Option<&Catalog>, kind: DatabaseKind) 
         Severity::Warning => 1,
         Severity::Info => 2,
     };
-    insights.sort_by(|a, b| sev(a.severity).cmp(&sev(b.severity)).then_with(|| a.node_path.cmp(&b.node_path)).then_with(|| a.title.cmp(&b.title)));
-    let summary = PlanSummary { total_ms, total_cost: plan.root.total_cost, slowest_node_path: slowest(plan), node_count: ctx.node_count };
+    insights.sort_by(|a, b| {
+        sev(a.severity)
+            .cmp(&sev(b.severity))
+            .then_with(|| a.node_path.cmp(&b.node_path))
+            .then_with(|| a.title.cmp(&b.title))
+    });
+    let summary = PlanSummary {
+        total_ms,
+        total_cost: plan.root.total_cost,
+        slowest_node_path: slowest(plan),
+        node_count: ctx.node_count,
+    };
     (summary, insights)
 }
 
@@ -697,7 +854,12 @@ mod tests {
     }
 
     fn scan(rel: &str, filter: &str) -> PlanNode {
-        PlanNode { node_type: "Seq Scan".into(), relation: Some(rel.into()), filter: Some(filter.into()), ..Default::default() }
+        PlanNode {
+            node_type: "Seq Scan".into(),
+            relation: Some(rel.into()),
+            filter: Some(filter.into()),
+            ..Default::default()
+        }
     }
 
     fn plan(root: PlanNode, analyzed: bool) -> Plan {
@@ -738,12 +900,18 @@ mod tests {
 
     #[test]
     fn composite_index_prefers_equality_columns() {
-        let mut n = scan("orders", "((status = 'open'::text) AND (placed_at > '2024-01-01'::date) AND (store_id = 3))");
+        let mut n = scan(
+            "orders",
+            "((status = 'open'::text) AND (placed_at > '2024-01-01'::date) AND (store_id = 3))",
+        );
         n.actual_rows = Some(10.0);
         n.rows_removed_by_filter = Some(1_249_990.0);
         let got = insights(n, true, Postgres);
         let s = got[0].suggestion.clone().unwrap();
-        assert_eq!(s, "CREATE INDEX idx_orders_status_store_id_placed_at ON orders (status, store_id, placed_at);");
+        assert_eq!(
+            s,
+            "CREATE INDEX idx_orders_status_store_id_placed_at ON orders (status, store_id, placed_at);"
+        );
     }
 
     #[test]
@@ -770,16 +938,28 @@ mod tests {
     fn filter_parser_ignores_other_tables_and_casts() {
         let mut n = node("Seq Scan");
         n.alias = Some("o".into());
-        let cols = filter_columns("((o.customer_id = c.id) AND ((o.status)::text = ANY ('{a,b}'::text[])) AND (lower(o.name) = 'x') AND (42 = o.store_id))", &n, Postgres);
+        let cols = filter_columns(
+            "((o.customer_id = c.id) AND ((o.status)::text = ANY ('{a,b}'::text[])) AND (lower(o.name) = 'x') AND (42 = o.store_id))",
+            &n,
+            Postgres,
+        );
         assert_eq!(cols, vec!["customer_id", "status", "store_id"]);
-        let cols = filter_columns("(a > 1 OR b IS NULL) AND c LIKE 'x%' AND d BETWEEN 1 AND 2", &node("Seq Scan"), Postgres);
+        let cols = filter_columns(
+            "(a > 1 OR b IS NULL) AND c LIKE 'x%' AND d BETWEEN 1 AND 2",
+            &node("Seq Scan"),
+            Postgres,
+        );
         // Capped at three columns: more rarely helps and bloats the index.
         assert_eq!(cols, vec!["b", "a", "c"]);
     }
 
     #[test]
     fn estimate_off_by_10x_reports_deepest_node_and_analyze() {
-        let mut leaf = PlanNode { node_type: "Index Scan".into(), relation: Some("orders".into()), ..Default::default() };
+        let mut leaf = PlanNode {
+            node_type: "Index Scan".into(),
+            relation: Some("orders".into()),
+            ..Default::default()
+        };
         leaf.plan_rows = Some(100.0);
         leaf.actual_rows = Some(5000.0);
         leaf.loops = Some(1.0);
@@ -803,7 +983,8 @@ mod tests {
         n.plan_rows = Some(1.0);
         n.actual_rows = Some(40.0);
         assert!(insights(n, true, Postgres).is_empty());
-        let mut n = PlanNode { node_type: "Scan".into(), relation: Some("orders".into()), ..Default::default() };
+        let mut n =
+            PlanNode { node_type: "Scan".into(), relation: Some("orders".into()), ..Default::default() };
         n.plan_rows = Some(5000.0);
         n.actual_rows = Some(10.0);
         let got = insights(n, true, MySql);
@@ -1058,7 +1239,11 @@ mod tests {
         n.loops = Some(1.0);
         let got = insights(n, true, Postgres);
         assert!(got.len() >= 2);
-        assert!(got.windows(2).all(|w| (w[0].severity as u8) >= (w[1].severity as u8) || w[0].severity == Severity::Critical));
+        assert!(
+            got.windows(2).all(
+                |w| (w[0].severity as u8) >= (w[1].severity as u8) || w[0].severity == Severity::Critical
+            )
+        );
         assert_eq!(got[0].severity, Severity::Critical);
     }
 

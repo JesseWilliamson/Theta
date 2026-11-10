@@ -13,7 +13,10 @@
 use crate::fk::{TableRef, join_conditions, suggest_joins};
 use crate::keywords::{self, qualified_name, quote_if_needed};
 use crate::lexer::{TokenKind, tokenize};
-use crate::scope::{Clause, CteDef, Parsed, ScopeScan, Source, SourceKind, StmtKind, scan_scope, scope_ctx, source_columns, visible_ctes};
+use crate::scope::{
+    Clause, CteDef, Parsed, ScopeScan, Source, SourceKind, StmtKind, scan_scope, scope_ctx, source_columns,
+    visible_ctes,
+};
 use crate::script::segments;
 use quarry_core::{Catalog, DatabaseKind, RoutineKind, Table, TableKind, TypeKind};
 use std::collections::HashSet;
@@ -90,7 +93,9 @@ pub(crate) fn fuzzy_score(pattern: &str, cand: &str) -> Option<i32> {
         return None;
     }
     let boundary = |j: usize| -> bool {
-        j == 0 || matches!(c[j - 1], '_' | ' ' | '.' | '-' | '$') || (c[j].is_uppercase() && c[j - 1].is_lowercase())
+        j == 0
+            || matches!(c[j - 1], '_' | ' ' | '.' | '-' | '$')
+            || (c[j].is_uppercase() && c[j - 1].is_lowercase())
     };
     let pat_chars: Vec<char> = pattern.chars().collect();
     let mut prev = vec![NEG; n];
@@ -156,7 +161,13 @@ struct Raw {
     bonus: i32,
 }
 
-fn raw(label: impl Into<String>, kind: CompletionKind, detail: Option<String>, insert: impl Into<String>, bonus: i32) -> Raw {
+fn raw(
+    label: impl Into<String>,
+    kind: CompletionKind,
+    detail: Option<String>,
+    insert: impl Into<String>,
+    bonus: i32,
+) -> Raw {
     Raw { label: label.into(), kind, detail, insert: insert.into(), bonus }
 }
 
@@ -164,12 +175,18 @@ fn raw(label: impl Into<String>, kind: CompletionKind, detail: Option<String>, i
 enum Ctx {
     StatementStart,
     Qualified(Vec<String>),
-    Tables { join: bool, views_only: bool },
+    Tables {
+        join: bool,
+        views_only: bool,
+    },
     ColumnList(Option<(Option<String>, String)>),
     /// Columns of the DML target (`ALTER COLUMN |`, `SET |`, `RETURNING`...).
     TargetColumns,
     Exclusive(Vec<&'static str>),
-    Expr { clause: Clause, operand: bool },
+    Expr {
+        clause: Clause,
+        operand: bool,
+    },
     Nothing,
 }
 
@@ -188,7 +205,13 @@ impl Env<'_> {
         // Match the user's casing: lower-case scripts get lower-case keywords.
         let typed_upper = self.prefix.chars().any(|c| c.is_uppercase());
         let typed_lower = self.prefix.chars().any(|c| c.is_lowercase());
-        let lower = if typed_upper { false } else if typed_lower { true } else { self.lower_kw };
+        let lower = if typed_upper {
+            false
+        } else if typed_lower {
+            true
+        } else {
+            self.lower_kw
+        };
         if lower { word.to_lowercase() } else { word.to_string() }
     }
 
@@ -233,7 +256,11 @@ fn table_detail(t: &Table) -> String {
 }
 
 fn has_geometry(catalog: &Catalog) -> bool {
-    catalog.schemas.iter().any(|s| s.tables.iter().any(|t| t.columns.iter().any(|c| c.geometry.is_some() || c.kind == TypeKind::Geometry)))
+    catalog.schemas.iter().any(|s| {
+        s.tables
+            .iter()
+            .any(|t| t.columns.iter().any(|c| c.geometry.is_some() || c.kind == TypeKind::Geometry))
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +274,11 @@ fn function_items(env: &Env) -> Vec<Raw> {
     let mut out = Vec::new();
     let geo = env.catalog.is_some_and(has_geometry);
     for f in keywords::builtin_functions(env.kind, geo) {
-        let sig = if f.returns.is_empty() { format!("{}({})", f.name, f.args) } else { format!("{}({}) → {}", f.name, f.args, f.returns) };
+        let sig = if f.returns.is_empty() {
+            format!("{}({})", f.name, f.args)
+        } else {
+            format!("{}({}) → {}", f.name, f.args, f.returns)
+        };
         let insert = if env.paren_follows {
             f.name.to_string()
         } else if f.args.is_empty() {
@@ -264,7 +295,11 @@ fn function_items(env: &Env) -> Vec<Raw> {
                 let label = if qualify { format!("{}.{}", s.name, r.name) } else { r.name.clone() };
                 let ret = r.return_type.as_deref().map(|t| format!(" → {t}")).unwrap_or_default();
                 let sig = format!("{}{}{}", r.name, r.signature, ret);
-                let name = if qualify { qualified_name(Some(&s.name), &r.name, env.kind) } else { env.ident(&r.name) };
+                let name = if qualify {
+                    qualified_name(Some(&s.name), &r.name, env.kind)
+                } else {
+                    env.ident(&r.name)
+                };
                 let insert = if env.paren_follows { name } else { format!("{name}(") };
                 out.push(raw(label, CompletionKind::Function, Some(sig), insert, 160));
             }
@@ -281,14 +316,21 @@ fn table_items(env: &Env, ctes: &[CteDef], views_only: bool) -> Vec<Raw> {
     let Some(cat) = env.catalog else { return out };
     for s in &cat.schemas {
         let qualify = !is_default_schema(cat, &s.name);
-        out.push(raw(s.name.clone(), CompletionKind::Schema, Some("schema".into()), format!("{}.", env.ident(&s.name)), 200));
+        out.push(raw(
+            s.name.clone(),
+            CompletionKind::Schema,
+            Some("schema".into()),
+            format!("{}.", env.ident(&s.name)),
+            200,
+        ));
         for t in &s.tables {
             let is_view = matches!(t.kind, TableKind::View | TableKind::MaterializedView);
             if views_only && !is_view {
                 continue;
             }
             let label = if qualify { format!("{}.{}", s.name, t.name) } else { t.name.clone() };
-            let insert = if qualify { qualified_name(Some(&s.name), &t.name, env.kind) } else { env.ident(&t.name) };
+            let insert =
+                if qualify { qualified_name(Some(&s.name), &t.name, env.kind) } else { env.ident(&t.name) };
             let kind = if is_view { CompletionKind::View } else { CompletionKind::Table };
             out.push(raw(label, kind, Some(table_detail(t)), insert, 300));
         }
@@ -305,7 +347,13 @@ fn source_label(src: &Source) -> &'static str {
     }
 }
 
-fn column_items_for(env: &Env, src: &Source, ctes: &[CteDef], qualifier: Option<&str>, extra_detail: bool) -> Vec<Raw> {
+fn column_items_for(
+    env: &Env,
+    src: &Source,
+    ctes: &[CteDef],
+    qualifier: Option<&str>,
+    extra_detail: bool,
+) -> Vec<Raw> {
     source_columns(src, env.catalog, ctes)
         .into_iter()
         .map(|c| {
@@ -320,7 +368,13 @@ fn column_items_for(env: &Env, src: &Source, ctes: &[CteDef], qualifier: Option<
                 }
                 detail.push_str(src.reference_name());
             }
-            raw(label, CompletionKind::Column, if detail.is_empty() { None } else { Some(detail) }, insert, 300)
+            raw(
+                label,
+                CompletionKind::Column,
+                if detail.is_empty() { None } else { Some(detail) },
+                insert,
+                300,
+            )
         })
         .collect()
 }
@@ -330,7 +384,11 @@ fn columns_of_table(env: &Env, schema: Option<&str>, name: &str, ctes: &[CteDef]
         schema: schema.map(|s| s.to_string()),
         name: name.to_string(),
         alias: None,
-        kind: if schema.is_none() && ctes.iter().any(|c| c.name.eq_ignore_ascii_case(name)) { SourceKind::Cte } else { SourceKind::Table },
+        kind: if schema.is_none() && ctes.iter().any(|c| c.name.eq_ignore_ascii_case(name)) {
+            SourceKind::Cte
+        } else {
+            SourceKind::Table
+        },
         tok_start: 0,
         tok_end: 0,
         name_tok: 0,
@@ -344,10 +402,18 @@ fn qualified_items(env: &Env, parts: &[String], scan: &ScopeScan, ctes: &[CteDef
     let mut out = Vec::new();
     match parts {
         [name] => {
-            let by_alias = scan.sources.iter().find(|s| s.alias.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(name)));
-            let by_name = scan.sources.iter().find(|s| s.alias.is_none() && s.name.eq_ignore_ascii_case(name));
+            let by_alias = scan
+                .sources
+                .iter()
+                .find(|s| s.alias.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(name)));
+            let by_name =
+                scan.sources.iter().find(|s| s.alias.is_none() && s.name.eq_ignore_ascii_case(name));
             let by_table_name = scan.sources.iter().find(|s| s.name.eq_ignore_ascii_case(name));
-            let src_cols = by_alias.or(by_name).or(by_table_name).map(|src| column_items_for(env, src, ctes, None, false)).unwrap_or_default();
+            let src_cols = by_alias
+                .or(by_name)
+                .or(by_table_name)
+                .map(|src| column_items_for(env, src, ctes, None, false))
+                .unwrap_or_default();
             if !src_cols.is_empty() {
                 out.extend(src_cols);
             } else if name.eq_ignore_ascii_case("excluded") && scan.stmt == StmtKind::Insert {
@@ -377,8 +443,18 @@ fn qualified_items(env: &Env, parts: &[String], scan: &ScopeScan, ctes: &[CteDef
                         }
                         for r in schema.routines.iter().filter(|r| r.kind != RoutineKind::Procedure) {
                             let ret = r.return_type.as_deref().map(|t| format!(" → {t}")).unwrap_or_default();
-                            let insert = if env.paren_follows { env.ident(&r.name) } else { format!("{}(", env.ident(&r.name)) };
-                            out.push(raw(r.name.clone(), CompletionKind::Function, Some(format!("{}{}{}", r.name, r.signature, ret)), insert, 150));
+                            let insert = if env.paren_follows {
+                                env.ident(&r.name)
+                            } else {
+                                format!("{}(", env.ident(&r.name))
+                            };
+                            out.push(raw(
+                                r.name.clone(),
+                                CompletionKind::Function,
+                                Some(format!("{}{}{}", r.name, r.signature, ret)),
+                                insert,
+                                150,
+                            ));
                         }
                     }
                 }
@@ -429,13 +505,20 @@ fn on_condition_items(env: &Env, scan: &ScopeScan) -> Vec<Raw> {
         return Vec::new();
     }
     // The table that this ON belongs to: the last JOINed source, else the last source.
-    let newest_src = scan.sources.iter().rposition(|s| s.clause == Clause::Join).unwrap_or(scan.sources.len() - 1);
+    let newest_src =
+        scan.sources.iter().rposition(|s| s.clause == Clause::Join).unwrap_or(scan.sources.len() - 1);
     let Some(newest) = src_idx.iter().position(|&i| i == newest_src) else { return Vec::new() };
     join_conditions(cat, &refs, newest, env.kind)
         .into_iter()
         .map(|c| {
             let detail = if c.inferred { format!("suggested · {}", c.via) } else { format!("FK {}", c.via) };
-            raw(c.condition.clone(), CompletionKind::Join, Some(detail), c.condition, if c.inferred { 750 } else { 900 })
+            raw(
+                c.condition.clone(),
+                CompletionKind::Join,
+                Some(detail),
+                c.condition,
+                if c.inferred { 750 } else { 900 },
+            )
         })
         .collect()
 }
@@ -449,7 +532,8 @@ fn expr_column_items(env: &Env, scan: &ScopeScan, ctes: &[CteDef], clause: Claus
     {
         sources.retain(|s| !s.target);
     }
-    let cols: Vec<Vec<crate::scope::ColumnRef>> = sources.iter().map(|s| source_columns(s, env.catalog, ctes)).collect();
+    let cols: Vec<Vec<crate::scope::ColumnRef>> =
+        sources.iter().map(|s| source_columns(s, env.catalog, ctes)).collect();
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for list in &cols {
         for c in list {
@@ -474,12 +558,24 @@ fn expr_column_items(env: &Env, scan: &ScopeScan, ctes: &[CteDef], clause: Claus
                 }
                 detail.push_str(&format!("from {}", src.reference_name()));
             }
-            out.push(raw(label, CompletionKind::Column, if detail.is_empty() { None } else { Some(detail) }, insert, 300));
+            out.push(raw(
+                label,
+                CompletionKind::Column,
+                if detail.is_empty() { None } else { Some(detail) },
+                insert,
+                300,
+            ));
         }
         if !matches!(src.kind, SourceKind::Function(_)) || src.alias.is_some() {
             let name = src.reference_name();
             if !name.is_empty() {
-                out.push(raw(name.to_string(), CompletionKind::Alias, Some(format!("{} in scope", source_label(src))), env.ident(name), 250));
+                out.push(raw(
+                    name.to_string(),
+                    CompletionKind::Alias,
+                    Some(format!("{} in scope", source_label(src))),
+                    env.ident(name),
+                    250,
+                ));
             }
         }
     }
@@ -496,11 +592,21 @@ const SNIPPETS: &[Snippet] = &[
     Snippet { trigger: "sel", insert: "SELECT * FROM ", shown: "SELECT * FROM …" },
     Snippet { trigger: "selc", insert: "SELECT count(*) FROM ", shown: "SELECT count(*) FROM …" },
     Snippet { trigger: "selw", insert: "SELECT * FROM  WHERE ", shown: "SELECT * FROM … WHERE …" },
-    Snippet { trigger: "ins", insert: "INSERT INTO  () VALUES ()", shown: "INSERT INTO … (…) VALUES (…)" },
+    Snippet {
+        trigger: "ins", insert: "INSERT INTO  () VALUES ()", shown: "INSERT INTO … (…) VALUES (…)"
+    },
     Snippet { trigger: "upd", insert: "UPDATE  SET  WHERE ", shown: "UPDATE … SET … WHERE …" },
     Snippet { trigger: "del", insert: "DELETE FROM  WHERE ", shown: "DELETE FROM … WHERE …" },
-    Snippet { trigger: "cte", insert: "WITH cte AS (\n    SELECT \n)\nSELECT * FROM cte", shown: "WITH cte AS (…) SELECT …" },
-    Snippet { trigger: "crt", insert: "CREATE TABLE  (\n    id integer PRIMARY KEY\n)", shown: "CREATE TABLE … (…)" },
+    Snippet {
+        trigger: "cte",
+        insert: "WITH cte AS (\n    SELECT \n)\nSELECT * FROM cte",
+        shown: "WITH cte AS (…) SELECT …",
+    },
+    Snippet {
+        trigger: "crt",
+        insert: "CREATE TABLE  (\n    id integer PRIMARY KEY\n)",
+        shown: "CREATE TABLE … (…)",
+    },
     Snippet { trigger: "idx", insert: "CREATE INDEX  ON  ()", shown: "CREATE INDEX … ON … (…)" },
     Snippet { trigger: "exp", insert: "EXPLAIN ANALYZE ", shown: "EXPLAIN ANALYZE …" },
 ];
@@ -509,7 +615,10 @@ fn snippet_items(env: &Env) -> Vec<Raw> {
     SNIPPETS
         .iter()
         .map(|s| {
-            let insert = if env.lower_kw && !env.prefix.chars().any(|c| c.is_uppercase()) && !s.insert.contains('\n') {
+            let insert = if env.lower_kw
+                && !env.prefix.chars().any(|c| c.is_uppercase())
+                && !s.insert.contains('\n')
+            {
                 // Keep lower-case scripts lower-case.
                 s.insert.to_lowercase()
             } else {
@@ -543,10 +652,52 @@ fn clause_key(c: Clause) -> &'static str {
 fn operand_kw(up: &str) -> bool {
     matches!(
         up,
-        "SELECT" | "DISTINCT" | "ALL" | "WHERE" | "AND" | "OR" | "NOT" | "ON" | "BY" | "HAVING" | "WHEN" | "THEN" | "ELSE" | "CASE"
-            | "IN" | "EXISTS" | "ANY" | "SOME" | "LIKE" | "ILIKE" | "BETWEEN" | "IS" | "SET" | "RETURNING" | "USING" | "LIMIT"
-            | "OFFSET" | "VALUES" | "FROM" | "JOIN" | "INTO" | "UPDATE" | "DELETE" | "WITH" | "UNION" | "INTERSECT" | "EXCEPT"
-            | "DEFAULT" | "OVER" | "FILTER" | "WINDOW" | "SIMILAR" | "ESCAPE" | "CAST" | "INTERVAL" | "ARRAY"
+        "SELECT"
+            | "DISTINCT"
+            | "ALL"
+            | "WHERE"
+            | "AND"
+            | "OR"
+            | "NOT"
+            | "ON"
+            | "BY"
+            | "HAVING"
+            | "WHEN"
+            | "THEN"
+            | "ELSE"
+            | "CASE"
+            | "IN"
+            | "EXISTS"
+            | "ANY"
+            | "SOME"
+            | "LIKE"
+            | "ILIKE"
+            | "BETWEEN"
+            | "IS"
+            | "SET"
+            | "RETURNING"
+            | "USING"
+            | "LIMIT"
+            | "OFFSET"
+            | "VALUES"
+            | "FROM"
+            | "JOIN"
+            | "INTO"
+            | "UPDATE"
+            | "DELETE"
+            | "WITH"
+            | "UNION"
+            | "INTERSECT"
+            | "EXCEPT"
+            | "DEFAULT"
+            | "OVER"
+            | "FILTER"
+            | "WINDOW"
+            | "SIMILAR"
+            | "ESCAPE"
+            | "CAST"
+            | "INTERVAL"
+            | "ARRAY"
     )
 }
 
@@ -559,7 +710,11 @@ fn expects_operand(p: &Parsed, last: usize) -> bool {
         TokenKind::Operator => {
             if t.up == "*" {
                 // `SELECT *` / `t.*` is a complete item; `a * |` wants an operand.
-                !(last == 0 || matches!(p.up(last - 1), "SELECT" | "DISTINCT") || p.is_punct(last - 1, ".") || p.is_punct(last - 1, ",") || p.is_punct(last - 1, "("))
+                !(last == 0
+                    || matches!(p.up(last - 1), "SELECT" | "DISTINCT")
+                    || p.is_punct(last - 1, ".")
+                    || p.is_punct(last - 1, ",")
+                    || p.is_punct(last - 1, "("))
             } else {
                 true
             }
@@ -612,7 +767,13 @@ fn column_list_table(p: &Parsed, open: usize, scan: &ScopeScan) -> Option<Option
     Some(Some((parts.pop(), name)))
 }
 
-fn determine(p: &Parsed, ci: usize, sc: &crate::scope::ScopeCtx, scan: &ScopeScan, kind: DatabaseKind) -> Ctx {
+fn determine(
+    p: &Parsed,
+    ci: usize,
+    sc: &crate::scope::ScopeCtx,
+    scan: &ScopeScan,
+    kind: DatabaseKind,
+) -> Ctx {
     if ci == 0 {
         return Ctx::StatementStart;
     }
@@ -648,8 +809,12 @@ fn determine(p: &Parsed, ci: usize, sc: &crate::scope::ScopeCtx, scan: &ScopeSca
         "DELETE" if last == 0 => return Ctx::Exclusive(vec!["FROM"]),
         "LEFT" | "RIGHT" | "FULL" if !in_paren => return Ctx::Exclusive(vec!["JOIN", "OUTER JOIN"]),
         "INNER" | "CROSS" | "NATURAL" | "OUTER" if !in_paren => return Ctx::Exclusive(vec!["JOIN"]),
-        "UNION" | "INTERSECT" | "EXCEPT" => return Ctx::Exclusive(vec!["ALL", "DISTINCT", "SELECT", "VALUES"]),
-        "ALL" if matches!(prev_up, "UNION" | "INTERSECT" | "EXCEPT") => return Ctx::Exclusive(vec!["SELECT", "VALUES"]),
+        "UNION" | "INTERSECT" | "EXCEPT" => {
+            return Ctx::Exclusive(vec!["ALL", "DISTINCT", "SELECT", "VALUES"]);
+        }
+        "ALL" if matches!(prev_up, "UNION" | "INTERSECT" | "EXCEPT") => {
+            return Ctx::Exclusive(vec!["SELECT", "VALUES"]);
+        }
         "IS" => return Ctx::Exclusive(vec!["NULL", "NOT NULL", "TRUE", "FALSE", "DISTINCT FROM"]),
         "NULLS" => return Ctx::Exclusive(vec!["FIRST", "LAST"]),
         "NOT" if last > 0 && !expects_operand(p, last - 1) => {
@@ -657,23 +822,87 @@ fn determine(p: &Parsed, ci: usize, sc: &crate::scope::ScopeCtx, scan: &ScopeSca
         }
         "CONFLICT" if prev_up == "ON" => return Ctx::Exclusive(vec!["DO NOTHING", "DO UPDATE SET"]),
         "DO" if clause == Clause::OnConflict => return Ctx::Exclusive(vec!["NOTHING", "UPDATE SET"]),
-        "ON" if scan.stmt == StmtKind::Insert && matches!(clause, Clause::Values | Clause::Other | Clause::None | Clause::Into) => {
-            return Ctx::Exclusive(if kind == DatabaseKind::MySql { vec!["DUPLICATE KEY UPDATE"] } else { vec!["CONFLICT"] });
+        "ON" if scan.stmt == StmtKind::Insert
+            && matches!(clause, Clause::Values | Clause::Other | Clause::None | Clause::Into) =>
+        {
+            return Ctx::Exclusive(if kind == DatabaseKind::MySql {
+                vec!["DUPLICATE KEY UPDATE"]
+            } else {
+                vec!["CONFLICT"]
+            });
         }
         "UPDATE" if matches!(prev_up, "DO" | "FOR") => {
-            return Ctx::Exclusive(if prev_up == "DO" { vec!["SET"] } else { vec!["OF", "NOWAIT", "SKIP LOCKED"] });
+            return Ctx::Exclusive(if prev_up == "DO" {
+                vec!["SET"]
+            } else {
+                vec!["OF", "NOWAIT", "SKIP LOCKED"]
+            });
         }
         "CREATE" if last == 0 => {
             return Ctx::Exclusive(match kind {
-                DatabaseKind::Postgres => vec!["TABLE", "VIEW", "MATERIALIZED VIEW", "INDEX", "UNIQUE INDEX", "SCHEMA", "FUNCTION", "TRIGGER", "SEQUENCE", "EXTENSION", "TYPE", "TEMPORARY TABLE", "OR REPLACE"],
-                DatabaseKind::MySql => vec!["TABLE", "VIEW", "INDEX", "UNIQUE INDEX", "DATABASE", "SCHEMA", "FUNCTION", "PROCEDURE", "TRIGGER", "TEMPORARY TABLE", "OR REPLACE"],
-                DatabaseKind::Sqlite => vec!["TABLE", "VIEW", "INDEX", "UNIQUE INDEX", "TRIGGER", "VIRTUAL TABLE", "TEMPORARY TABLE"],
+                DatabaseKind::Postgres => vec![
+                    "TABLE",
+                    "VIEW",
+                    "MATERIALIZED VIEW",
+                    "INDEX",
+                    "UNIQUE INDEX",
+                    "SCHEMA",
+                    "FUNCTION",
+                    "TRIGGER",
+                    "SEQUENCE",
+                    "EXTENSION",
+                    "TYPE",
+                    "TEMPORARY TABLE",
+                    "OR REPLACE",
+                ],
+                DatabaseKind::MySql => vec![
+                    "TABLE",
+                    "VIEW",
+                    "INDEX",
+                    "UNIQUE INDEX",
+                    "DATABASE",
+                    "SCHEMA",
+                    "FUNCTION",
+                    "PROCEDURE",
+                    "TRIGGER",
+                    "TEMPORARY TABLE",
+                    "OR REPLACE",
+                ],
+                DatabaseKind::Sqlite => vec![
+                    "TABLE",
+                    "VIEW",
+                    "INDEX",
+                    "UNIQUE INDEX",
+                    "TRIGGER",
+                    "VIRTUAL TABLE",
+                    "TEMPORARY TABLE",
+                ],
             });
         }
         "ALTER" if last == 0 => return Ctx::Exclusive(vec!["TABLE", "VIEW", "INDEX", "SCHEMA", "SEQUENCE"]),
-        "DROP" if last == 0 => return Ctx::Exclusive(vec!["TABLE", "VIEW", "INDEX", "SCHEMA", "SEQUENCE", "TRIGGER", "FUNCTION", "TABLE IF EXISTS"]),
+        "DROP" if last == 0 => {
+            return Ctx::Exclusive(vec![
+                "TABLE",
+                "VIEW",
+                "INDEX",
+                "SCHEMA",
+                "SEQUENCE",
+                "TRIGGER",
+                "FUNCTION",
+                "TABLE IF EXISTS",
+            ]);
+        }
         "COLUMN" if clause == Clause::AlterTable => return Ctx::TargetColumns,
-        "ADD" if clause == Clause::AlterTable => return Ctx::Exclusive(vec!["COLUMN", "CONSTRAINT", "PRIMARY KEY", "FOREIGN KEY", "UNIQUE", "CHECK"]),
+        "ADD" if clause == Clause::AlterTable => {
+            return Ctx::Exclusive(vec![
+                "COLUMN",
+                "CONSTRAINT",
+                "PRIMARY KEY",
+                "FOREIGN KEY",
+                "UNIQUE",
+                "CHECK",
+            ]);
+        }
         "AS" => return Ctx::Nothing,
         _ => {}
     }
@@ -688,7 +917,23 @@ fn determine(p: &Parsed, ci: usize, sc: &crate::scope::ScopeCtx, scan: &ScopeSca
 
     // Table positions.
     if !in_paren || p.is_subquery_paren(sc.inner_paren.unwrap_or(usize::MAX)) {
-        let ddl_first = matches!(first, "DROP" | "ALTER" | "TRUNCATE" | "LOCK" | "COMMENT" | "ANALYZE" | "VACUUM" | "REINDEX" | "CLUSTER" | "COPY" | "DESCRIBE" | "DESC" | "OPTIMIZE" | "REFRESH");
+        let ddl_first = matches!(
+            first,
+            "DROP"
+                | "ALTER"
+                | "TRUNCATE"
+                | "LOCK"
+                | "COMMENT"
+                | "ANALYZE"
+                | "VACUUM"
+                | "REINDEX"
+                | "CLUSTER"
+                | "COPY"
+                | "DESCRIBE"
+                | "DESC"
+                | "OPTIMIZE"
+                | "REFRESH"
+        );
         let table_pos = match lu {
             "FROM" => !matches!(prev_up, "DISTINCT"),
             "JOIN" | "INTO" | "ONLY" | "REFERENCES" | "LATERAL" => true,
@@ -696,11 +941,24 @@ fn determine(p: &Parsed, ci: usize, sc: &crate::scope::ScopeCtx, scan: &ScopeSca
             "TABLE" => first != "CREATE" || false,
             "VIEW" => matches!(first, "DROP" | "ALTER") || matches!(prev_up, "MATERIALIZED"),
             "TRUNCATE" | "DESCRIBE" | "DESC" if last == 0 => true,
-            "COPY" | "ANALYZE" | "VACUUM" | "OPTIMIZE" | "REINDEX" | "CLUSTER" if last == 0 && kind != DatabaseKind::MySql || (last == 0 && lu == "OPTIMIZE") => true,
+            "COPY" | "ANALYZE" | "VACUUM" | "OPTIMIZE" | "REINDEX" | "CLUSTER"
+                if last == 0 && kind != DatabaseKind::MySql || (last == 0 && lu == "OPTIMIZE") =>
+            {
+                true
+            }
             "EXISTS" if prev_up == "IF" => ddl_first && first != "CREATE",
-            "ON" => first == "CREATE" && clause == Clause::IndexOn || (first == "CREATE" && last > 0 && scan.sources.is_empty() && p.toks.iter().any(|t| t.up == "INDEX")),
+            "ON" => {
+                first == "CREATE" && clause == Clause::IndexOn
+                    || (first == "CREATE"
+                        && last > 0
+                        && scan.sources.is_empty()
+                        && p.toks.iter().any(|t| t.up == "INDEX"))
+            }
             "USING" => scan.stmt == StmtKind::Delete,
-            "," => (matches!(clause, Clause::From | Clause::Update) && lu == ",") || (ddl_first && matches!(first, "DROP" | "TRUNCATE" | "LOCK")),
+            "," => {
+                (matches!(clause, Clause::From | Clause::Update) && lu == ",")
+                    || (ddl_first && matches!(first, "DROP" | "TRUNCATE" | "LOCK"))
+            }
             _ => false,
         };
         if table_pos {
@@ -715,7 +973,12 @@ fn determine(p: &Parsed, ci: usize, sc: &crate::scope::ScopeCtx, scan: &ScopeSca
     if clause == Clause::Set && operand && !in_paren && (lu == "SET" || lu == ",") {
         return Ctx::TargetColumns;
     }
-    if clause == Clause::Returning && operand && scan.stmt != StmtKind::Select && !in_paren && matches!(lu, "RETURNING" | ",") {
+    if clause == Clause::Returning
+        && operand
+        && scan.stmt != StmtKind::Select
+        && !in_paren
+        && matches!(lu, "RETURNING" | ",")
+    {
         // Returning can reference the target's columns; treat as ordinary expression.
     }
     Ctx::Expr { clause, operand }
@@ -735,7 +998,9 @@ fn inside_literal_or_comment(sql: &str, toks: &[crate::lexer::Token], off: usize
         let _ = sql;
         match t.kind {
             TokenKind::LineComment => off > t.start && off <= t.end,
-            TokenKind::BlockComment | TokenKind::String | TokenKind::DollarString => off > t.start && (off < t.end || !t.terminated),
+            TokenKind::BlockComment | TokenKind::String | TokenKind::DollarString => {
+                off > t.start && (off < t.end || !t.terminated)
+            }
             _ => false,
         }
     })
@@ -771,7 +1036,7 @@ pub fn complete(request: &CompletionRequest) -> CompletionList {
         None => (String::new(), false),
     };
 
-    let p = Parsed::new(sql, kind, seg_toks.iter().filter(|t| Some(**t) != partial));
+    let p = Parsed::new(sql, seg_toks.iter().filter(|t| Some(**t) != partial));
     let ci = p.toks.partition_point(|t| t.start < off);
     let lower_kw = p.toks[..ci]
         .iter()
@@ -779,7 +1044,8 @@ pub fn complete(request: &CompletionRequest) -> CompletionList {
         .find(|t| t.kind == TokenKind::Word && keywords::is_format_keyword(&sql[t.start..t.end]))
         .is_some_and(|t| !sql[t.start..t.end].chars().any(|c| c.is_uppercase()));
     let paren_follows = sql[replace_range.end..].trim_start_matches([' ', '\t']).starts_with('(');
-    let env = Env { kind, catalog: request.catalog, lower_kw, prefix: prefix.clone(), force_quote, paren_follows };
+    let env =
+        Env { kind, catalog: request.catalog, lower_kw, prefix: prefix.clone(), force_quote, paren_follows };
 
     let sc = scope_ctx(&p, ci);
     let ctes = visible_ctes(&p, &sc.scopes, request.catalog);
@@ -799,7 +1065,9 @@ pub fn complete(request: &CompletionRequest) -> CompletionList {
             }
             cands.extend(table_items(&env, &ctes, *views_only));
         }
-        Ctx::ColumnList(Some((schema, name))) => cands.extend(columns_of_table(&env, schema.as_deref(), name, &ctes)),
+        Ctx::ColumnList(Some((schema, name))) => {
+            cands.extend(columns_of_table(&env, schema.as_deref(), name, &ctes))
+        }
         Ctx::ColumnList(None) => {}
         Ctx::TargetColumns => {
             if let Some(t) = scan.sources.iter().find(|s| s.target).or(scan.sources.first()) {
@@ -812,7 +1080,10 @@ pub fn complete(request: &CompletionRequest) -> CompletionList {
             if case_is_open(&p, &sc.branch, ci) {
                 words.extend(["WHEN", "THEN", "ELSE", "END"]);
             }
-            let last_is_table_ish = matches!(clause, Clause::From | Clause::Join | Clause::Update | Clause::Into | Clause::Delete);
+            let last_is_table_ish = matches!(
+                clause,
+                Clause::From | Clause::Join | Clause::Update | Clause::Into | Clause::Delete
+            );
             cands.extend(keyword_items(&env, &words, if last_is_table_ish { 300 } else { 250 }));
         }
         Ctx::Expr { clause, operand: true } => {
@@ -834,7 +1105,13 @@ pub fn complete(request: &CompletionRequest) -> CompletionList {
                 cands.extend(keyword_items(&env, &["DEFAULT"], 150));
             }
             if *clause == Clause::Set && scan.stmt == StmtKind::Insert && kind != DatabaseKind::MySql {
-                cands.push(raw("excluded", CompletionKind::Alias, Some("proposed row".into()), env.kw("excluded"), 260));
+                cands.push(raw(
+                    "excluded",
+                    CompletionKind::Alias,
+                    Some("proposed row".into()),
+                    env.kw("excluded"),
+                    260,
+                ));
             }
             if case_is_open(&p, &sc.branch, ci) && p.is_word(last, "CASE") {
                 cands.extend(keyword_items(&env, &["WHEN"], 260));
@@ -849,10 +1126,7 @@ fn finish(cands: Vec<Raw>, prefix: &str, replace_range: Range<usize>) -> Complet
     let mut seen: HashSet<(String, CompletionKind)> = HashSet::new();
     let mut items: Vec<CompletionItem> = Vec::with_capacity(cands.len().min(1024));
     for c in cands {
-        let m = match fuzzy_score(prefix, &c.label) {
-            Some(s) => Some(s),
-            None => None,
-        };
+        let m = fuzzy_score(prefix, &c.label);
         // Qualified labels (`c.id`, `public.orders`) also match on their last segment.
         let tail = c.label.rsplit('.').next().filter(|t| t.len() < c.label.len());
         let tail_score = tail.and_then(|t| fuzzy_score(prefix, t)).map(|s| s - 2);
@@ -862,9 +1136,17 @@ fn finish(cands: Vec<Raw>, prefix: &str, replace_range: Range<usize>) -> Complet
         }
         // Shorter labels first among equal matches: `orders` before `order_items` for `ord`.
         let len_penalty = if prefix.is_empty() { 0 } else { (c.label.chars().count() as i32).min(40) / 4 };
-        items.push(CompletionItem { label: c.label, kind: c.kind, detail: c.detail, insert_text: c.insert, score: s + c.bonus - len_penalty });
+        items.push(CompletionItem {
+            label: c.label,
+            kind: c.kind,
+            detail: c.detail,
+            insert_text: c.insert,
+            score: s + c.bonus - len_penalty,
+        });
     }
-    items.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase())));
+    items.sort_by(|a, b| {
+        b.score.cmp(&a.score).then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
+    });
     items.truncate(MAX_ITEMS);
     CompletionList { replace_range, items }
 }
@@ -896,10 +1178,6 @@ mod tests {
         labels(sql).iter().any(|l| l == label)
     }
 
-    fn pos(sql: &str, label: &str) -> usize {
-        labels(sql).iter().position(|l| l == label).unwrap_or_else(|| panic!("{label} missing in {:?}", labels(sql)))
-    }
-
     #[test]
     fn fuzzy_prefix_beats_boundary_beats_subsequence() {
         let prefix = fuzzy_score("ord", "orders").unwrap();
@@ -926,7 +1204,7 @@ mod tests {
         assert!(l.iter().any(|i| i.label == "SELECT" && i.kind == CompletionKind::Keyword));
         assert!(l.iter().any(|i| i.label == "sel" && i.kind == CompletionKind::Snippet));
         let l = items("sel|");
-        assert_eq!(l[0].kind != CompletionKind::Column, true);
+        assert_ne!(l[0].kind, CompletionKind::Column);
         let snip = l.iter().find(|i| i.kind == CompletionKind::Snippet).unwrap();
         assert_eq!(snip.insert_text, "SELECT * FROM ");
         assert!(snip.detail.as_deref().unwrap().contains("SELECT * FROM"));
@@ -973,7 +1251,16 @@ mod tests {
 
     #[test]
     fn tables_after_other_keywords() {
-        for sql in ["insert into |", "update |", "delete from |", "select * from customers join |", "truncate |", "drop table |", "alter table |", "select * from a, |"] {
+        for sql in [
+            "insert into |",
+            "update |",
+            "delete from |",
+            "select * from customers join |",
+            "truncate |",
+            "drop table |",
+            "alter table |",
+            "select * from a, |",
+        ] {
             assert!(has(sql, "orders"), "{sql}");
         }
         assert!(!has("create table |", "orders"));
@@ -1128,7 +1415,8 @@ mod tests {
         let l = labels(sql);
         assert!(l.contains(&"customer_id".to_string()));
         assert!(!l.contains(&"email".to_string()));
-        let l = labels("select * from customers c where exists (select 1 from orders o where o.customer_id = |)");
+        let l =
+            labels("select * from customers c where exists (select 1 from orders o where o.customer_id = |)");
         assert!(l.iter().any(|x| x == "o.id" || x == "id"), "{l:?}");
         assert!(l.contains(&"total".to_string()));
         assert!(!l.contains(&"email".to_string()));
@@ -1204,7 +1492,8 @@ mod tests {
     fn on_conflict_columns_and_excluded() {
         let l = labels("insert into customers (id) values (1) on conflict (|) do nothing");
         assert!(l.contains(&"email".to_string()));
-        let l = labels("insert into customers (id) values (1) on conflict (id) do update set name = excluded.|");
+        let l =
+            labels("insert into customers (id) values (1) on conflict (id) do update set name = excluded.|");
         assert!(l.contains(&"email".to_string()));
         assert!(has("insert into customers (id) values (1) on conflict (id) do update set |", "name"));
     }
@@ -1230,7 +1519,13 @@ mod tests {
     #[test]
     fn nothing_inside_strings_and_comments() {
         let cat = fixtures::shop();
-        for sql in ["select 'cust|' from t", "select 1 -- cus|", "select /* cus| */ 1", "select $$ cus| $$", "select 'unterminated cus|"] {
+        for sql in [
+            "select 'cust|' from t",
+            "select 1 -- cus|",
+            "select /* cus| */ 1",
+            "select $$ cus| $$",
+            "select 'unterminated cus|",
+        ] {
             let (l, _) = run(sql, Postgres, Some(&cat));
             assert!(l.items.is_empty(), "{sql}");
         }
@@ -1256,8 +1551,20 @@ mod tests {
     #[test]
     fn identifiers_quoted_only_when_needed() {
         let mut cat = fixtures::shop();
-        cat.schemas[0].tables.push(fixtures::table("Order Items", vec![fixtures::int("Group")], &[], vec![], None));
-        cat.schemas[0].tables.push(fixtures::table("order", vec![fixtures::int("select")], &[], vec![], None));
+        cat.schemas[0].tables.push(fixtures::table(
+            "Order Items",
+            vec![fixtures::int("Group")],
+            &[],
+            vec![],
+            None,
+        ));
+        cat.schemas[0].tables.push(fixtures::table(
+            "order",
+            vec![fixtures::int("select")],
+            &[],
+            vec![],
+            None,
+        ));
         let (l, _) = run("select * from |", Postgres, Some(&cat));
         let oi = l.items.iter().find(|i| i.label == "Order Items").unwrap();
         assert_eq!(oi.insert_text, "\"Order Items\"");
@@ -1300,7 +1607,14 @@ mod tests {
         assert_eq!(st.detail.as_deref(), Some("ST_Distance(geomA, geomB) → double precision"));
         let (l, _) = run("select | from customers", Postgres, Some(&cat));
         assert!(l.items.iter().any(|i| i.label == "ST_Distance"), "catalog has geometry columns somewhere");
-        let plain = Catalog { schemas: vec![quarry_core::Schema { name: "public".into(), tables: vec![cat.schemas[0].tables[0].clone()], ..Default::default() }], default_schema: Some("public".into()) };
+        let plain = Catalog {
+            schemas: vec![quarry_core::Schema {
+                name: "public".into(),
+                tables: vec![cat.schemas[0].tables[0].clone()],
+                ..Default::default()
+            }],
+            default_schema: Some("public".into()),
+        };
         let (l, _) = run("select | from customers", Postgres, Some(&plain));
         assert!(!l.items.iter().any(|i| i.label == "ST_Distance"));
         let (l, _) = run("select | from customers", MySql, Some(&plain));
@@ -1393,7 +1707,8 @@ mod tests {
         let mut best = u128::MAX;
         for _ in 0..5 {
             let t = std::time::Instant::now();
-            let l = complete(&CompletionRequest { sql: &sql, offset: at, kind: Postgres, catalog: Some(&cat) });
+            let l =
+                complete(&CompletionRequest { sql: &sql, offset: at, kind: Postgres, catalog: Some(&cat) });
             best = best.min(t.elapsed().as_micros());
             assert!(!l.items.is_empty());
         }
@@ -1401,7 +1716,12 @@ mod tests {
         // A table-name completion over all 500 tables.
         let tail = format!("{sql}select * from tab");
         let t = std::time::Instant::now();
-        let l = complete(&CompletionRequest { sql: &tail, offset: tail.len(), kind: Postgres, catalog: Some(&cat) });
+        let l = complete(&CompletionRequest {
+            sql: &tail,
+            offset: tail.len(),
+            kind: Postgres,
+            catalog: Some(&cat),
+        });
         assert!(!l.items.is_empty());
         assert!(t.elapsed().as_millis() < 10, "table completion took {:?}", t.elapsed());
     }

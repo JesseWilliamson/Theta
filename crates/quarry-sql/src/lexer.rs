@@ -133,7 +133,8 @@ pub fn tokenize(sql: &str, kind: DatabaseKind) -> Vec<Token> {
             }
             b'[' if kind == DatabaseKind::Sqlite => {
                 let mut j = i + 1;
-                while j < n && b[j] != b']' && b[j] != b'\n' {
+                // SQLite's own tokenizer lets `[...]` span lines.
+                while j < n && b[j] != b']' {
                     j += 1;
                 }
                 if j < n && b[j] == b']' {
@@ -315,7 +316,12 @@ fn prev_is_operand_end(b: &[u8], i: usize) -> bool {
 fn number_end(b: &[u8], start: usize) -> usize {
     let n = b.len();
     let mut i = start;
-    if b[i] == b'0' && i + 1 < n && matches!(b[i + 1], b'x' | b'X') && i + 2 < n && b[i + 2].is_ascii_hexdigit() {
+    if b[i] == b'0'
+        && i + 1 < n
+        && matches!(b[i + 1], b'x' | b'X')
+        && i + 2 < n
+        && b[i + 2].is_ascii_hexdigit()
+    {
         i += 2;
         while i < n && b[i].is_ascii_hexdigit() {
             i += 1;
@@ -325,7 +331,10 @@ fn number_end(b: &[u8], start: usize) -> usize {
     while i < n && (b[i].is_ascii_digit() || b[i] == b'_') {
         i += 1;
     }
-    if i < n && b[i] == b'.' && (i + 1 >= n || b[i + 1].is_ascii_digit() || !(is_ident_start(b[i + 1]) || b[i + 1] == b'.')) {
+    if i < n
+        && b[i] == b'.'
+        && (i + 1 >= n || b[i + 1].is_ascii_digit() || !(is_ident_start(b[i + 1]) || b[i + 1] == b'.'))
+    {
         i += 1;
         while i < n && b[i].is_ascii_digit() {
             i += 1;
@@ -496,6 +505,8 @@ mod tests {
     fn sqlite_bracket_identifier() {
         assert_eq!(kinds("[my col]", Sqlite), vec![(TokenKind::QuotedIdent, "[my col]".into())]);
         assert_eq!(kinds("a[1]", Postgres).len(), 4);
+        assert_eq!(kinds("[a\nb]", Sqlite), vec![(TokenKind::QuotedIdent, "[a\nb]".into())]);
+        assert_eq!(kinds("[abc", Sqlite)[0].0, TokenKind::Punct);
     }
 
     #[test]

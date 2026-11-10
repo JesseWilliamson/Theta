@@ -8,20 +8,25 @@
 pub mod complete;
 pub mod export;
 pub mod fk;
+pub mod format;
 pub mod generate;
 pub mod keywords;
 pub mod lexer;
 pub mod lint;
 pub mod plan;
-pub mod script;
 pub(crate) mod scope;
+pub mod script;
 
-#[cfg(test)]
-pub(crate) mod fixtures;
+/// Realistic catalogs used by this crate's tests; exposed so other crates can reuse them.
+#[doc(hidden)]
+pub mod fixtures;
 
 pub use complete::{CompletionItem, CompletionKind, CompletionList, CompletionRequest, complete};
 pub use export::{ExportFormat, export};
-pub use fk::{JoinSuggestion, TableRef, VirtualForeignKey, infer_foreign_keys, suggest_joins, tables_in_scope};
+pub use fk::{
+    JoinSuggestion, TableRef, VirtualForeignKey, infer_foreign_keys, suggest_joins, tables_in_scope,
+};
+pub use format::{FormatOptions, format};
 pub use generate::{build_delete, build_insert, build_update, select_top, sql_literal, table_ddl};
 pub use lint::{Diagnostic, Severity, lint};
 pub use plan::{Insight, PlanSummary, analyze_plan};

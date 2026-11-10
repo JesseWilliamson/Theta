@@ -109,7 +109,10 @@ fn unique_single(t: &Table, col: &str) -> Option<&'static str> {
     if t.primary_key.len() == 1 && t.primary_key[0].eq_ignore_ascii_case(col) {
         return Some("primary key");
     }
-    if t.indexes.iter().any(|i| (i.unique || i.primary) && i.columns.len() == 1 && i.columns[0].eq_ignore_ascii_case(col)) {
+    if t.indexes
+        .iter()
+        .any(|i| (i.unique || i.primary) && i.columns.len() == 1 && i.columns[0].eq_ignore_ascii_case(col))
+    {
         return Some("unique");
     }
     None
@@ -186,7 +189,11 @@ fn infer_for_column(
     let mut best: Option<(f32, &Schema, &Table, String, String)> = None;
 
     // Self reference (`parent_id` in `categories`).
-    if stem_words.len() == 1 && SELF_REF_STEMS.contains(&stem_words[0]) && suffix == "id" && table.primary_key.len() == 1 {
+    if stem_words.len() == 1
+        && SELF_REF_STEMS.contains(&stem_words[0])
+        && suffix == "id"
+        && table.primary_key.len() == 1
+    {
         let pk = &table.primary_key[0];
         let pk_kind = table.columns.iter().find(|c| c.name.eq_ignore_ascii_case(pk)).map(|c| c.kind);
         if pk_kind == Some(col_kind) {
@@ -241,7 +248,8 @@ fn infer_for_column(
                 }
                 if std::ptr::eq(*ts, schema) {
                     conf += 0.1;
-                } else if catalog.default_schema.as_deref().is_some_and(|d| d.eq_ignore_ascii_case(&ts.name)) {
+                } else if catalog.default_schema.as_deref().is_some_and(|d| d.eq_ignore_ascii_case(&ts.name))
+                {
                     conf += 0.05;
                 }
                 if uniq == "primary key" {
@@ -285,7 +293,8 @@ fn infer_for_column(
 // join suggestions
 
 fn initials(name: &str) -> String {
-    let s: String = name.split(['_', ' ', '-']).filter_map(|w| w.chars().next()).collect::<String>().to_lowercase();
+    let s: String =
+        name.split(['_', ' ', '-']).filter_map(|w| w.chars().next()).collect::<String>().to_lowercase();
     if s.is_empty() { "t".into() } else { s }
 }
 
@@ -304,10 +313,7 @@ fn unique_alias(table: &str, used: &HashSet<String>, kind: DatabaseKind) -> Stri
             return a;
         }
     }
-    (2..)
-        .map(|n| format!("{base}{n}"))
-        .find(|a| ok(a))
-        .unwrap_or(base)
+    (2..).map(|n| format!("{base}{n}")).find(|a| ok(a)).unwrap_or(base)
 }
 
 struct Edge<'a> {
@@ -320,7 +326,12 @@ struct Edge<'a> {
     inferred: bool,
 }
 
-fn resolve_ref<'a>(catalog: &'a Catalog, from: &'a Schema, fk_schema: Option<&str>, name: &str) -> Option<(&'a Schema, &'a Table)> {
+fn resolve_ref<'a>(
+    catalog: &'a Catalog,
+    from: &'a Schema,
+    fk_schema: Option<&str>,
+    name: &str,
+) -> Option<(&'a Schema, &'a Table)> {
     match fk_schema {
         Some(s) => catalog.find_table(Some(s), name),
         None => catalog.find_table(Some(&from.name), name).or_else(|| catalog.find_table(None, name)),
@@ -344,7 +355,9 @@ pub fn suggest_joins(catalog: &Catalog, in_scope: &[TableRef], kind: DatabaseKin
     let mut edges: Vec<(usize, bool, Edge)> = Vec::new(); // (scope index, scope-is-child, edge)
     for (si, (_, s_schema, s_table)) in resolved.iter().enumerate() {
         for fk in &s_table.foreign_keys {
-            if let Some(parent) = resolve_ref(catalog, s_schema, fk.referenced_schema.as_deref(), &fk.referenced_table) {
+            if let Some(parent) =
+                resolve_ref(catalog, s_schema, fk.referenced_schema.as_deref(), &fk.referenced_table)
+            {
                 edges.push((
                     si,
                     true,
@@ -362,8 +375,12 @@ pub fn suggest_joins(catalog: &Catalog, in_scope: &[TableRef], kind: DatabaseKin
         for other_schema in &catalog.schemas {
             for other in &other_schema.tables {
                 for fk in &other.foreign_keys {
-                    if let Some(parent) = resolve_ref(catalog, other_schema, fk.referenced_schema.as_deref(), &fk.referenced_table)
-                        && std::ptr::eq(parent.1, *s_table)
+                    if let Some(parent) = resolve_ref(
+                        catalog,
+                        other_schema,
+                        fk.referenced_schema.as_deref(),
+                        &fk.referenced_table,
+                    ) && std::ptr::eq(parent.1, *s_table)
                     {
                         edges.push((
                             si,
@@ -398,7 +415,10 @@ pub fn suggest_joins(catalog: &Catalog, in_scope: &[TableRef], kind: DatabaseKin
                         child_cols: vec![v.column.clone()],
                         parent,
                         parent_cols: vec![v.referenced_column.clone()],
-                        via: format!("inferred: {}.{} → {}.{}", v.table, v.column, v.referenced_table, v.referenced_column),
+                        via: format!(
+                            "inferred: {}.{} → {}.{}",
+                            v.table, v.column, v.referenced_table, v.referenced_column
+                        ),
                         inferred: true,
                     },
                 ));
@@ -416,27 +436,39 @@ pub fn suggest_joins(catalog: &Catalog, in_scope: &[TableRef], kind: DatabaseKin
         let (scope_ref, _, _) = resolved[si];
         let new_side = if scope_is_child { e.parent } else { e.child };
         // Already joined: skip unless it is a self-join on the scope table.
-        if in_scope_tables.iter().any(|t| same(*t, new_side)) && !same(new_side, (resolved[si].1, resolved[si].2)) {
+        if in_scope_tables.iter().any(|t| same(*t, new_side))
+            && !same(new_side, (resolved[si].1, resolved[si].2))
+        {
             continue;
         }
-        let key = format!("{}|{}|{}|{:?}|{:?}", si, new_side.0.name, new_side.1.name, e.child_cols, e.parent_cols);
+        let key =
+            format!("{}|{}|{}|{:?}|{:?}", si, new_side.0.name, new_side.1.name, e.child_cols, e.parent_cols);
         if !seen.insert(key) {
             continue;
         }
         let alias = unique_alias(&new_side.1.name, &used, kind);
         let scope_name = quote_if_needed(scope_ref.reference_name(), kind);
         let new_alias_q = quote_if_needed(&alias, kind);
-        let (child_alias, parent_alias) = if scope_is_child { (&scope_name, &new_alias_q) } else { (&new_alias_q, &scope_name) };
+        let (child_alias, parent_alias) =
+            if scope_is_child { (&scope_name, &new_alias_q) } else { (&new_alias_q, &scope_name) };
         let condition = e
             .child_cols
             .iter()
             .zip(&e.parent_cols)
             .map(|(c, p)| {
-                format!("{child_alias}.{} = {parent_alias}.{}", quote_if_needed(c, kind), quote_if_needed(p, kind))
+                format!(
+                    "{child_alias}.{} = {parent_alias}.{}",
+                    quote_if_needed(c, kind),
+                    quote_if_needed(p, kind)
+                )
             })
             .collect::<Vec<_>>()
             .join(" AND ");
-        let schema = if default.is_some_and(|d| d.eq_ignore_ascii_case(&new_side.0.name)) { None } else { Some(new_side.0.name.clone()) };
+        let schema = if default.is_some_and(|d| d.eq_ignore_ascii_case(&new_side.0.name)) {
+            None
+        } else {
+            Some(new_side.0.name.clone())
+        };
         let clause = format!(
             "JOIN {} {} ON {}",
             qualified_name(schema.as_deref(), &new_side.1.name, kind),
@@ -463,7 +495,12 @@ pub(crate) struct JoinCondition {
 
 /// Join conditions linking `refs[newest]` (the table just joined) with each other
 /// table in scope, declared foreign keys first. Used to complete after `ON`.
-pub(crate) fn join_conditions(catalog: &Catalog, refs: &[TableRef], newest: usize, kind: DatabaseKind) -> Vec<JoinCondition> {
+pub(crate) fn join_conditions(
+    catalog: &Catalog,
+    refs: &[TableRef],
+    newest: usize,
+    kind: DatabaseKind,
+) -> Vec<JoinCondition> {
     let Some(a_ref) = refs.get(newest) else { return Vec::new() };
     let Some(a) = catalog.find_table(a_ref.schema.as_deref(), &a_ref.table) else { return Vec::new() };
     let a_name = quote_if_needed(a_ref.reference_name(), kind);
@@ -480,13 +517,16 @@ pub(crate) fn join_conditions(catalog: &Catalog, refs: &[TableRef], newest: usiz
             ccols
                 .iter()
                 .zip(pcols)
-                .map(|(c, p)| format!("{child}.{} = {parent}.{}", quote_if_needed(c, kind), quote_if_needed(p, kind)))
+                .map(|(c, p)| {
+                    format!("{child}.{} = {parent}.{}", quote_if_needed(c, kind), quote_if_needed(p, kind))
+                })
                 .collect::<Vec<_>>()
                 .join(" AND ")
         };
         for (child, parent, cn, pn) in [(a, b, &a_name, &b_name), (b, a, &b_name, &a_name)] {
             for fk in &child.1.foreign_keys {
-                let target = resolve_ref(catalog, child.0, fk.referenced_schema.as_deref(), &fk.referenced_table);
+                let target =
+                    resolve_ref(catalog, child.0, fk.referenced_schema.as_deref(), &fk.referenced_table);
                 if target.is_some_and(|t| std::ptr::eq(t.1, parent.1)) {
                     real.push(JoinCondition {
                         condition: cond(cn, &fk.columns, pn, &fk.referenced_columns),
@@ -502,8 +542,16 @@ pub(crate) fn join_conditions(catalog: &Catalog, refs: &[TableRef], newest: usiz
                     && v.referenced_schema.eq_ignore_ascii_case(&parent.0.name)
                 {
                     guessed.push(JoinCondition {
-                        condition: cond(cn, std::slice::from_ref(&v.column), pn, std::slice::from_ref(&v.referenced_column)),
-                        via: format!("inferred: {}.{} → {}.{}", v.table, v.column, v.referenced_table, v.referenced_column),
+                        condition: cond(
+                            cn,
+                            std::slice::from_ref(&v.column),
+                            pn,
+                            std::slice::from_ref(&v.referenced_column),
+                        ),
+                        via: format!(
+                            "inferred: {}.{} → {}.{}",
+                            v.table, v.column, v.referenced_table, v.referenced_column
+                        ),
                         inferred: true,
                     });
                 }
@@ -526,11 +574,16 @@ mod tests {
 
     #[test]
     fn tables_in_scope_basic() {
-        let refs = tables_in_scope("select * from public.customers c join orders on true, stores s", Postgres);
+        let refs =
+            tables_in_scope("select * from public.customers c join orders on true, stores s", Postgres);
         assert_eq!(
             refs,
             vec![
-                TableRef { schema: Some("public".into()), table: "customers".into(), alias: Some("c".into()) },
+                TableRef {
+                    schema: Some("public".into()),
+                    table: "customers".into(),
+                    alias: Some("c".into())
+                },
                 tr("orders", None),
                 tr("stores", Some("s")),
             ]
@@ -586,7 +639,13 @@ mod tests {
     fn composite_fk_conditions_are_anded() {
         let mut cat = fixtures::shop();
         let parent = table("p", vec![int("a"), int("b")], &["a", "b"], vec![], None);
-        let child = table("ch", vec![int("pa"), int("pb")], &[], vec![fixtures::fk("ch_fk", &["pa", "pb"], None, "p", &["a", "b"])], None);
+        let child = table(
+            "ch",
+            vec![int("pa"), int("pb")],
+            &[],
+            vec![fixtures::fk("ch_fk", &["pa", "pb"], None, "p", &["a", "b"])],
+            None,
+        );
         cat.schemas[0].tables.push(parent);
         cat.schemas[0].tables.push(child);
         let joins = suggest_joins(&cat, &[tr("p", Some("p"))], Postgres);
@@ -598,7 +657,13 @@ mod tests {
     fn other_schema_tables_are_qualified() {
         let mut cat = fixtures::shop();
         // A declared FK from analytics.events to public.customers.
-        cat.schemas[1].tables[0].foreign_keys.push(fixtures::fk("ev_c", &["customer_id"], Some("public"), "customers", &["id"]));
+        cat.schemas[1].tables[0].foreign_keys.push(fixtures::fk(
+            "ev_c",
+            &["customer_id"],
+            Some("public"),
+            "customers",
+            &["id"],
+        ));
         let joins = suggest_joins(&cat, &[tr("customers", Some("c"))], Postgres);
         let e = joins.iter().find(|j| j.table.table == "events").unwrap();
         assert_eq!(e.table.schema.as_deref(), Some("analytics"));
@@ -619,7 +684,11 @@ mod tests {
         let joins = suggest_joins(&cat, &[tr("employees", Some("e"))], Postgres);
         let j = joins.iter().find(|j| j.table.table == "employees").unwrap();
         assert_ne!(j.table.alias.as_deref(), Some("e"));
-        assert!(j.condition.starts_with("e.manager_id = ") || j.condition.ends_with(" = e.id") || j.condition.contains("manager_id"));
+        assert!(
+            j.condition.starts_with("e.manager_id = ")
+                || j.condition.ends_with(" = e.id")
+                || j.condition.contains("manager_id")
+        );
     }
 
     #[test]
@@ -670,7 +739,13 @@ mod tests {
 
     #[test]
     fn uuid_and_type_family_rules() {
-        let users = table("users", vec![col("uuid", "uuid", quarry_core::TypeKind::Uuid), text("name")], &["uuid"], vec![], None);
+        let users = table(
+            "users",
+            vec![col("uuid", "uuid", quarry_core::TypeKind::Uuid), text("name")],
+            &["uuid"],
+            vec![],
+            None,
+        );
         let posts = table(
             "posts",
             vec![int("id"), col("user_uuid", "uuid", quarry_core::TypeKind::Uuid), text("user_id")],
@@ -678,9 +753,19 @@ mod tests {
             vec![],
             None,
         );
-        let cat = Catalog { schemas: vec![Schema { name: "public".into(), tables: vec![users, posts], routines: vec![], sequences: vec![] }], default_schema: Some("public".into()) };
+        let cat = Catalog {
+            schemas: vec![Schema {
+                name: "public".into(),
+                tables: vec![users, posts],
+                routines: vec![],
+                sequences: vec![],
+            }],
+            default_schema: Some("public".into()),
+        };
         let v = infer_foreign_keys(&cat);
-        assert!(v.iter().any(|x| x.table == "posts" && x.column == "user_uuid" && x.referenced_column == "uuid"));
+        assert!(
+            v.iter().any(|x| x.table == "posts" && x.column == "user_uuid" && x.referenced_column == "uuid")
+        );
         // text `user_id` cannot reference a uuid-typed key.
         assert!(!v.iter().any(|x| x.column == "user_id"));
     }
@@ -689,15 +774,37 @@ mod tests {
     fn target_must_be_a_key() {
         let t = table("accounts", vec![int("id"), text("name")], &[], vec![], None);
         let u = table("tx", vec![int("id"), int("account_id")], &["id"], vec![], None);
-        let cat = Catalog { schemas: vec![Schema { name: "public".into(), tables: vec![t, u], routines: vec![], sequences: vec![] }], default_schema: None };
+        let cat = Catalog {
+            schemas: vec![Schema {
+                name: "public".into(),
+                tables: vec![t, u],
+                routines: vec![],
+                sequences: vec![],
+            }],
+            default_schema: None,
+        };
         assert!(infer_foreign_keys(&cat).is_empty());
     }
 
     #[test]
     fn camel_case_and_role_prefix() {
         let c = table("customers", vec![int("id")], &["id"], vec![], None);
-        let o = table("orders", vec![int("id"), int("customerId"), int("billing_customer_id")], &["id"], vec![], None);
-        let cat = Catalog { schemas: vec![Schema { name: "public".into(), tables: vec![c, o], routines: vec![], sequences: vec![] }], default_schema: None };
+        let o = table(
+            "orders",
+            vec![int("id"), int("customerId"), int("billing_customer_id")],
+            &["id"],
+            vec![],
+            None,
+        );
+        let cat = Catalog {
+            schemas: vec![Schema {
+                name: "public".into(),
+                tables: vec![c, o],
+                routines: vec![],
+                sequences: vec![],
+            }],
+            default_schema: None,
+        };
         let v = infer_foreign_keys(&cat);
         let camel = v.iter().find(|x| x.column == "customerId").expect("camel");
         let role = v.iter().find(|x| x.column == "billing_customer_id").expect("role prefix");

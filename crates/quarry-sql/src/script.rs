@@ -43,8 +43,8 @@ fn is_routine_header(sql: &str, toks: &[Token], first_sig: usize) -> Option<bool
             let w = t.text(sql).to_ascii_uppercase();
             match w.as_str() {
                 "FUNCTION" | "PROCEDURE" | "TRIGGER" | "EVENT" => return Some(true),
-                "TABLE" | "VIEW" | "INDEX" | "SCHEMA" | "DATABASE" | "SEQUENCE" | "TYPE" | "EXTENSION" | "DOMAIN"
-                | "ROLE" | "USER" | "VIRTUAL" => return Some(false),
+                "TABLE" | "VIEW" | "INDEX" | "SCHEMA" | "DATABASE" | "SEQUENCE" | "TYPE" | "EXTENSION"
+                | "DOMAIN" | "ROLE" | "USER" | "VIRTUAL" => return Some(false),
                 _ => {}
             }
         }
@@ -78,7 +78,8 @@ pub(crate) fn segments(sql: &str, toks: &[Token], kind: DatabaseKind) -> Vec<Seg
         if t.kind == TokenKind::Word && routine == Some(true) {
             if t.is_kw(sql, "BEGIN") {
                 // Postgres 14+ `BEGIN ATOMIC ... END` is the only non-dollar-quoted body.
-                let atomic = next_sig_word(sql, toks, i + 1).is_some_and(|w| w.eq_ignore_ascii_case("ATOMIC"));
+                let atomic =
+                    next_sig_word(sql, toks, i + 1).is_some_and(|w| w.eq_ignore_ascii_case("ATOMIC"));
                 if kind != DatabaseKind::Postgres || atomic {
                     block_depth += 1;
                 }
@@ -96,14 +97,24 @@ pub(crate) fn segments(sql: &str, toks: &[Token], kind: DatabaseKind) -> Vec<Seg
         }
         prev_was_end = t.is_kw(sql, "END");
         if t.kind == TokenKind::Punct && t.is_punct(sql, ";") && block_depth == 0 && case_depth == 0 {
-            out.push(Segment { start: seg_start_byte, end: t.start, has_semi: true, tokens: seg_start_tok..i });
+            out.push(Segment {
+                start: seg_start_byte,
+                end: t.start,
+                has_semi: true,
+                tokens: seg_start_tok..i,
+            });
             seg_start_tok = i + 1;
             seg_start_byte = t.end;
             first_sig = None;
             routine = None;
         }
     }
-    out.push(Segment { start: seg_start_byte, end: sql.len(), has_semi: false, tokens: seg_start_tok..toks.len() });
+    out.push(Segment {
+        start: seg_start_byte,
+        end: sql.len(),
+        has_semi: false,
+        tokens: seg_start_tok..toks.len(),
+    });
     out
 }
 
@@ -141,7 +152,9 @@ pub fn statement_at(sql: &str, offset: usize, kind: DatabaseKind) -> Option<Stat
     // (content range, end including the `;`)
     let stmts: Vec<(Range<usize>, usize)> = segments(sql, &toks, kind)
         .iter()
-        .filter_map(|s| segment_content(&toks, s).map(|r| (r.clone(), if s.has_semi { s.end + 1 } else { r.end })))
+        .filter_map(|s| {
+            segment_content(&toks, s).map(|r| (r.clone(), if s.has_semi { s.end + 1 } else { r.end }))
+        })
         .collect();
     if stmts.is_empty() {
         return None;
@@ -198,20 +211,31 @@ pub fn classify(statement: &str, kind: DatabaseKind) -> StatementClass {
     let up = |t: &Token| t.text(statement).to_ascii_uppercase();
     match up(first).as_str() {
         "SELECT" => {
-            if kind == DatabaseKind::Postgres && has_top_level_into(statement, &sig) { Ddl } else { Query }
+            if kind == DatabaseKind::Postgres && has_top_level_into(statement, &sig) {
+                Ddl
+            } else {
+                Query
+            }
         }
         "VALUES" | "SHOW" | "DESCRIBE" | "DESC" | "HELP" => Query,
         "TABLE" if kind == DatabaseKind::Postgres => Query,
         "EXPLAIN" => explain_class(statement, kind, &sig),
         "WITH" => with_class(statement, &sig),
-        "INSERT" | "UPDATE" | "DELETE" | "MERGE" | "REPLACE" | "COPY" | "TRUNCATE" | "UPSERT" | "LOAD" => Write,
-        "CREATE" | "ALTER" | "DROP" | "RENAME" | "COMMENT" | "GRANT" | "REVOKE" | "REINDEX" | "VACUUM" | "ANALYZE"
-        | "ANALYSE" | "CLUSTER" | "REFRESH" | "ATTACH" | "DETACH" | "OPTIMIZE" | "REPAIR" | "SECURITY" | "IMPORT" => Ddl,
+        "INSERT" | "UPDATE" | "DELETE" | "MERGE" | "REPLACE" | "COPY" | "TRUNCATE" | "UPSERT" | "LOAD" => {
+            Write
+        }
+        "CREATE" | "ALTER" | "DROP" | "RENAME" | "COMMENT" | "GRANT" | "REVOKE" | "REINDEX" | "VACUUM"
+        | "ANALYZE" | "ANALYSE" | "CLUSTER" | "REFRESH" | "ATTACH" | "DETACH" | "OPTIMIZE" | "REPAIR"
+        | "SECURITY" | "IMPORT" => Ddl,
         "BEGIN" | "START" | "COMMIT" | "ROLLBACK" | "SAVEPOINT" | "RELEASE" | "END" | "ABORT" => Transaction,
-        "SET" | "RESET" | "USE" | "DISCARD" | "LISTEN" | "UNLISTEN" | "NOTIFY" | "LOCK" | "UNLOCK" | "DECLARE"
-        | "FETCH" | "MOVE" | "CLOSE" => Session,
+        "SET" | "RESET" | "USE" | "DISCARD" | "LISTEN" | "UNLISTEN" | "NOTIFY" | "LOCK" | "UNLOCK"
+        | "DECLARE" | "FETCH" | "MOVE" | "CLOSE" => Session,
         "PRAGMA" => {
-            if sig.iter().any(|t| t.text(statement) == "=" || t.is_punct(statement, "(")) { Session } else { Query }
+            if sig.iter().any(|t| t.text(statement) == "=" || t.is_punct(statement, "(")) {
+                Session
+            } else {
+                Query
+            }
         }
         _ => Other,
     }
@@ -244,7 +268,19 @@ fn explain_class(sql: &str, kind: DatabaseKind, sig: &[&Token]) -> StatementClas
             depth -= 1;
         } else if t.kind == TokenKind::Word {
             let w = t.text(sql).to_ascii_uppercase();
-            if depth == 0 && !matches!(w.as_str(), "ANALYZE" | "ANALYSE" | "VERBOSE" | "QUERY" | "PLAN" | "FORMAT" | "EXTENDED" | "PARTITIONS") {
+            if depth == 0
+                && !matches!(
+                    w.as_str(),
+                    "ANALYZE"
+                        | "ANALYSE"
+                        | "VERBOSE"
+                        | "QUERY"
+                        | "PLAN"
+                        | "FORMAT"
+                        | "EXTENDED"
+                        | "PARTITIONS"
+                )
+            {
                 let rest: Vec<String> = sig[i..].iter().map(|t| t.text(sql).to_string()).collect();
                 inner = Some(classify(&rest.join(" "), kind));
                 break;
@@ -295,7 +331,10 @@ mod tests {
     #[test]
     fn semicolons_in_strings_and_comments() {
         let sql = "select 'a;b'; select \"x;y\" from t; -- c; d\nselect /* ; */ 3";
-        assert_eq!(split(sql, Postgres), vec!["select 'a;b'", "select \"x;y\" from t", "-- c; d\nselect /* ; */ 3"]);
+        assert_eq!(
+            split(sql, Postgres),
+            vec!["select 'a;b'", "select \"x;y\" from t", "-- c; d\nselect /* ; */ 3"]
+        );
     }
 
     #[test]
@@ -361,7 +400,8 @@ mod tests {
 
     #[test]
     fn postgres_begin_atomic() {
-        let sql = "CREATE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; SELECT 2; END; SELECT 3";
+        let sql =
+            "CREATE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; SELECT 2; END; SELECT 3";
         assert_eq!(split(sql, Postgres).len(), 2);
     }
 
@@ -424,18 +464,34 @@ mod tests {
 
     #[test]
     fn classify_queries() {
-        for s in ["select 1", "  -- c\n SELECT * from t", "(select 1) union (select 2)", "show tables", "values (1)",
-                  "explain select 1", "with a as (select 1) select * from a", "select * from t for update"] {
+        for s in [
+            "select 1",
+            "  -- c\n SELECT * from t",
+            "(select 1) union (select 2)",
+            "show tables",
+            "values (1)",
+            "explain select 1",
+            "with a as (select 1) select * from a",
+            "select * from t for update",
+        ] {
             assert_eq!(classify(s, Postgres), StatementClass::Query, "{s}");
         }
     }
 
     #[test]
     fn classify_writes() {
-        for s in ["insert into t values (1)", "UPDATE t SET a=1", "delete from t", "merge into t using s on true when matched then delete",
-                  "copy t from stdin", "truncate t", "with d as (delete from t returning *) select * from d",
-                  "with a as (select 1) insert into t select * from a", "with a as (select 1) update t set x = 1",
-                  "explain analyze delete from t"] {
+        for s in [
+            "insert into t values (1)",
+            "UPDATE t SET a=1",
+            "delete from t",
+            "merge into t using s on true when matched then delete",
+            "copy t from stdin",
+            "truncate t",
+            "with d as (delete from t returning *) select * from d",
+            "with a as (select 1) insert into t select * from a",
+            "with a as (select 1) update t set x = 1",
+            "explain analyze delete from t",
+        ] {
             assert_eq!(classify(s, Postgres), StatementClass::Write, "{s}");
         }
         assert_eq!(classify("replace into t values (1)", MySql), StatementClass::Write);
@@ -444,7 +500,10 @@ mod tests {
     #[test]
     fn explain_without_analyze_is_a_query() {
         assert_eq!(classify("explain delete from t", Postgres), StatementClass::Query);
-        assert_eq!(classify("explain (analyze, buffers) update t set a = 1", Postgres), StatementClass::Write);
+        assert_eq!(
+            classify("explain (analyze, buffers) update t set a = 1", Postgres),
+            StatementClass::Write
+        );
         assert_eq!(classify("EXPLAIN QUERY PLAN select 1", Sqlite), StatementClass::Query);
     }
 
@@ -467,7 +526,10 @@ mod tests {
 
     #[test]
     fn classify_on_conflict_do_update_is_write_not_confused() {
-        assert_eq!(classify("insert into t values (1) on conflict do update set a = 1", Postgres), StatementClass::Write);
+        assert_eq!(
+            classify("insert into t values (1) on conflict do update set a = 1", Postgres),
+            StatementClass::Write
+        );
         assert_eq!(classify("select 1 from t for update", Postgres), StatementClass::Query);
     }
 }

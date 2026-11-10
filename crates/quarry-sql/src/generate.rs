@@ -84,7 +84,11 @@ pub fn sql_literal(value: &Value, kind: DatabaseKind) -> String {
             }
         }
         Value::Decimal(s) => {
-            if is_plain_number(s) { s.clone() } else { quote_str(s, kind) }
+            if is_plain_number(s) {
+                s.clone()
+            } else {
+                quote_str(s, kind)
+            }
         }
         Value::Text(s)
         | Value::Json(s)
@@ -104,7 +108,10 @@ pub fn sql_literal(value: &Value, kind: DatabaseKind) -> String {
                 if items.is_empty() {
                     "'{}'".into()
                 } else {
-                    format!("ARRAY[{}]", items.iter().map(|v| sql_literal(v, kind)).collect::<Vec<_>>().join(", "))
+                    format!(
+                        "ARRAY[{}]",
+                        items.iter().map(|v| sql_literal(v, kind)).collect::<Vec<_>>().join(", ")
+                    )
                 }
             }
             // No array type outside Postgres: JSON text is the closest faithful form.
@@ -147,7 +154,12 @@ pub fn build_update(
 ) -> String {
     let assignments: Vec<String> =
         set.iter().map(|(c, v)| format!("{} = {}", quote_if_needed(c, kind), sql_literal(v, kind))).collect();
-    format!("UPDATE {} SET {}{}", target(kind, schema, table), assignments.join(", "), where_clause(kind, key))
+    format!(
+        "UPDATE {} SET {}{}",
+        target(kind, schema, table),
+        assignments.join(", "),
+        where_clause(kind, key)
+    )
 }
 
 /// Multi-row `INSERT`. Rows go on separate lines for readability.
@@ -175,7 +187,12 @@ pub fn build_insert(
     format!("INSERT INTO {t} ({}) VALUES {values}", cols.join(", "))
 }
 
-pub fn build_delete(kind: DatabaseKind, schema: Option<&str>, table: &str, key: &[(String, Value)]) -> String {
+pub fn build_delete(
+    kind: DatabaseKind,
+    schema: Option<&str>,
+    table: &str,
+    key: &[(String, Value)],
+) -> String {
     format!("DELETE FROM {}{}", target(kind, schema, table), where_clause(kind, key))
 }
 
@@ -323,7 +340,10 @@ mod tests {
     #[test]
     fn typed_text_values_are_quoted() {
         assert_eq!(sql_literal(&Value::Uuid("a-b".into()), Postgres), "'a-b'");
-        assert_eq!(sql_literal(&Value::Timestamp("2024-01-02 03:04:05".into()), Postgres), "'2024-01-02 03:04:05'");
+        assert_eq!(
+            sql_literal(&Value::Timestamp("2024-01-02 03:04:05".into()), Postgres),
+            "'2024-01-02 03:04:05'"
+        );
         assert_eq!(sql_literal(&Value::Json("{\"a\":\"it's\"}".into()), Postgres), "'{\"a\":\"it''s\"}'");
     }
 
@@ -355,7 +375,10 @@ mod tests {
             &[("status".into(), Value::Text("paid".into())), ("total".into(), Value::Null)],
             &[("id".into(), Value::Int(7)), ("note".into(), Value::Null)],
         );
-        assert_eq!(sql, "UPDATE public.orders SET status = 'paid', total = NULL WHERE id = 7 AND note IS NULL");
+        assert_eq!(
+            sql,
+            "UPDATE public.orders SET status = 'paid', total = NULL WHERE id = 7 AND note IS NULL"
+        );
     }
 
     #[test]
@@ -368,15 +391,11 @@ mod tests {
 
     #[test]
     fn insert_single_and_multi() {
-        let one = build_insert(Postgres, None, "t", &["a".into(), "b".into()], &[vec![Value::Int(1), Value::Null]]);
+        let one =
+            build_insert(Postgres, None, "t", &["a".into(), "b".into()], &[vec![Value::Int(1), Value::Null]]);
         assert_eq!(one, "INSERT INTO t (a, b) VALUES (1, NULL)");
-        let many = build_insert(
-            Sqlite,
-            None,
-            "t",
-            &["a".into()],
-            &[vec![Value::Int(1)], vec![Value::Int(2)]],
-        );
+        let many =
+            build_insert(Sqlite, None, "t", &["a".into()], &[vec![Value::Int(1)], vec![Value::Int(2)]]);
         assert_eq!(many, "INSERT INTO t (a) VALUES (1),\n       (2)");
         assert_eq!(build_insert(MySql, None, "t", &[], &[]), "INSERT INTO t () VALUES ()");
         assert_eq!(build_insert(Postgres, None, "t", &[], &[]), "INSERT INTO t DEFAULT VALUES");
@@ -384,7 +403,10 @@ mod tests {
 
     #[test]
     fn select_top_query() {
-        assert_eq!(select_top(Postgres, Some("public"), "orders", 100), "SELECT * FROM public.orders LIMIT 100");
+        assert_eq!(
+            select_top(Postgres, Some("public"), "orders", 100),
+            "SELECT * FROM public.orders LIMIT 100"
+        );
         assert_eq!(select_top(MySql, None, "t", 5), "SELECT * FROM t LIMIT 5");
     }
 
@@ -427,7 +449,9 @@ mod tests {
             unique: true,
             primary: false,
             method: Some("btree".into()),
-            definition: Some("CREATE UNIQUE INDEX products_sku_key ON public.products USING btree (sku);".into()),
+            definition: Some(
+                "CREATE UNIQUE INDEX products_sku_key ON public.products USING btree (sku);".into(),
+            ),
         });
         t.comment = Some("Catalog's products".into());
         let ddl = table_ddl(Postgres, "public", &t);
