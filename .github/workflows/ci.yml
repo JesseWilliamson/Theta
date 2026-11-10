@@ -16,8 +16,10 @@ env:
   CARGO_NET_RETRY: 5
   # Debug info is useless in CI logs and is most of the target directory's size.
   RUSTFLAGS: -C debuginfo=0
-  # The toolchain version lives in rust-toolchain.toml; keep this in sync with it.
-  RUST_TOOLCHAIN: "1.97.0"
+  # Exact toolchain for CI (rust-toolchain.toml only says "stable" for local use). gpui needs >= 1.99 on macOS.
+  RUST_TOOLCHAIN: "1.99.1"
+  # beats rust-toolchain.toml, which only says "stable"; keep equal to RUST_TOOLCHAIN
+  RUSTUP_TOOLCHAIN: "1.99.1"
 
 jobs:
   # Formatting is its own job so that it never blocks the build/test jobs. It
@@ -83,11 +85,13 @@ jobs:
           cargo clippy -p quarry-core -p quarry-sql -p quarry-geo -p quarry-editor -p quarry-drivers
           --all-targets -- -D warnings
       - run: cargo test -p quarry-core -p quarry-sql -p quarry-geo -p quarry-editor -p quarry-drivers
-      # A throw-away sshd on 127.0.0.1:2222; see crates/quarry-drivers/tests/ssh/setup.sh.
+      # A throw-away sshd on 127.0.0.1:2222; see crates/quarry-drivers/tests/ssh/setup.sh. The key
+      # directory must be world-traversable (/tmp, not the runner's home): sshd reads
+      # authorized_keys as the test user.
       - name: SSH tunnel tests
         env:
           QUARRY_TEST_SSH: "1"
-          QUARRY_TEST_SSH_DIR: ${{ runner.temp }}/ssh-test
+          QUARRY_TEST_SSH_DIR: /tmp/quarry-ssh-test
         run: |
           sudo apt-get install -y openssh-server
           sudo -E crates/quarry-drivers/tests/ssh/setup.sh

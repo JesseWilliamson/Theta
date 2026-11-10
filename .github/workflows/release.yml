@@ -24,7 +24,9 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 5
-  RUST_TOOLCHAIN: "1.97.0"
+  RUST_TOOLCHAIN: "1.99.1"
+  # beats rust-toolchain.toml, which only says "stable"; keep equal to RUST_TOOLCHAIN
+  RUSTUP_TOOLCHAIN: "1.99.1"
   REF: ${{ github.event.inputs.ref || github.ref_name }}
 
 jobs:

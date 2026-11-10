@@ -1,4 +1,7 @@
+# Contributors follow the current stable release. CI pins an exact version (RUST_TOOLCHAIN in
+# .github/workflows/*.yml) so that a new release cannot break the build unannounced; bump it there.
+# gpui's macOS backend needs a toolchain with `Option::map_or_default` (stable since 1.99).
 [toolchain]
-channel = "1.97.0"
+channel = "stable"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

@@ -99,8 +99,8 @@ Every release also has a `SHA256SUMS` file.
 
 ## Build from source
 
-You need the Rust toolchain pinned in [`rust-toolchain.toml`](rust-toolchain.toml) (rustup installs it
-automatically) and a C compiler. Building the GPUI application takes several minutes and a few GB of disk.
+You need a recent stable Rust toolchain (1.99 or newer; see [`rust-toolchain.toml`](rust-toolchain.toml)) and a
+C compiler. Building the GPUI application takes several minutes and a few GB of disk.
 
 ```sh
 # Linux (Debian/Ubuntu package names, as used by CI)

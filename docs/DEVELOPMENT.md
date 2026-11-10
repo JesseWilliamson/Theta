@@ -188,8 +188,9 @@ README). When you change a UI, build it and look at a `script/shot` image before
 | `clippy` | `cargo clippy --workspace --all-targets -- -D warnings` | no (until clean) |
 
 All jobs use `Swatinem/rust-cache`, `CARGO_INCREMENTAL=0` and `RUSTFLAGS=-C debuginfo=0` to keep build time and
-the target directory small; Linux additionally links with `mold`. The toolchain version is pinned in
-`rust-toolchain.toml` and mirrored by `RUST_TOOLCHAIN` in the workflows; bump both together. Watch a
+the target directory small; Linux additionally links with `mold`. CI pins the exact toolchain through `RUST_TOOLCHAIN` / `RUSTUP_TOOLCHAIN` in the workflows (currently 1.99.1; gpui's macOS
+backend needs at least 1.99), while `rust-toolchain.toml` just says `stable` for local work; bump the
+workflow values deliberately. Watch a
 run with `gh run watch` and read failures with `gh run view <id> --log-failed`.
 
 ## Releasing
