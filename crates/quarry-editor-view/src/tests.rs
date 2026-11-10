@@ -664,3 +664,31 @@ fn settings_changes_reach_open_editors(cx: &mut TestAppContext) {
     });
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[gpui_kit::test]
+fn dragging_the_scrollbar_thumb_scrolls(cx: &mut TestAppContext) {
+    use gpui_kit::MouseButton;
+    use gpui_kit::test::TestEventExt as _;
+    let f = setup(cx, numbered_lines(500), Keymap::Helix);
+    f.render(cx);
+    let (thumb, track) = f.view.read_with(cx, |v, _| {
+        let l = v.layout.clone().unwrap();
+        (l.v_thumb.expect("a long buffer has a vertical thumb"), l.v_track.unwrap())
+    });
+    let from = thumb.center();
+    let to = Point::new(from.x, from.y + px(60.));
+    cx.update_window(f.window, |_, window, cx| {
+        window.pointer_down(from, MouseButton::Left, cx);
+        window.pointer_move(to, Some(MouseButton::Left), cx);
+        window.pointer_up(to, MouseButton::Left, cx);
+    })
+    .unwrap();
+    f.render(cx);
+    let (sy, max) = f.view.read_with(cx, |v, _| (v.scroll_y, v.layout.clone().unwrap().max_scroll.1));
+    assert!(sy > 0.0 && sy < max, "scrolled to {sy} of {max}");
+    // 60px of a track of this height maps proportionally.
+    let travel = f32::from(track.size.height) - f32::from(thumb.size.height);
+    assert!((sy / max - 60.0 / travel).abs() < 0.02, "{sy} / {max} vs {}", 60.0 / travel);
+    // Clicking the track pages toward the pointer; the text cursor is untouched.
+    assert_eq!(f.view.read_with(cx, |v, _| v.status().line), 1);
+}

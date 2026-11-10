@@ -874,7 +874,7 @@ impl EditorView {
         }
 
         // ---- statement band
-        let band = self.statement_lines().map(|(a, b)| {
+        let band = self.statement_lines(cx).map(|(a, b)| {
             let top = (a as f32 * line_h - self.scroll_y).max(0.0);
             let bottom = ((b + 1) as f32 * line_h - self.scroll_y).min(bh);
             (top, bottom.max(top))

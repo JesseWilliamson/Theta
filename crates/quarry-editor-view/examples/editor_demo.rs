@@ -2,7 +2,7 @@
 //!
 //!     cargo run -p quarry-editor-view --example editor_demo -- [--theme "Tokyo Night"]
 //!         [--keymap helix|standard] [--lines 50000] [--preset cjk|long|empty]
-//!         [--mark running|ok|failed] [--unfocused] [--scroll-to LINE]
+//!         [--mark running|ok|failed] [--unfocused] [--scroll-to LINE] [--autoscroll]
 //!
 //! Every `EditorEvent::Effect` is printed to stderr. `QUARRY_EDITOR_PERF=1` prints frame costs.
 
@@ -120,6 +120,7 @@ fn main() {
     let mut mark: Option<StatementStatus> = None;
     let mut unfocused = false;
     let mut scroll_to: Option<usize> = None;
+    let mut autoscroll = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -142,6 +143,7 @@ fn main() {
                 }
             }
             "--unfocused" => unfocused = true,
+            "--autoscroll" => autoscroll = true,
             "--scroll-to" => scroll_to = args.next().and_then(|v| v.parse().ok()),
             _ => {}
         }
@@ -210,6 +212,17 @@ fn main() {
                     e.set_statement_status(Some((span.range, status)), cx);
                 }
             });
+        }
+        if autoscroll {
+            // 600 frames of steady scrolling through the buffer; pair with QUARRY_EDITOR_PERF=1.
+            let editor = editor.clone();
+            cx.spawn(async move |cx| {
+                for i in 0..600usize {
+                    cx.background_executor().timer(std::time::Duration::from_millis(16)).await;
+                    editor.update(cx, |e, cx| e.scroll_to_line(10_000 + i * 3, cx));
+                }
+            })
+            .detach();
         }
         if let Some(line) = scroll_to {
             editor.update(cx, |e, cx| {

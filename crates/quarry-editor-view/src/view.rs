@@ -31,6 +31,9 @@ pub const HINT_DELAY: Duration = Duration::from_millis(250);
 /// Hovering a diagnostic this long opens its popover.
 pub const HOVER_DELAY: Duration = Duration::from_millis(400);
 const DIAGNOSTICS_DEBOUNCE: Duration = Duration::from_millis(300);
+/// Buffers longer than this (chars) get throttled whole-script lookups.
+const BIG_DOCUMENT_CHARS: usize = 150_000;
+const STATEMENT_THROTTLE: Duration = Duration::from_millis(120);
 /// Scrollbars stay visible this long after the last scroll.
 pub const SCROLLBAR_LINGER: Duration = Duration::from_millis(1200);
 
@@ -153,6 +156,8 @@ pub struct EditorView {
     // statements
     pub(crate) statement_status: Option<(Range<usize>, StatementStatus)>,
     stmt_cache: Option<(CacheKey, Option<(usize, usize)>)>,
+    stmt_at: Instant,
+    stmt_refresh_pending: bool,
     pub(crate) db_kind: DatabaseKind,
     pub(crate) placeholder: SharedString,
     pub(crate) read_only: bool,
@@ -238,6 +243,8 @@ impl EditorView {
             hover: None,
             statement_status: None,
             stmt_cache: None,
+            stmt_at: Instant::now(),
+            stmt_refresh_pending: false,
             db_kind: DatabaseKind::Postgres,
             placeholder: "Write SQL \u{2014} Ctrl+Enter runs the statement under the cursor".into(),
             read_only: false,
@@ -619,7 +626,6 @@ impl EditorView {
     fn on_edited(&mut self, cx: &mut Context<Self>) {
         let rev = self.editor.revision();
         self.statement_status = None;
-        self.stmt_cache = None;
         if self.transient.as_ref().is_some_and(|(r, _)| *r != rev) {
             self.transient = None;
         }
@@ -907,7 +913,12 @@ impl EditorView {
 
     /// Lines `(first, last)` of the statement under the primary cursor, cached per
     /// (revision, cursor).
-    pub(crate) fn statement_lines(&mut self) -> Option<(usize, usize)> {
+    ///
+    /// Finding the statement lexes the whole script, which costs milliseconds on a huge buffer.
+    /// While keys repeat on such a buffer the previous answer is reused (at most every 120 ms is
+    /// recomputed) and one refresh is scheduled for when input pauses, so the gutter band lags
+    /// by a blink instead of making every keystroke slow.
+    pub(crate) fn statement_lines(&mut self, cx: &mut Context<Self>) -> Option<(usize, usize)> {
         let cursor = self.primary_cursor();
         let key = (self.editor.revision(), cursor);
         if let Some((k, v)) = &self.stmt_cache
@@ -915,6 +926,26 @@ impl EditorView {
         {
             return *v;
         }
+        if self.editor.len_chars() > BIG_DOCUMENT_CHARS
+            && let Some((_, stale)) = &self.stmt_cache
+            && self.stmt_at.elapsed() < STATEMENT_THROTTLE
+        {
+            let stale = *stale;
+            if !self.stmt_refresh_pending {
+                self.stmt_refresh_pending = true;
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(STATEMENT_THROTTLE + Duration::from_millis(10)).await;
+                    this.update(cx, |v, cx| {
+                        v.stmt_refresh_pending = false;
+                        cx.notify();
+                    })
+                    .ok();
+                })
+                .detach();
+            }
+            return stale;
+        }
+        self.stmt_at = Instant::now();
         let text = self.text_snapshot();
         let span = quarry_sql::statement_at(&text, self.editor.char_to_byte(cursor), self.db_kind);
         let lines = span.map(|s| {
