@@ -41,7 +41,7 @@ pub fn bind(cx: &mut App) {
         kb("mod--", ZoomOut, None),
         kb("mod-0", ZoomReset, None),
         kb("mod-q", Quit, None),
-        kb("mod-enter", RunStatement, None),
+        kb("mod-enter", RunStatement, Some("!ResultGrid")),
         kb("mod-shift-enter", RunAll, None),
         kb("mod-.", CancelQuery, None),
         kb("mod-e", Explain, None),

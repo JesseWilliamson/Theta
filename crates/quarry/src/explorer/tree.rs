@@ -6,6 +6,7 @@
 //! catalog. The view virtualises the resulting list.
 
 use quarry_core::{Catalog, DatabaseKind, Routine, Schema, Table, TableKind};
+use quarry_sql::VirtualForeignKey;
 use quarry_ui::fuzzy::fuzzy_match;
 use std::collections::HashSet;
 
@@ -34,6 +35,8 @@ impl GroupKind {
 pub enum Section {
     Keys,
     ForeignKeys,
+    /// Inferred foreign keys, nested under `ForeignKeys`.
+    Suggested,
     Indexes,
 }
 
@@ -42,6 +45,7 @@ impl Section {
         match self {
             Section::Keys => "Keys",
             Section::ForeignKeys => "Foreign Keys",
+            Section::Suggested => "Suggested",
             Section::Indexes => "Indexes",
         }
     }
@@ -93,6 +97,8 @@ pub enum RowIcon {
     ForeignKeyColumn,
     Key,
     ForeignKey,
+    /// An inferred (undeclared) foreign key: dashed, muted.
+    SuggestedForeignKey,
     Index,
     Routine,
     Sequence,
@@ -131,6 +137,10 @@ pub struct Row {
     pub is_error: bool,
     /// A clickable "Retry" affordance on this row.
     pub retry: bool,
+    /// Hover text.
+    pub tooltip: Option<String>,
+    /// Drawn in the muted colour (suggestions).
+    pub muted: bool,
 }
 
 impl Row {
@@ -150,6 +160,8 @@ impl Row {
             color: None,
             is_error: false,
             retry: false,
+            tooltip: None,
+            muted: false,
         }
     }
 }
@@ -167,9 +179,16 @@ pub struct ConnView<'a> {
     pub kind: DatabaseKind,
     pub color: Option<&'a str>,
     pub phase: Phase<'a>,
+    /// Foreign keys implied by naming (see `quarry_sql::infer_foreign_keys`).
+    pub inferred: &'a [VirtualForeignKey],
 }
 
 /// `1234 -> "1.2k"`, `5_600_000 -> "5.6M"`.
+/// Stable leaf name of a suggested foreign key: `column|schema.table.column`.
+pub fn suggested_leaf_name(v: &VirtualForeignKey) -> String {
+    format!("{}|{}.{}.{}", v.column, v.referenced_schema, v.referenced_table, v.referenced_column)
+}
+
 pub fn format_estimate(n: u64) -> String {
     fn scaled(n: u64, unit: f64, suffix: &str) -> String {
         let v = n as f64 / unit;
@@ -219,11 +238,13 @@ fn group_of(kind: TableKind) -> GroupKind {
     }
 }
 
-struct Filter {
+struct Filter<'a> {
     query: String,
+    /// Inferred (undeclared) foreign keys of the connection being flattened.
+    inferred: &'a [VirtualForeignKey],
 }
 
-impl Filter {
+impl Filter<'_> {
     fn active(&self) -> bool {
         !self.query.trim().is_empty()
     }
@@ -235,7 +256,7 @@ impl Filter {
 /// Flatten everything visible. With a non-empty `filter`, only branches that
 /// contain matches are kept and they are expanded automatically.
 pub fn flatten(conns: &[ConnView], expanded: &HashSet<NodeKey>, filter: &str) -> Vec<Row> {
-    let filter = Filter { query: filter.to_string() };
+    let filter = Filter { query: filter.to_string(), inferred: &[] };
     let mut rows = Vec::new();
     for c in conns {
         flatten_connection(c, expanded, &filter, &mut rows);
@@ -244,6 +265,8 @@ pub fn flatten(conns: &[ConnView], expanded: &HashSet<NodeKey>, filter: &str) ->
 }
 
 fn flatten_connection(c: &ConnView, expanded: &HashSet<NodeKey>, filter: &Filter, rows: &mut Vec<Row>) {
+    let local = Filter { query: filter.query.clone(), inferred: c.inferred };
+    let filter = &local;
     let key = NodeKey::Connection(c.id.to_string());
     let name_match = filter.active().then(|| filter.matches(c.name)).flatten();
     let mut children: Vec<Row> = Vec::new();
@@ -260,6 +283,7 @@ fn flatten_connection(c: &ConnView, expanded: &HashSet<NodeKey>, filter: &Filter
             let mut r = Row::new(NodeKey::Status(c.id.to_string()), 1, RowIcon::Error, message.clone());
             r.is_error = true;
             r.retry = true;
+            r.tooltip = Some(message.clone());
             children.push(r);
         }
         Phase::Connected { catalog: None, loading, catalog_error } => {
@@ -344,7 +368,7 @@ fn flatten_schema(
                     let Some(m) = m else { continue };
                     total += 1;
                     if group_open {
-                        flatten_table(conn, &schema.name, t, m, expanded, &mut items);
+                        flatten_table(conn, &schema.name, t, m, expanded, filter.inferred, &mut items);
                     }
                 }
             }
@@ -424,6 +448,7 @@ fn flatten_table(
     t: &Table,
     highlights: Vec<usize>,
     expanded: &HashSet<NodeKey>,
+    inferred: &[VirtualForeignKey],
     out: &mut Vec<Row>,
 ) {
     let key = NodeKey::Table(conn.to_string(), schema.to_string(), t.name.clone());
@@ -480,13 +505,15 @@ fn flatten_table(
             out.push(r);
         }
     }
-    if !t.foreign_keys.is_empty() {
+    let suggested: Vec<&VirtualForeignKey> =
+        inferred.iter().filter(|v| v.schema == schema && v.table == t.name).collect();
+    if !t.foreign_keys.is_empty() || !suggested.is_empty() {
         let k = section_key(Section::ForeignKeys);
         let open = expanded.contains(&k);
         let mut s = Row::new(k, 4, RowIcon::ForeignKey, Section::ForeignKeys.label());
         s.expandable = true;
         s.expanded = open;
-        s.detail = Some(t.foreign_keys.len().to_string());
+        s.detail = Some((t.foreign_keys.len() + suggested.len()).to_string());
         out.push(s);
         if open {
             for fk in &t.foreign_keys {
@@ -502,6 +529,36 @@ fn flatten_table(
                 );
                 r.type_text = Some(format!("→ {target}.{}", fk.referenced_columns.join(", ")));
                 out.push(r);
+            }
+            if !suggested.is_empty() {
+                let sk = section_key(Section::Suggested);
+                let sopen = expanded.contains(&sk);
+                let mut sr = Row::new(sk, 5, RowIcon::SuggestedForeignKey, Section::Suggested.label());
+                sr.expandable = true;
+                sr.expanded = sopen;
+                sr.detail = Some(suggested.len().to_string());
+                sr.tooltip = Some("Relationships implied by column names and types, not declared as constraints".into());
+                out.push(sr);
+                if sopen {
+                    for v in &suggested {
+                        let mut r = Row::new(
+                            leaf_key(Section::Suggested, &suggested_leaf_name(v)),
+                            6,
+                            RowIcon::SuggestedForeignKey,
+                            v.column.clone(),
+                        );
+                        let target = if v.referenced_schema == schema {
+                            v.referenced_table.clone()
+                        } else {
+                            format!("{}.{}", v.referenced_schema, v.referenced_table)
+                        };
+                        r.type_text =
+                            Some(format!("→ {target}.{} · {:.0}%", v.referenced_column, v.confidence * 100.0));
+                        r.tooltip = Some(v.reason.clone());
+                        r.muted = true;
+                        out.push(r);
+                    }
+                }
             }
         }
     }
@@ -735,7 +792,7 @@ mod tests {
     #[test]
     fn status_rows_for_connection_phases() {
         let key = |p: Phase<'static>| {
-            let v = vec![ConnView { id: "c", name: "X", kind: DatabaseKind::Sqlite, color: None, phase: p }];
+            let v = vec![ConnView { id: "c", name: "X", kind: DatabaseKind::Sqlite, color: None, phase: p, inferred: &[] }];
             flatten(&v, &set(vec![NodeKey::Connection("c".into())]), "")
         };
         assert_eq!(key(Phase::Disconnected).len(), 1);

@@ -18,6 +18,7 @@ mod bottom;
 pub mod console;
 pub mod persist;
 mod run;
+mod welcome;
 mod status_bar;
 mod tabs;
 mod title_bar;
@@ -427,6 +428,12 @@ impl Workspace {
         cx: &mut App,
     ) {
         let message = message.into();
+        {
+            let t = gpui_kit::component::Theme::global_mut(cx);
+            t.notification.placement = gpui_kit::Anchor::BottomRight;
+            t.notification.margins.bottom = STATUS_BAR_HEIGHT + px(12.);
+            t.notification.margins.right = px(12.);
+        }
         let note = match kind {
             NoticeKind::Info => Notification::info(message),
             NoticeKind::Success => Notification::success(message),
@@ -456,6 +463,9 @@ impl Workspace {
                 if self.store.read(cx).state(id).is_connected() && self.active_connection.is_none() {
                     self.set_active_connection(Some(id.clone()), cx);
                 }
+                if self.store.read(cx).state(id).is_connected() && self.tabs.is_empty() && self.startup.is_none() {
+                    self.open_console(Some(id.clone()), None, window, cx);
+                }
                 cx.notify();
             }
             StoreEvent::ListChanged | StoreEvent::CatalogChanged(_) => cx.notify(),
@@ -480,6 +490,18 @@ impl Workspace {
             ExplorerEvent::EditConnection(id) => self.open_connection_dialog(Some(id), window, cx),
             ExplorerEvent::DeleteConnection(id) => self.confirm_delete_connection(id, window, cx),
             ExplorerEvent::ConnectionActivated(id) => self.set_active_connection(Some(id), cx),
+            ExplorerEvent::RelatedTables { connection_id, schema, table } => {
+                let (catalog, kind) = {
+                    let store = self.store.read(cx);
+                    (store.catalog(&connection_id), store.config(&connection_id).map(|c| c.kind))
+                };
+                let (Some(catalog), Some(kind)) = (catalog, kind) else { return };
+                let inferred = self.explorer.read(cx).inferred_for(&connection_id);
+                let items = crate::exec::fk_ui::related_tables(&catalog, &inferred, &schema, &table, kind);
+                let delegate =
+                    palette::RelatedPicker::new(items, cx.entity().downgrade(), connection_id, table);
+                self.open_picker(delegate, window, cx);
+            }
         }
     }
 
@@ -832,6 +854,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &BeginTransaction, window, cx| this.txn_command("BEGIN", window, cx)))
             .on_action(cx.listener(|this, _: &CommitTransaction, window, cx| this.txn_command("COMMIT", window, cx)))
             .on_action(cx.listener(|this, _: &RollbackTransaction, window, cx| this.txn_command("ROLLBACK", window, cx)))
+            .on_action(cx.listener(|_, _: &OpenSettings, window, cx| crate::dialogs::settings::open(window, cx)))
             .on_action(cx.listener(|this, _: &OpenSqlFile, window, cx| this.open_sql_file(window, cx)))
             .on_action(cx.listener(|this, _: &SaveConsole, window, cx| this.save_console_as(window, cx)))
             .on_action(cx.listener(|this, _: &WelcomeDemo, window, cx| this.start_demo(window, cx)))

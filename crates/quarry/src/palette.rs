@@ -57,6 +57,30 @@ fn commands() -> Vec<Command> {
     ]
 }
 
+/// (section, label, key hint) of every command, for the keymap reference.
+pub fn command_list(window: &Window) -> Vec<(String, String, String)> {
+    commands()
+        .into_iter()
+        .map(|c| {
+            let action = (c.action)();
+            let hint = window
+                .bindings_for_action(&*action)
+                .last()
+                .map(|b| {
+                    let spec = b
+                        .keystrokes()
+                        .iter()
+                        .map(|k| k.unparse(quarry_ui::host_os()))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    quarry_ui::format_keystrokes(&spec, quarry_ui::is_mac()).to_string()
+                })
+                .unwrap_or_default();
+            (c.section.to_string(), c.label.to_string(), hint)
+        })
+        .collect()
+}
+
 pub struct CommandPalette {
     items: Vec<PickerItem>,
 }
@@ -256,6 +280,59 @@ impl PickerDelegate for TablePicker {
         let workspace = self.workspace.clone();
         window.defer(cx, move |window, cx| {
             workspace.update(cx, |ws, cx| ws.open_table(conn, schema, table, window, cx)).ok();
+        });
+    }
+}
+
+/// Tables reachable from one table through real and suggested foreign keys.
+pub struct RelatedPicker {
+    items: Vec<crate::exec::fk_ui::Related>,
+    workspace: WeakEntity<Workspace>,
+    connection_id: String,
+    from: String,
+}
+
+impl RelatedPicker {
+    pub fn new(
+        items: Vec<crate::exec::fk_ui::Related>,
+        workspace: WeakEntity<Workspace>,
+        connection_id: String,
+        from: String,
+    ) -> Self {
+        Self { items, workspace, connection_id, from }
+    }
+}
+
+impl PickerDelegate for RelatedPicker {
+    fn placeholder(&self) -> SharedString {
+        format!("Tables related to {}…", self.from).into()
+    }
+    fn empty_message(&self) -> SharedString {
+        "No related tables found".into()
+    }
+    fn items(&mut self, _: &mut App) -> Vec<PickerItem> {
+        self.items
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let detail = match r.confidence {
+                    Some(c) => format!("{} · {:.0}%", r.via, c * 100.0),
+                    None => r.via.clone(),
+                };
+                PickerItem::new(i.to_string(), format!("{}.{}", r.schema, r.table))
+                    .icon(if r.inferred { IconName::Unlink } else { IconName::Link })
+                    .detail(detail)
+                    .section(if r.inferred { "Suggested" } else { "Foreign keys" })
+            })
+            .collect()
+    }
+    fn confirm(&mut self, item: &PickerItem, window: &mut Window, cx: &mut App) {
+        let Ok(i) = item.id.parse::<usize>() else { return };
+        let Some(r) = self.items.get(i) else { return };
+        let (sql, conn) = (r.sql.clone(), self.connection_id.clone());
+        let workspace = self.workspace.clone();
+        window.defer(cx, move |window, cx| {
+            workspace.update(cx, |ws, cx| ws.open_console(Some(conn), Some(sql), window, cx)).ok();
         });
     }
 }

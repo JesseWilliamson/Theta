@@ -5,6 +5,8 @@
 pub mod changes;
 pub mod consoles;
 pub mod editable;
+pub mod fk_ui;
 pub mod geo;
 pub mod history;
+pub mod keyref;
 pub mod pick;

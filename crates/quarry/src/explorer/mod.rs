@@ -26,7 +26,9 @@ use gpui_kit::{
 };
 use quarry_core::{DatabaseKind, Table};
 use quarry_ui::{DbIcon, DbKindIcon, EmptyState, PanelHeader, ROW_HEIGHT, Settings, tool_button};
-use std::collections::HashSet;
+use quarry_sql::VirtualForeignKey;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::ops::Range;
 use tree::*;
 
@@ -41,6 +43,12 @@ pub enum ExplorerEvent {
     NewConsole {
         connection_id: String,
         sql: Option<String>,
+    },
+    /// Show tables reachable through real and inferred foreign keys.
+    RelatedTables {
+        connection_id: String,
+        schema: String,
+        table: String,
     },
     AddConnection,
     EditConnection(String),
@@ -58,6 +66,8 @@ pub struct Explorer {
     /// Connections whose first catalog already opened the default schema.
     defaults_applied: HashSet<String>,
     selected: Option<NodeKey>,
+    /// Inferred foreign keys per connection, keyed by the catalog they were computed from.
+    inferred: HashMap<String, (usize, Arc<Vec<VirtualForeignKey>>)>,
     filter_text: String,
     scroll: UniformListScrollHandle,
     _subscriptions: Vec<Subscription>,
@@ -107,6 +117,7 @@ impl Explorer {
             rows: Vec::new(),
             expanded: HashSet::new(),
             defaults_applied: HashSet::new(),
+            inferred: HashMap::new(),
             selected: None,
             filter_text: String::new(),
             scroll: UniformListScrollHandle::new(),
@@ -156,6 +167,21 @@ impl Explorer {
     fn rebuild(&mut self, cx: &mut Context<Self>) {
         let store = self.store.read(cx);
         let catalogs: Vec<_> = store.configs().iter().map(|c| store.catalog(&c.id)).collect();
+        for (c, cat) in store.configs().iter().zip(&catalogs) {
+            match cat {
+                Some(cat) => {
+                    let ptr = Arc::as_ptr(cat) as usize;
+                    if self.inferred.get(&c.id).is_none_or(|(p, _)| *p != ptr) {
+                        let v = quarry_sql::infer_foreign_keys(cat);
+                        self.inferred.insert(c.id.clone(), (ptr, Arc::new(v)));
+                    }
+                }
+                None => {
+                    self.inferred.remove(&c.id);
+                }
+            }
+        }
+        let empty: Vec<VirtualForeignKey> = Vec::new();
         let views: Vec<ConnView> = store
             .configs()
             .iter()
@@ -165,6 +191,7 @@ impl Explorer {
                 name: &c.name,
                 kind: c.kind,
                 color: c.color.as_deref(),
+                inferred: self.inferred.get(&c.id).map(|(_, v)| v.as_slice()).unwrap_or(&empty),
                 phase: match store.state(&c.id) {
                     ConnState::Disconnected => Phase::Disconnected,
                     ConnState::Connecting => Phase::Connecting,
@@ -320,6 +347,33 @@ impl Explorer {
         cx.emit(ExplorerEvent::NewConsole { connection_id: c.clone(), sql: Some(sql) });
     }
 
+    /// The ALTER TABLE (or JOIN query) for a suggested foreign key leaf.
+    fn suggested_sql(&self, key: &NodeKey, join: bool, cx: &App) -> Option<String> {
+        let NodeKey::Leaf(c, s, t, Section::Suggested, name) = key else { return None };
+        let (_, list) = self.inferred.get(c)?;
+        let v = list.iter().find(|v| &v.schema == s && &v.table == t && &tree::suggested_leaf_name(v) == name)?;
+        let store = self.store.read(cx);
+        let kind = store.config(c)?.kind;
+        let catalog = store.catalog(c)?;
+        let default = catalog.default_schema.as_deref();
+        Some(if join {
+            crate::exec::fk_ui::join_sql(
+                kind,
+                default,
+                (&v.schema, &v.table),
+                (&v.referenced_schema, &v.referenced_table),
+                &[(v.column.clone(), v.referenced_column.clone())],
+            )
+        } else {
+            crate::exec::fk_ui::alter_table_sql(kind, default, v)
+        })
+    }
+
+    /// The inferred foreign keys of a connection (empty until its catalog loads).
+    pub fn inferred_for(&self, conn: &str) -> Arc<Vec<VirtualForeignKey>> {
+        self.inferred.get(conn).map(|(_, v)| v.clone()).unwrap_or_default()
+    }
+
     fn copy(&self, text: String, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
@@ -401,7 +455,10 @@ impl Explorer {
                     });
                 }))
                 .separator()
-                .item(item(&explorer, "Copy Name", IconName::Copy, move |this, cx| this.copy(t.clone(), cx)))
+                .item(item(&explorer, "Copy Name", IconName::Copy, {
+                    let t = t.clone();
+                    move |this, cx| this.copy(t.clone(), cx)
+                }))
                 .item(item(&explorer, "Copy Qualified Name", IconName::Copy, move |this, cx| {
                     if let Some(q) = this.qualified_copy(&k1, cx) {
                         this.copy(q, cx);
@@ -431,6 +488,37 @@ impl Explorer {
                 })
                 .item(item(&explorer, "Show DDL", IconName::FileCode, move |this, cx| {
                     this.generate(&k3, Generate::Ddl, cx);
+                }))
+                .separator()
+                .item(item(&explorer, "Related Tables…", IconName::Link, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::RelatedTables {
+                            connection_id: c.clone(),
+                            schema: s.clone(),
+                            table: t.clone(),
+                        })
+                    }
+                }))
+            }
+            NodeKey::Leaf(c, s, t, Section::Suggested, name) => {
+                let (k1, k2) = (key.clone(), key.clone());
+                let _ = (c, s, t, name);
+                menu.item(item(
+                    &explorer,
+                    "Copy ALTER TABLE … ADD FOREIGN KEY",
+                    IconName::Copy,
+                    move |this, cx| {
+                        if let Some(sql) = this.suggested_sql(&k1, false, cx) {
+                            this.copy(sql, cx);
+                        }
+                    },
+                ))
+                .item(item(&explorer, "Generate JOIN Query", IconName::SquareTerminal, move |this, cx| {
+                    if let Some(sql) = this.suggested_sql(&k2, true, cx) {
+                        let c = k2.connection_id().to_string();
+                        cx.emit(ExplorerEvent::NewConsole { connection_id: c, sql: Some(sql) });
+                    }
                 }))
             }
             NodeKey::Column(_, _, _, name)
@@ -468,6 +556,7 @@ impl Explorer {
             (_, true) => theme.danger,
             (RowIcon::Column | RowIcon::PrimaryKeyColumn | RowIcon::ForeignKeyColumn, _) => theme.foreground,
             (RowIcon::Group(_), _) => theme.muted_foreground,
+            _ if row.muted => theme.muted_foreground,
             _ => theme.foreground,
         };
         let ranges = quarry_ui::fuzzy::highlight_ranges(&row.label, &row.highlights);
@@ -533,6 +622,7 @@ impl Explorer {
                     RowIcon::ForeignKeyColumn => (IconName::Link, theme.blue),
                     RowIcon::Key => (IconName::Key, theme.yellow),
                     RowIcon::ForeignKey => (IconName::Link, theme.blue),
+                    RowIcon::SuggestedForeignKey => (IconName::Unlink, theme.blue.opacity(0.55)),
                     RowIcon::Index => (IconName::ListTree, theme.muted_foreground),
                     RowIcon::Routine => (IconName::SquareFunction, theme.magenta),
                     RowIcon::Sequence => (IconName::ListOrdered, theme.muted_foreground),
@@ -569,6 +659,11 @@ impl Explorer {
                 this.bg(if focused { theme.list_active } else { theme.list_active.opacity(0.55) })
             })
             .when(!selected, |this| this.hover(|s| s.bg(theme.list_hover)))
+            .when_some(row.tooltip.clone(), |this, t| {
+                this.tooltip(move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(t.clone()).build(window, cx)
+                })
+            })
             // Indent guides: one hairline per ancestor level.
             .children((0..row.depth as usize).map(|level| {
                 div()

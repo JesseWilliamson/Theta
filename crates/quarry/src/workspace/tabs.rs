@@ -162,6 +162,9 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let Some(tab) = self.active_console().cloned() else {
+            if self.store.read(cx).configs().is_empty() {
+                return self.render_welcome(cx);
+            }
             return EmptyState::new(IconName::SquareTerminal, "No console open")
                 .description("Open a console to write and run SQL against a connection.")
                 .action(
