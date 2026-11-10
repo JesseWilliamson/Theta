@@ -25,6 +25,10 @@ dirs = "6"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 quarry-ui = { path = "crates/quarry-ui" }
+quarry-grid = { path = "crates/quarry-grid" }
+quarry-map-view = { path = "crates/quarry-map-view" }
+quarry-editor-view = { path = "crates/quarry-editor-view" }
+quarry-plan-view = { path = "crates/quarry-plan-view" }
 
 [profile.dev]
 opt-level = 1

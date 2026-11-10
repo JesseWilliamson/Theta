@@ -10,6 +10,7 @@ pub mod cli;
 pub mod connections;
 pub mod demo;
 pub mod dialogs;
+pub mod exec;
 pub mod explorer;
 pub mod keymap;
 pub mod palette;
