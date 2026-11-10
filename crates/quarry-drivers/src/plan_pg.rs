@@ -82,6 +82,12 @@ fn node(o: &Map<String, J>) -> PlanNode {
         shared_read_blocks: o.get("Shared Read Blocks").and_then(J::as_u64),
         ..Default::default()
     };
+    // PostgreSQL reports every write as `ModifyTable`; the operation says which.
+    if n.node_type == "ModifyTable" {
+        if let Some(op) = str_of(o, "Operation") {
+            n.node_type = op;
+        }
+    }
     let mut detail = Vec::new();
     if let Some(j) = str_of(o, "Join Type") {
         detail.push(format!("{j} join"));

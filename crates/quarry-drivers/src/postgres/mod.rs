@@ -267,6 +267,10 @@ impl PgConnection {
         let m = |e| query_error(e, sql, 0);
         let stmt = sess.client.prepare(sql).await.map_err(m)?;
         let dml = reports_rows_affected(sql);
+        // Renames and drops change what a table OID's columns are called.
+        if is_ddl(sql) {
+            sess.origins.clear();
+        }
         if stmt.columns().is_empty() {
             let n = sess.client.execute(&stmt, &[]).await.map_err(m)?;
             return Ok(StatementOutcome {
@@ -349,9 +353,6 @@ impl PgConnection {
         let wanted: Vec<(u32, i16)> =
             stmt.columns().iter().map(|c| (c.table_oid().unwrap_or(0), c.column_id().unwrap_or(0))).collect();
         resolve_origins(sess, &wanted, &mut columns).await;
-        if is_ddl(sql) {
-            sess.origins.clear();
-        }
         Ok(StatementOutcome {
             result: Some(ResultSet { columns, rows, truncated }),
             rows_affected: affected,
