@@ -362,8 +362,9 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
         }
     }
     let mut estimates: BTreeMap<String, u64> = BTreeMap::new();
-    // sqlite_stat1 only exists after ANALYZE.
-    if let Ok(mut stmt) = conn.prepare(&format!("SELECT tbl, stat FROM {}.sqlite_stat1 WHERE idx IS NULL OR idx = tbl", q(db))) {
+    // sqlite_stat1 only exists after ANALYZE. Every row (table or index) starts
+    // with the table's row count, so the first one seen per table is enough.
+    if let Ok(mut stmt) = conn.prepare(&format!("SELECT tbl, stat FROM {}.sqlite_stat1", q(db))) {
         if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
             for (t, s) in rows.flatten() {
                 if let Some(n) = s.split_whitespace().next().and_then(|n| n.parse().ok()) {

@@ -111,7 +111,8 @@ pub fn cell(col: &MyColumn, raw: Option<&[u8]>) -> Value {
         MYSQL_TYPE_TINY | MYSQL_TYPE_SHORT | MYSQL_TYPE_LONG | MYSQL_TYPE_INT24 | MYSQL_TYPE_LONGLONG
         | MYSQL_TYPE_YEAR => {
             let s = text();
-            if flags.contains(ColumnFlags::UNSIGNED_FLAG) {
+            // YEAR carries the unsigned flag but is a calendar year, not a counter.
+            if flags.contains(ColumnFlags::UNSIGNED_FLAG) && col.column_type() != MYSQL_TYPE_YEAR {
                 s.parse::<u64>().map(Value::UInt).unwrap_or(Value::Unknown(s))
             } else {
                 s.parse::<i64>().map(Value::Int).unwrap_or(Value::Unknown(s))
