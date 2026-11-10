@@ -1043,8 +1043,10 @@ impl EditorView {
                     self.editor.click(idx, false, false);
                 }
             }
+            // The primary selection only exists on Linux/FreeBSD (gpui has no API for it elsewhere).
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             MouseButton::Middle => {
-                // Linux primary-selection paste: put the caret where the click landed and insert.
+                // Primary-selection paste: put the caret where the click landed and insert.
                 if let Some(text) = cx.read_from_primary().and_then(|i| i.text())
                     && !self.read_only
                 {
@@ -1087,7 +1089,10 @@ impl EditorView {
             && sel.len() < 1_000_000
         {
             // X11/Wayland convention: whatever is selected becomes the primary selection.
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             cx.write_to_primary(ClipboardItem::new_string(sel));
+            #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+            let _ = sel;
         }
         cx.notify();
     }
