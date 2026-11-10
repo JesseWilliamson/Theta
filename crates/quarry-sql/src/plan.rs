@@ -67,10 +67,12 @@ fn fmt_pct(f: f64) -> String {
 }
 
 fn describe(n: &PlanNode) -> String {
+    // MySQL names a table node by its access type; `ALL` alone reads as noise.
+    let ty = if n.node_type == "ALL" { "Full table scan" } else { n.node_type.as_str() };
     match (&n.relation, &n.alias) {
-        (Some(r), Some(a)) if a != r => format!("{} on {r} {a}", n.node_type),
-        (Some(r), _) => format!("{} on {r}", n.node_type),
-        _ => n.node_type.clone(),
+        (Some(r), Some(a)) if a != r => format!("{ty} on {r} {a}"),
+        (Some(r), _) => format!("{ty} on {r}"),
+        _ => ty.to_string(),
     }
 }
 
@@ -272,6 +274,37 @@ pub(crate) fn filter_columns(filter: &str, node: &PlanNode, kind: DatabaseKind) 
     out
 }
 
+/// Columns of `node` named in a join condition such as `(o.k = i.k)`: every
+/// `qualifier.column` whose qualifier is the node's own alias or relation. Unlike
+/// [`filter_columns`] the other side of the comparison is a column, not a constant,
+/// and may come first, so only the qualified form can be attributed to a table.
+fn join_columns(cond: &str, node: &PlanNode, kind: DatabaseKind) -> Vec<String> {
+    let toks: Vec<_> = tokenize(cond, kind).into_iter().filter(|t| !t.is_trivia()).collect();
+    let own = |q: &str| {
+        node.alias.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(q))
+            || node
+                .relation
+                .as_deref()
+                .is_some_and(|r| r.rsplit('.').next().unwrap_or(r).eq_ignore_ascii_case(q))
+    };
+    let is_ident = |t: &crate::lexer::Token| matches!(t.kind, TokenKind::Word | TokenKind::QuotedIdent);
+    let mut out: Vec<String> = Vec::new();
+    for w in toks.windows(3) {
+        if is_ident(&w[0])
+            && w[1].is_punct(cond, ".")
+            && is_ident(&w[2])
+            && own(&crate::lexer::unquote_ident(w[0].text(cond)))
+        {
+            let col = crate::lexer::unquote_ident(w[2].text(cond));
+            if !out.iter().any(|c| c.eq_ignore_ascii_case(&col)) {
+                out.push(col);
+            }
+        }
+    }
+    out.truncate(3);
+    out
+}
+
 fn index_covers(table: &Table, cols: &[String]) -> Option<String> {
     table
         .indexes
@@ -334,6 +367,10 @@ struct Ctx<'a> {
     total_ms: Option<f64>,
     out: Vec<Insight>,
     node_count: usize,
+    /// The nearest enclosing join's condition (`Join Filter`, `Hash Cond`, ...). A
+    /// nested loop's unindexed inner scan carries no filter of its own: the column it
+    /// needs an index on is only named by the join above it.
+    join_cond: Option<String>,
 }
 
 impl Ctx<'_> {
@@ -451,7 +488,10 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
         && is_unindexed_scan(n)
     {
         let rel = n.relation.clone().unwrap_or_else(|| "a table".into());
-        let cols = n.filter.as_deref().map(|f| filter_columns(f, n, c.kind)).unwrap_or_default();
+        let mut cols = n.filter.as_deref().map(|f| filter_columns(f, n, c.kind)).unwrap_or_default();
+        if cols.is_empty() {
+            cols = c.join_cond.as_deref().map(|f| join_columns(f, n, c.kind)).unwrap_or_default();
+        }
         let table = n.relation.as_deref().and_then(|r| lookup_table(c.catalog, r));
         let covered = table.filter(|_| !cols.is_empty()).and_then(|t| index_covers(t, &cols));
         let per_loop = n.actual_rows.map(|a| a + n.rows_removed_by_filter.unwrap_or(0.0));
@@ -593,11 +633,18 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
         sqlite_checks(c, n, path);
     }
 
+    let inherited = c.join_cond.clone();
+    if let Some(cond) =
+        ["Join Filter", "Hash Cond", "Merge Cond", "Join Condition"].iter().find_map(|k| extra_get(n, k))
+    {
+        c.join_cond = Some(cond.to_string());
+    }
     for (i, ch) in n.children.iter().enumerate() {
         path.push(i);
         visit(c, ch, path);
         path.pop();
     }
+    c.join_cond = inherited;
 }
 
 fn has_join_condition(n: &PlanNode) -> bool {
@@ -667,7 +714,17 @@ fn mysql_checks(c: &mut Ctx, n: &PlanNode, path: &[usize]) {
     let rel = n.relation.clone().unwrap_or_else(|| "the table".into());
     let table = n.relation.as_deref().and_then(|r| lookup_table(c.catalog, r));
     let rows = n.plan_rows.or(table.and_then(|t| t.row_estimate).map(|r| r as f64));
-    if mentions(n, "Using filesort") {
+    // Classic EXPLAIN reports these as `Extra` text; MariaDB's JSON formats as
+    // wrapper nodes (`filesort`, `temporary_table`) that the driver parser keeps as
+    // node types, so both spellings count. The wrapper has no relation of its own.
+    let node_kind = n.node_type.to_ascii_lowercase();
+    let wrapper_rel = || {
+        let mut rels = Vec::new();
+        relations_below(n, &mut rels);
+        rels.into_iter().next()
+    };
+    if mentions(n, "Using filesort") || node_kind == "filesort" {
+        let rel = n.relation.clone().or_else(wrapper_rel).unwrap_or_else(|| "the table".into());
         c.push(
             Severity::Warning,
             format!("Using filesort on {rel}"),
@@ -679,7 +736,8 @@ fn mysql_checks(c: &mut Ctx, n: &PlanNode, path: &[usize]) {
             None,
         );
     }
-    if mentions(n, "Using temporary") {
+    if mentions(n, "Using temporary") || node_kind == "temporary table" {
+        let rel = n.relation.clone().or_else(wrapper_rel).unwrap_or_else(|| "the table".into());
         c.push(
             Severity::Warning,
             format!("Using temporary table on {rel}"),
@@ -820,6 +878,7 @@ pub fn analyze_plan(
         total_ms: plan.root.actual_total_ms.or(plan.execution_time_ms),
         out: Vec::new(),
         node_count: 0,
+        join_cond: None,
     };
     visit(&mut ctx, &plan.root, &mut Vec::new());
     let mut insights = std::mem::take(&mut ctx.out);
@@ -1257,5 +1316,53 @@ mod tests {
         assert_eq!(fmt_ms(1500.0), "1.50 s");
         assert_eq!(fmt_ms(12.0), "12 ms");
         assert_eq!(fmt_ms(1.25), "1.2 ms");
+    }
+
+    // Shapes below are what the real servers produced (see quarry-drivers'
+    // tests/plan_insights.rs): the rules must match those spellings, not just the
+    // ones the rules' authors expected.
+
+    #[test]
+    fn postgres_nested_loop_inner_scan_takes_its_index_column_from_the_join_filter() {
+        // `SELECT * FROM outer_t o JOIN inner_t i ON i.k = o.k` with hash/merge joins off, PostgreSQL reports `Join Filter: (o.k = i.k)`:
+        // the inner Seq Scan has no filter of its own; the condition lives on the join.
+        let mut outer = node("Seq Scan");
+        outer.relation = Some("outer_t".into());
+        outer.alias = Some("o".into());
+        outer.actual_rows = Some(300.0);
+        outer.loops = Some(1.0);
+        let mut inner = node("Seq Scan");
+        inner.relation = Some("inner_t".into());
+        inner.alias = Some("i".into());
+        inner.actual_rows = Some(16.0);
+        inner.loops = Some(300.0);
+        let mut nl = node("Nested Loop");
+        nl.extra.insert("Join Filter".into(), "(o.k = i.k)".into());
+        nl.actual_rows = Some(4950.0);
+        nl.loops = Some(1.0);
+        nl.children = vec![outer, inner];
+        let got = insights(nl, true, Postgres);
+        let i =
+            got.iter().find(|i| i.title.starts_with("Scan of inner_t repeated 300 times")).expect("insight");
+        assert_eq!(i.suggestion.as_deref(), Some("CREATE INDEX idx_inner_t_k ON inner_t (k);"));
+    }
+
+    #[test]
+    fn mariadb_json_wrappers_are_filesort_and_temporary_table() {
+        // MariaDB `ANALYZE FORMAT=JSON` parses to wrapper nodes named `Filesort` and
+        // `Temporary table`; the "Using filesort" text only exists in classic EXPLAIN.
+        let mut table = node("ALL");
+        table.relation = Some("big".into());
+        let mut tmp = node("Temporary table");
+        tmp.children = vec![table];
+        let mut sort = node("Filesort");
+        sort.children = vec![tmp];
+        let got = insights(sort, false, MySql);
+        let sort_i = got.iter().find(|i| i.title.starts_with("Using filesort")).expect("filesort");
+        assert_eq!(sort_i.title, "Using filesort on big");
+        assert_eq!(sort_i.node_path, Vec::<usize>::new());
+        let tmp_i = got.iter().find(|i| i.title.starts_with("Using temporary")).expect("temporary");
+        assert_eq!(tmp_i.title, "Using temporary table on big");
+        assert_eq!(tmp_i.node_path, vec![0]);
     }
 }

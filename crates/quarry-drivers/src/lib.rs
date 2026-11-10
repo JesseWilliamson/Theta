@@ -18,6 +18,42 @@ use async_trait::async_trait;
 use quarry_core::*;
 use tokio::sync::Mutex;
 
+/// Parse PostgreSQL `EXPLAIN (FORMAT JSON)` output. Public so the plan view's demo and
+/// tests can load captured plans without a server.
+pub fn parse_postgres_plan_json(raw: &str, analyzed: bool) -> Result<Plan> {
+    plan_pg::parse_plan(raw, analyzed)
+}
+
+/// Parse MariaDB `EXPLAIN/ANALYZE FORMAT=JSON` or MySQL 8 `EXPLAIN FORMAT=JSON` output.
+pub fn parse_mysql_plan_json(raw: &str, analyzed: bool) -> Result<Plan> {
+    plan_mysql::parse_json_plan(raw, analyzed)
+}
+
+/// Parse SQLite `EXPLAIN QUERY PLAN` rows in the `id<TAB>parent<TAB>detail` form that
+/// [`Connection::explain`] stores in `Plan::raw`. The result is an estimate-only
+/// plan; SQLite has no per-node timings.
+pub fn parse_sqlite_plan(raw: &str) -> Result<Plan> {
+    let mut rows = Vec::new();
+    for line in raw.lines().filter(|l| !l.trim().is_empty()) {
+        let mut p = line.splitn(3, '\t');
+        let (Some(id), Some(parent), Some(detail)) = (p.next(), p.next(), p.next()) else {
+            return Err(Error::other(format!("malformed EXPLAIN QUERY PLAN row: {line:?}")));
+        };
+        let num = |s: &str| s.parse::<i64>().map_err(|_| Error::other(format!("bad row id in {line:?}")));
+        rows.push((num(id)?, num(parent)?, detail.to_string()));
+    }
+    if rows.is_empty() {
+        return Err(Error::other("EXPLAIN QUERY PLAN returned no rows"));
+    }
+    Ok(Plan {
+        root: sqlite::plan_from_eqp(&rows),
+        analyzed: false,
+        planning_time_ms: None,
+        execution_time_ms: None,
+        raw: raw.to_string(),
+    })
+}
+
 /// The driver for a database kind.
 pub fn driver_for(kind: DatabaseKind) -> Box<dyn Driver> {
     match kind {
@@ -94,5 +130,28 @@ impl Connection for Tunneled {
             t.close().await;
         }
         r
+    }
+}
+
+#[cfg(test)]
+mod plan_parse_tests {
+    use super::*;
+
+    #[test]
+    fn sqlite_rows_text_becomes_a_tree() {
+        let p = parse_sqlite_plan("3\t0\tSCAN big\n9\t0\tUSE TEMP B-TREE FOR ORDER BY\n").unwrap();
+        assert!(!p.analyzed);
+        assert_eq!(p.root.node_type, "QUERY PLAN");
+        assert_eq!(p.root.children[0].relation.as_deref(), Some("big"));
+        assert!(parse_sqlite_plan("").is_err());
+        assert!(parse_sqlite_plan("x\ty\tz").is_err());
+    }
+
+    #[test]
+    fn postgres_and_mysql_json_wrappers_parse() {
+        let pg = include_str!("../tests/fixtures/pg_plain.json");
+        assert_eq!(parse_postgres_plan_json(pg, false).unwrap().root.node_type, "Sort");
+        let my = include_str!("../tests/fixtures/mariadb_analyze.json");
+        assert!(parse_mysql_plan_json(my, true).unwrap().analyzed);
     }
 }

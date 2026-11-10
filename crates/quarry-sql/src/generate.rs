@@ -119,9 +119,46 @@ pub fn sql_literal(value: &Value, kind: DatabaseKind) -> String {
         },
         Value::Geometry(b) => match kind {
             DatabaseKind::Postgres => format!("ST_GeomFromEWKB('\\x{}'::bytea)", hex(b)),
-            DatabaseKind::MySql => format!("ST_GeomFromWKB(X'{}')", hex(b)),
+            DatabaseKind::MySql => mysql_geometry_literal(b),
             DatabaseKind::Sqlite => format!("GeomFromEWKB(X'{}')", hex(b)),
         },
+    }
+}
+
+/// Splits EWKB into (plain WKB, SRID). The MySQL driver delivers geometries as EWKB
+/// (flag `0x2000_0000` in the type word means a 4-byte SRID follows it), but
+/// `ST_GeomFromWKB` only understands plain WKB and takes the SRID separately.
+/// Bytes that do not look like EWKB with an SRID are passed through with SRID 0.
+fn ewkb_to_wkb(b: &[u8]) -> (Vec<u8>, u32) {
+    const SRID_FLAG: u32 = 0x2000_0000;
+    let (Some(&order), Some(ty)) = (b.first(), b.get(1..5)) else { return (b.to_vec(), 0) };
+    let little = match order {
+        1 => true,
+        0 => false,
+        _ => return (b.to_vec(), 0),
+    };
+    let word = |s: &[u8]| {
+        let a: [u8; 4] = s.try_into().unwrap();
+        if little { u32::from_le_bytes(a) } else { u32::from_be_bytes(a) }
+    };
+    let ty = word(ty);
+    let Some(srid) = b.get(5..9).filter(|_| ty & SRID_FLAG != 0).map(word) else {
+        return (b.to_vec(), 0);
+    };
+    let plain = ty & !SRID_FLAG;
+    let mut out = Vec::with_capacity(b.len() - 4);
+    out.push(order);
+    out.extend_from_slice(&if little { plain.to_le_bytes() } else { plain.to_be_bytes() });
+    out.extend_from_slice(&b[9..]);
+    (out, srid)
+}
+
+fn mysql_geometry_literal(b: &[u8]) -> String {
+    let (wkb, srid) = ewkb_to_wkb(b);
+    if srid == 0 {
+        format!("ST_GeomFromWKB(X'{}')", hex(&wkb))
+    } else {
+        format!("ST_GeomFromWKB(X'{}', {srid})", hex(&wkb))
     }
 }
 
@@ -354,6 +391,32 @@ mod tests {
         assert_eq!(sql_literal(&Value::Bytes(vec![]), Sqlite), "X''");
         assert_eq!(sql_literal(&Value::Geometry(vec![1, 2]), Postgres), "ST_GeomFromEWKB('\\x0102'::bytea)");
         assert_eq!(sql_literal(&Value::Geometry(vec![1, 2]), MySql), "ST_GeomFromWKB(X'0102')");
+    }
+
+    #[test]
+    fn mysql_geometry_literal_strips_ewkb_srid() {
+        // Little-endian POINT(1 2) with SRID 4326: 01 | 01000020 | E6100000 | x | y
+        let ewkb = hex_to_bytes("0101000020E6100000000000000000F03F0000000000000040");
+        assert_eq!(
+            sql_literal(&Value::Geometry(ewkb), MySql),
+            "ST_GeomFromWKB(X'0101000000000000000000f03f0000000000000040', 4326)"
+        );
+        // Big-endian flavour of the same thing.
+        let be = hex_to_bytes("0020000001000010E63FF00000000000004000000000000000");
+        assert_eq!(
+            sql_literal(&Value::Geometry(be), MySql),
+            "ST_GeomFromWKB(X'00000000013ff00000000000004000000000000000', 4326)"
+        );
+        // SRID 0 arrives as plain WKB and stays a one-argument call.
+        let plain = hex_to_bytes("0101000000000000000000F03F0000000000000040");
+        assert_eq!(
+            sql_literal(&Value::Geometry(plain), MySql),
+            "ST_GeomFromWKB(X'0101000000000000000000f03f0000000000000040')"
+        );
+    }
+
+    fn hex_to_bytes(s: &str) -> Vec<u8> {
+        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
     }
 
     #[test]
