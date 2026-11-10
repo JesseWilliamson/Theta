@@ -15,6 +15,24 @@ pub const TOLERANCE_PX: f64 = 0.6;
 /// Cached vertices above which the cache is flushed.
 const BUDGET_VERTICES: usize = 4_000_000;
 
+/// A geometry to draw: the original, or a cached simplification.
+pub enum Lod<'a> {
+    /// The unsimplified geometry (small, or nothing to remove).
+    Orig(&'a Geometry),
+    /// A cached simplified copy.
+    Simple(Arc<Geometry>),
+}
+
+impl std::ops::Deref for Lod<'_> {
+    type Target = Geometry;
+    fn deref(&self) -> &Geometry {
+        match self {
+            Lod::Orig(g) => g,
+            Lod::Simple(g) => g,
+        }
+    }
+}
+
 /// Cache of simplified geometries.
 #[derive(Default)]
 pub struct LodCache {
@@ -30,18 +48,23 @@ impl LodCache {
     }
 
     /// Entries currently cached.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.map.len()
     }
 
     /// True when nothing is cached.
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
 
-    /// The cached simplification for `(level, feature)` if one exists.
-    pub fn peek(&self, level: i32, feature: usize) -> Option<&Arc<Geometry>> {
-        self.map.get(&(level, feature))
+    /// The geometry to draw for `level`: simplified when worthwhile, otherwise `geom` itself.
+    pub fn pick<'a>(&mut self, level: i32, feature: usize, geom: &'a Geometry, vertices: usize) -> Lod<'a> {
+        match self.get(level, feature, geom, vertices) {
+            Some(g) => Lod::Simple(g),
+            None => Lod::Orig(geom),
+        }
     }
 
     /// The simplification of `geom` for `level`, computing and caching it on a miss.

@@ -64,19 +64,9 @@ impl<K: std::hash::Hash + Eq + Clone, V> Lru<K, V> {
     }
 
     /// Number of entries.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.map.len()
-    }
-
-    /// True when empty.
-    pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
-    }
-
-    /// Drop everything.
-    pub fn clear(&mut self) {
-        self.map.clear();
-        self.order.clear();
     }
 }
 

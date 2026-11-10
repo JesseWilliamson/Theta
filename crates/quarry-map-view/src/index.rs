@@ -79,17 +79,14 @@ impl GridIndex {
         )
     }
 
-    /// Number of indexed boxes.
-    pub fn len(&self) -> usize {
-        self.boxes.len()
-    }
-
     /// True when nothing is indexed.
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.boxes.is_empty()
     }
 
     /// Ids of all boxes intersecting `rect`, ascending and without duplicates.
+    #[cfg(test)]
     pub fn query(&self, rect: &BBox) -> Vec<u32> {
         let mut out = Vec::new();
         self.query_into(rect, &mut out);

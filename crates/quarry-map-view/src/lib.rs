@@ -15,6 +15,7 @@ mod camera;
 mod clip;
 mod core;
 mod decode;
+mod export;
 mod grid;
 mod index;
 mod layout;

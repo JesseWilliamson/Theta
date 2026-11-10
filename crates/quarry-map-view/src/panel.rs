@@ -22,9 +22,7 @@ use gpui_kit::{
     ScrollEvent, SharedString, StatefulInteractiveElement as _, Styled as _, Task, Window, canvas, div, hsla,
     px,
 };
-use quarry_geo::{
-    Coord, Feature, Geometry, describe, guess_crs, to_geojson_feature_collection, to_lon_lat, to_wkt,
-};
+use quarry_geo::{Coord, Feature, Geometry, describe, to_wkt};
 use quarry_ui::settings::KeymapMode;
 use quarry_ui::{CHROME_TEXT_SIZE, EmptyState, PANEL_HEADER_HEIGHT, Settings, tool_button};
 use std::cell::RefCell;
@@ -36,7 +34,7 @@ const CLICK_SLOP: f64 = 4.0;
 /// Pixels panned per arrow / hjkl key press.
 const KEY_PAN_PX: f64 = 90.0;
 /// Zoom levels per wheel line and per pixel of precise (trackpad) scrolling.
-const WHEEL_LEVELS_PER_LINE: f64 = 0.4;
+const WHEEL_LEVELS_PER_LINE: f64 = 0.15;
 const WHEEL_LEVELS_PER_PX: f64 = 1.0 / 240.0;
 
 struct ContextMenu {
@@ -155,7 +153,7 @@ impl MapPanel {
     }
 
     fn export(&mut self, cx: &mut Context<Self>) {
-        let text = export_geojson(&self.core.borrow());
+        let text = crate::export::geojson(&self.core.borrow());
         cx.emit(MapEvent::ExportGeoJson(text));
     }
 
@@ -352,36 +350,6 @@ impl MapPanel {
         self.core.borrow_mut().zoom_by(levels, p);
         cx.notify();
     }
-}
-
-/// Pretty-printed FeatureCollection of the visible layers, in lon/lat when the CRS is known.
-fn export_geojson(core: &Core) -> String {
-    let mut items: Vec<(Feature, serde_json::Map<String, serde_json::Value>)> = Vec::new();
-    for f in &core.prepared.features {
-        if !core.layer_visible(f) {
-            continue;
-        }
-        let src = &core.source[f.src];
-        let crs = guess_crs(src.feature.srid, src.feature.geometry.bbox());
-        let geom = match crs {
-            quarry_geo::Crs::Planar => src.feature.geometry.clone(),
-            crs => src.feature.geometry.map_coords(&|c| to_lon_lat(c, crs).unwrap_or(c)),
-        };
-        let mut props = serde_json::Map::new();
-        if let Some(l) = &src.label {
-            props.insert("label".into(), l.clone().into());
-        }
-        for (k, v) in &src.properties {
-            props.insert(k.clone(), v.clone().into());
-        }
-        if core.layers.len() > 1
-            && let Some(l) = core.layers.get(f.layer)
-        {
-            props.insert("layer".into(), l.name.clone().into());
-        }
-        items.push((Feature::new(geom, Some(4326)), props));
-    }
-    serde_json::to_string_pretty(&to_geojson_feature_collection(&items)).unwrap_or_default()
 }
 
 // ---- rendering ------------------------------------------------------------------------
@@ -643,7 +611,7 @@ impl MapPanel {
                         .into_any_element(),
                 );
             }
-            for l in spec.horizontal.iter().filter(|l| l.at > 14.0 && l.at < size[1] - 14.0) {
+            for l in spec.horizontal.iter().filter(|l| l.at > 14.0 && l.at < size[1] - 40.0) {
                 out.push(
                     div()
                         .absolute()
@@ -665,7 +633,7 @@ impl MapPanel {
                     v_flex()
                         .absolute()
                         .left(px(8.))
-                        .bottom(px(if core.grid_shown { 18. } else { 8. }))
+                        .bottom(px(if core.grid_shown { 22. } else { 8. }))
                         .gap_0p5()
                         .px_1p5()
                         .py_0p5()
@@ -847,7 +815,7 @@ impl MapPanel {
             let geographic = core.prepared.mode == Mode::Geographic;
             let feature = m.feature;
             let o = card_origin(m.at, [190.0, 82.0], size, 2.0);
-            let coord_text = coord_text(coord, geographic);
+            let coord_text = crate::export::coord_text(coord, geographic);
             let wkt_point =
                 geographic.then(|| to_wkt(&Feature::new(Geometry::Point(Some(coord)), Some(4326)), Some(6)));
             let wkt_point = wkt_point
@@ -953,10 +921,6 @@ fn card_height(core: &Core, id: usize) -> f64 {
     60.0 + 17.0 * (rows + more) as f64 + if rows > 0 { 8.0 } else { 0.0 }
 }
 
-fn coord_text(c: Coord, geographic: bool) -> String {
-    if geographic { format!("{:.6}, {:.6}", c[0], c[1]) } else { format!("{}, {}", c[0], c[1]) }
-}
-
 impl Render for MapPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
@@ -982,10 +946,7 @@ impl Render for MapPanel {
         self.core.borrow_mut().tiles.set_template(template);
 
         let empty = self.core.borrow().is_empty();
-        let size = {
-            let s = self.core.borrow().camera.size();
-            s
-        };
+        let size = self.core.borrow().camera.size();
         let helix_hint = Settings::get(cx).keymap;
         let _ = helix_hint;
 
@@ -1028,11 +989,13 @@ impl Render for MapPanel {
                         c.size_known = true;
                     }
                     let more = c.step_anim(Instant::now());
+                    let grid_before = c.grid_shown;
                     let started = Instant::now();
                     paint_map(&mut c, bounds, &colors, window, cx);
                     let ms = started.elapsed().as_secs_f64() * 1000.0;
                     c.paint_stats = (c.paint_stats.0 + 1, c.paint_stats.1 + ms, c.paint_stats.2.max(ms));
-                    if more {
+                    // Labels are rendered before paint from `grid_shown`; one more frame fixes them.
+                    if more || c.grid_shown != grid_before {
                         window.request_animation_frame();
                     }
                     let cursor = if c.measuring {

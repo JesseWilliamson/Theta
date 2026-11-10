@@ -1,7 +1,7 @@
 //! Camera wrapper over `quarry_geo`'s `MapView` / `PlanarView`, plus the linear
 //! world-to-pixel transform used for bulk vertex projection.
 
-use crate::world::{Mode, lon_lat_to_world, world_bbox_to_lon_lat, world_to_lon_lat};
+use crate::world::{Mode, lon_lat_to_world, world_bbox_to_lon_lat};
 use quarry_geo::{BBox, Coord, MapView, PlanarView};
 
 /// Pixels per world unit transform: `screen = half + (world - center) * scale`, with the
@@ -167,11 +167,6 @@ impl Camera {
         }
     }
 
-    /// World coordinate under a screen position (unwrapped).
-    pub fn world_at(&self, s: [f64; 2]) -> Coord {
-        self.transform().invert(s)
-    }
-
     /// Ground metres per pixel, for the scale bar (None in planar mode).
     pub fn meters_per_pixel(&self) -> Option<f64> {
         match self {
@@ -188,22 +183,9 @@ impl Camera {
         }
     }
 
-    /// The lon/lat of the viewport centre (geographic only).
-    pub fn center_lon_lat(&self) -> Option<Coord> {
-        match self {
-            Camera::Geo(v) => Some(v.center),
-            Camera::Planar(_) => None,
-        }
-    }
-
     /// World coordinate at the centre.
     pub fn center_world(&self) -> Coord {
         self.transform().center
-    }
-
-    /// Convenience used by tests and fly-to: world to lon/lat.
-    pub fn world_to_ll(w: Coord) -> Coord {
-        world_to_lon_lat(w)
     }
 }
 

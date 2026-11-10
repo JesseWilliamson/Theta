@@ -181,3 +181,124 @@ mod tests {
         assert!(clip_polyline(&[[-5.0, -5.0], [-1.0, -9.0]], &R).is_empty());
     }
 }
+
+/// Largest ring handled by [`earclip`]; ear clipping is O(n^2) and only meant for the tiny
+/// polygons that dominate dense data sets (bigger ones go through the general tessellator).
+pub const EARCLIP_MAX: usize = 40;
+
+fn cross(a: P, b: P, c: P) -> f64 {
+    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+}
+
+fn in_triangle(p: P, a: P, b: P, c: P) -> bool {
+    cross(a, b, p) >= 0.0 && cross(b, c, p) >= 0.0 && cross(c, a, p) >= 0.0
+}
+
+/// Triangulate a simple ring (no holes) by ear clipping. Returns triangles as index triples
+/// into `pts`, or `None` when the ring is too big, degenerate or self-intersecting enough
+/// that no ear can be found (callers then fall back to a general tessellator).
+pub fn earclip(pts: &[P]) -> Option<Vec<[usize; 3]>> {
+    let mut n = pts.len();
+    if pts.len() > 1 && pts.first() == pts.last() {
+        n -= 1;
+    }
+    if !(3..=EARCLIP_MAX).contains(&n) {
+        return None;
+    }
+    let area2: f64 = (0..n).map(|i| pts[i][0] * pts[(i + 1) % n][1] - pts[(i + 1) % n][0] * pts[i][1]).sum();
+    if area2 == 0.0 {
+        return None;
+    }
+    let mut list: Vec<usize> = if area2 > 0.0 { (0..n).collect() } else { (0..n).rev().collect() };
+    let mut tris = Vec::with_capacity(n - 2);
+    let (mut i, mut stall) = (0usize, 0usize);
+    while list.len() > 3 {
+        let m = list.len();
+        let (ia, ib, ic) = (list[(i + m - 1) % m], list[i], list[(i + 1) % m]);
+        let (a, b, c) = (pts[ia], pts[ib], pts[ic]);
+        let cr = cross(a, b, c);
+        if cr == 0.0 {
+            // Collinear (or a repeated vertex): contributes no area, just drop it.
+            list.remove(i);
+            i %= list.len();
+            stall = 0;
+            continue;
+        }
+        let ear =
+            cr > 0.0 && !list.iter().any(|&j| j != ia && j != ib && j != ic && in_triangle(pts[j], a, b, c));
+        if ear {
+            tris.push([ia, ib, ic]);
+            list.remove(i);
+            i %= list.len();
+            stall = 0;
+        } else {
+            i = (i + 1) % m;
+            stall += 1;
+            if stall > m {
+                return None;
+            }
+        }
+    }
+    if cross(pts[list[0]], pts[list[1]], pts[list[2]]) != 0.0 {
+        tris.push([list[0], list[1], list[2]]);
+    }
+    Some(tris)
+}
+
+#[cfg(test)]
+mod earclip_tests {
+    use super::*;
+
+    fn area(pts: &[P], tris: &[[usize; 3]]) -> f64 {
+        tris.iter().map(|t| cross(pts[t[0]], pts[t[1]], pts[t[2]]).abs() / 2.0).sum()
+    }
+
+    #[test]
+    fn square_is_two_triangles() {
+        let sq = [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]];
+        let t = earclip(&sq).unwrap();
+        assert_eq!(t.len(), 2);
+        assert_eq!(area(&sq, &t), 16.0);
+    }
+
+    #[test]
+    fn concave_l_shape_keeps_its_area_in_either_winding() {
+        let l = [[0.0, 0.0], [4.0, 0.0], [4.0, 2.0], [2.0, 2.0], [2.0, 4.0], [0.0, 4.0]];
+        assert_eq!(area(&l, &earclip(&l).unwrap()), 12.0);
+        let rev: Vec<P> = l.iter().rev().copied().collect();
+        assert_eq!(area(&rev, &earclip(&rev).unwrap()), 12.0);
+    }
+
+    #[test]
+    fn closed_rings_and_collinear_points_are_fine() {
+        let r = [[0.0, 0.0], [2.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0], [0.0, 0.0]];
+        assert_eq!(area(&r, &earclip(&r).unwrap()), 16.0);
+    }
+
+    #[test]
+    fn degenerate_and_oversized_rings_decline() {
+        assert!(earclip(&[[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]]).is_none());
+        assert!(earclip(&[[0.0, 0.0], [1.0, 0.0]]).is_none());
+        let big: Vec<P> = (0..100).map(|i| [f64::from(i).cos(), f64::from(i).sin()]).collect();
+        assert!(earclip(&big).is_none());
+    }
+
+    #[test]
+    fn star_polygon_area_matches_shoelace() {
+        let pts: Vec<P> = (0..20)
+            .map(|k| {
+                let a = std::f64::consts::TAU * f64::from(k) / 20.0;
+                let r = if k % 2 == 0 { 10.0 } else { 4.0 };
+                [r * a.cos(), r * a.sin()]
+            })
+            .collect();
+        let t = earclip(&pts).unwrap();
+        let shoelace: f64 = (0..20)
+            .map(|i| pts[i][0] * pts[(i + 1) % 20][1] - pts[(i + 1) % 20][0] * pts[i][1])
+            .sum::<f64>()
+            .abs()
+            / 2.0;
+        assert!((area(&pts, &t) - shoelace).abs() < 1e-9);
+        assert_eq!(t.len(), 18);
+    }
+}

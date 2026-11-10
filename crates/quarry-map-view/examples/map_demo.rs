@@ -381,7 +381,9 @@ fn main() {
     while let Some(a) = args.next() {
         match a.as_str() {
             "--theme" => theme = args.next(),
-            "--cities" | "--planar" | "--utm" | "--mixed" => which = a.trim_start_matches("--").to_string(),
+            "--cities" | "--planar" | "--utm" | "--mixed" | "--empty" => {
+                which = a.trim_start_matches("--").to_string()
+            }
             "--stress" => {
                 which = "stress".into();
                 if let Some(n) = args.next().and_then(|v| v.parse().ok()) {
@@ -410,6 +412,7 @@ fn main() {
                     "utm" => utm(),
                     "mixed" => mixed(),
                     "stress" => stress(stress_n),
+                    "empty" => (vec![], vec![]),
                     _ => cities(),
                 };
                 map.update(cx, |m, cx| m.set_features(layers, features, window, cx));

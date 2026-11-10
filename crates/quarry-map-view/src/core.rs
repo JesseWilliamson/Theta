@@ -5,13 +5,13 @@ use crate::camera::{Camera, Transform};
 use crate::grid::{degree_step, nice_step, tick_label, ticks};
 use crate::index::GridIndex;
 use crate::loader::{TileLoader, TileResult};
-use crate::lod::{LodCache, MIN_VERTICES};
+use crate::lod::LodCache;
 use crate::measure_tool::{Measurement, Metric};
 use crate::model::{MapFeature, MapLayer};
 use crate::tiles::{Lru, MEMORY_TILES, TileKey, cache_root, plan_requests, template_hash};
 use crate::world::{Mode, Prepared, WorldFeature, lon_lat_to_world, prepare, world_to_lon_lat};
 use gpui_kit::RenderImage;
-use quarry_geo::{BBox, Coord, Geometry, TileId, hit_test};
+use quarry_geo::{BBox, Coord, TileId, hit_test};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
@@ -115,6 +115,12 @@ impl TileStore {
 
     /// Tell the workers which tiles the viewport needs now (nearest first).
     pub fn want(&mut self, visible: &[TileId]) {
+        // Tiles on screen are the most recently used, so eviction takes the ones that
+        // scrolled away first.
+        for t in visible {
+            let key = TileKey { template_hash: self.hash, tile: *t };
+            let _ = self.lru.get(&key);
+        }
         if visible == self.last_wanted.as_slice() && self.failed.is_empty() {
             return;
         }
@@ -388,15 +394,6 @@ impl Core {
         }
     }
 
-    /// The geometry to draw or hit-test for a feature at the current level.
-    pub fn lod_geometry(&mut self, id: usize, level: i32) -> Arc<Geometry> {
-        let f = &self.prepared.features[id];
-        match self.lod.get(level, id, &f.geom, f.vertices) {
-            Some(g) => g,
-            None => Arc::new(f.geom.clone()),
-        }
-    }
-
     /// The top-most feature under `p` (viewport px), if any.
     pub fn hit_at(&mut self, p: [f64; 2]) -> Option<usize> {
         let t = self.camera.transform();
@@ -433,11 +430,7 @@ impl Core {
                     let (bw, bh) = (f.bbox.width() * t.scale[0].abs(), f.bbox.height() * t.scale[1].abs());
                     bw < 1.0 && bh < 1.0
                 };
-                let geom = if f.vertices >= MIN_VERTICES && !f.kinds.points {
-                    self.lod_geometry(id, level)
-                } else {
-                    Arc::new(f.geom.clone())
-                };
+                let geom = self.lod.pick(level, id, &f.geom, f.vertices);
                 let project = |c: Coord| t.apply([c[0] + k, c[1]]);
                 let tol = if tiny { tol.max(5.0) } else { tol };
                 if hit_test(&geom, &project, p, tol) {
