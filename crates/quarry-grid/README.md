@@ -64,7 +64,35 @@ GPUI layer: `grid` (state), `render`, `input` (keys/pointer), `editing`,
   selectable text areas cannot take per-range colours); the copy button copies it
   and plain text/EWKT use a read-only selectable `Textarea`.
 
+## Performance (100,000 rows x 60 columns, software rendering)
+
+Measured with `examples/grid_demo --rows 100000 --cols 60 --autoscroll` under
+Xvfb + llvmpipe (no GPU, shared 4-core box under load), debug-profile with the
+workspace's `opt-level = 1/2`:
+
+| What | Result |
+| --- | --- |
+| `set_result` (column auto-fit from the first 200 rows, layout) | 1.1 ms |
+| element-tree build per frame (`render`), ~450-550 visible cells | 1.3-2.1 ms avg, 2.7-5.8 ms worst |
+| scripted diagonal scroll, 300 steps | frames every 47-180 ms; wall time is GPUI layout plus llvmpipe rasterising 1600x1000, not the grid |
+| idle CPU | ~0 |
+| sort 100k rows by int / decimal / text | 52 / 172 / 264 ms (on the background executor above 20k rows) |
+| filter 100k rows x 3 cells | 10 ms |
+
+The number of built cells does not depend on the result size (it is the
+viewport), which is the point of the windowing; `QUARRY_GRID_TIMING=1` prints
+build time and frame period every 20 frames so this can be re-checked.
+
+## Not done / known gaps
+
+- Column reordering and hiding.
+- The export file dialogs and writing are the host's job (`GridEvent::Export`).
+- Column auto-fit is estimated from character counts (monospace body, a fixed
+  per-character estimate for the proportional header), not measured per header.
+- Geometry cells are not rendered as thumbnails; `describe()` text with a pin icon.
+- Only tested on Linux (X11).
+
 ## Debugging
 
 `QUARRY_GRID_TIMING=1` prints the time spent building the element tree in
-`render` every 60 frames.
+`render` and the wall-clock frame period every 20 frames.

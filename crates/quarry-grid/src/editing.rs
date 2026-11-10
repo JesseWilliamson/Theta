@@ -48,6 +48,7 @@ impl ResultGrid {
         let row = self.row_ref(cell.row);
         let typed = initial.is_some();
         let text = initial.unwrap_or_else(|| raw_text(self.value_at(cell.row, cell.col)));
+        let text_len = text.len();
         let input = cx.new(|cx| InputState::new(window, cx).default_value(text));
         let subs = vec![cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| match ev {
             InputEvent::PressEnter { .. } => {
@@ -72,7 +73,10 @@ impl ResultGrid {
         })];
         input.update(cx, |s, cx| {
             s.focus(window, cx);
-            if !typed {
+            if typed {
+                // Type-to-edit: the caret goes after the character that opened the editor.
+                s.set_selected_range(text_len..text_len, cx);
+            } else {
                 s.select_all(window, cx);
             }
         });

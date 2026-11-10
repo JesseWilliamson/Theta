@@ -258,6 +258,7 @@ fn main() {
     let (mut theme, mut editable, mut rows, mut cols, mut empty, mut fail, mut autoscroll) =
         (None, false, None, 60usize, false, false, false);
     let mut take: Option<usize> = None;
+    let mut loading = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -268,6 +269,7 @@ fn main() {
             "--empty" => empty = true,
             "--take" => take = args.next().and_then(|v| v.parse().ok()),
             "--fail" => fail = true,
+            "--loading" => loading = true,
             "--autoscroll" => autoscroll = true,
             _ => {}
         }
@@ -310,7 +312,13 @@ fn main() {
                         (rs, meta)
                     }
                 };
-                grid.update(cx, |g, cx| g.set_result(Arc::new(rs), meta, window, cx));
+                let (n_rows, n_cols) = (rs.rows.len(), rs.columns.len());
+                let started = Instant::now();
+                grid.update(cx, |g, cx| {
+                    g.set_result(Arc::new(rs), meta, window, cx);
+                    g.set_loading(loading, cx);
+                });
+                eprintln!("set_result for {n_rows} x {n_cols}: {:.1} ms", started.elapsed().as_secs_f64() * 1000.0);
                 let focus = grid.read(cx).focus_handle(cx);
                 window.focus(&focus, cx);
                 cx.new(|cx| {

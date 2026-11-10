@@ -524,13 +524,12 @@ impl ResultGrid {
                     .h(px(ROW_H))
                     .flex()
                     .items_center()
-                    .px(px(CELL_PAD - 4.0))
                     .bg(p.bg)
                     .border_1()
                     .border_color(if ed.error.is_some() { p.danger } else { p.accent })
                     .child(
                         Input::new(&ed.input)
-                            .xsmall()
+                            .with_size(px(fsize / 0.875))
                             .appearance(false)
                             .bordered(false)
                             .focus_bordered(false),
@@ -702,7 +701,6 @@ impl ResultGrid {
         let selected = self.current_range().is_some_and(|r| {
             (r.c0..=r.c1).contains(&c) && self.sel.is_some_and(|s| s.extent == Extent::Cols)
         });
-        let tip = format!("{} · {}", col.name, col.type_name);
         let grid = cx.entity();
         let sort_icon = match sort {
             Some(_) if descending => IconName::ArrowDown,
@@ -808,7 +806,6 @@ impl ResultGrid {
                         }),
                     ),
             )
-            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
             .context_menu(move |menu, _, _| header_menu(menu, &grid, c))
             .into_any_element()
     }
