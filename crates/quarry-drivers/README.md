@@ -73,6 +73,9 @@ QUARRY_TEST_SSH=1 cargo test -p quarry-drivers --test ssh
 crates/quarry-drivers/tests/ssh/setup.sh stop
 ```
 
+CI runs these tests too (the `libraries` job installs `openssh-server` and uses `QUARRY_TEST_SSH_DIR=/tmp/quarry-ssh-test`;
+the key directory must be world-traversable because `sshd` reads `authorized_keys` as the test user).
+
 `setup.sh` generates host/client keys (ed25519, passphrase-protected ed25519, RSA,
 and one unauthorised key), creates the user `quarrytest` (password `quarry-test-pw`)
 and runs `/usr/sbin/sshd -f <dir>/sshd_config -p 2222` with password and public-key
