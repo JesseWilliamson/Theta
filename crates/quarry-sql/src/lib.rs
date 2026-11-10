@@ -5,8 +5,15 @@
 //! No I/O and no async: everything is a function of its arguments so it can run on
 //! every keystroke and be tested without a database.
 
+pub mod export;
+pub mod generate;
 pub mod keywords;
 pub mod lexer;
 pub mod script;
 
+#[cfg(test)]
+pub(crate) mod fixtures;
+
+pub use export::{ExportFormat, export};
+pub use generate::{build_delete, build_insert, build_update, select_top, sql_literal, table_ddl};
 pub use script::{StatementClass, StatementSpan, classify, split_statements, statement_at};
