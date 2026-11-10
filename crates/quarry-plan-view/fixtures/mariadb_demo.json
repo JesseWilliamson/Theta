@@ -1,0 +1,116 @@
+{
+  "query_optimization": {
+    "r_total_time_ms": 0.20007651
+  },
+  "query_block": {
+    "select_id": 1,
+    "r_loops": 1,
+    "r_total_time_ms": 2.598404652,
+    "filesort": {
+      "sort_key": "sum(oi.quantity * oi.unit_price) desc",
+      "r_loops": 1,
+      "r_total_time_ms": 0.011636742,
+      "r_limit": 20,
+      "r_used_priority_queue": true,
+      "r_output_rows": 21,
+      "r_sort_mode": "sort_key,rowid",
+      "temporary_table": {
+        "filesort": {
+          "sort_key": "p.category, c.country",
+          "r_loops": 1,
+          "r_total_time_ms": 0.509851632,
+          "r_used_priority_queue": false,
+          "r_output_rows": 1170,
+          "r_buffer_size": "580Kb",
+          "r_sort_mode": "packed_sort_key,rowid",
+          "temporary_table": {
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "c",
+                  "access_type": "ALL",
+                  "possible_keys": ["PRIMARY"],
+                  "r_loops": 1,
+                  "rows": 200,
+                  "r_rows": 200,
+                  "r_table_time_ms": 0.049092056,
+                  "r_other_time_ms": 0.026876719,
+                  "r_engine_stats": {
+                    "pages_accessed": 3
+                  },
+                  "filtered": 100,
+                  "r_filtered": 70.5,
+                  "attached_condition": "c.marketing_opt_in <> 0"
+                }
+              },
+              {
+                "table": {
+                  "table_name": "o",
+                  "access_type": "ref",
+                  "possible_keys": ["PRIMARY", "idx_orders_customer_id"],
+                  "key": "idx_orders_customer_id",
+                  "key_length": "4",
+                  "used_key_parts": ["customer_id"],
+                  "ref": ["quarry_demo.c.id"],
+                  "r_loops": 141,
+                  "rows": 1,
+                  "r_rows": 2.787234043,
+                  "r_table_time_ms": 0.341725785,
+                  "r_other_time_ms": 0.049879935,
+                  "r_engine_stats": {
+                    "pages_accessed": 927
+                  },
+                  "filtered": 100,
+                  "r_filtered": 100,
+                  "attached_condition": "o.ordered_at >= '2021-11-10 21:50:43'"
+                }
+              },
+              {
+                "table": {
+                  "table_name": "oi",
+                  "access_type": "ref",
+                  "possible_keys": ["PRIMARY", "idx_order_items_product"],
+                  "key": "PRIMARY",
+                  "key_length": "4",
+                  "used_key_parts": ["order_id"],
+                  "ref": ["quarry_demo.o.id"],
+                  "r_loops": 393,
+                  "rows": 1,
+                  "r_rows": 2.977099237,
+                  "r_table_time_ms": 0.482108723,
+                  "r_other_time_ms": 0.100241194,
+                  "r_engine_stats": {
+                    "pages_accessed": 792
+                  },
+                  "filtered": 100,
+                  "r_filtered": 100
+                }
+              },
+              {
+                "table": {
+                  "table_name": "p",
+                  "access_type": "eq_ref",
+                  "possible_keys": ["PRIMARY"],
+                  "key": "PRIMARY",
+                  "key_length": "4",
+                  "used_key_parts": ["id"],
+                  "ref": ["quarry_demo.oi.product_id"],
+                  "r_loops": 1170,
+                  "rows": 1,
+                  "r_rows": 1,
+                  "r_table_time_ms": 0.510066508,
+                  "r_other_time_ms": 0.25952751,
+                  "r_engine_stats": {
+                    "pages_accessed": 1156
+                  },
+                  "filtered": 100,
+                  "r_filtered": 100
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

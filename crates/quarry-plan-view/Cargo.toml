@@ -1,0 +1,17 @@
+[package]
+name = "quarry-plan-view"
+description = "Query-plan analysis panel for Quarry: tree, flame graph, insights and raw views."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+quarry-core.workspace = true
+quarry-sql.workspace = true
+quarry-ui.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+quarry-drivers.workspace = true
