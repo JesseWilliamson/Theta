@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -12,11 +13,32 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 5
+  # Debug info is useless in CI logs and is most of the target directory's size.
+  RUSTFLAGS: -C debuginfo=0
+  # The toolchain version lives in rust-toolchain.toml; keep this in sync with it.
+  RUST_TOOLCHAIN: "1.97.0"
 
 jobs:
-  # Pure crates: fast, no GPU or window system needed.
+  # Formatting is its own job so that it never blocks the build/test jobs. It
+  # becomes a required check once every crate is formatted.
+  fmt:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  # Pure crates: fast, no GPU or window system needed, plus the database
+  # integration tests against real servers.
   libraries:
     runs-on: ubuntu-24.04
+    env:
+      RUSTFLAGS: -C debuginfo=0 -C link-arg=-fuse-ld=mold
     services:
       postgres:
         image: postgis/postgis:16-3.4
@@ -40,36 +62,61 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 20
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
-          components: clippy, rustfmt
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: libraries
       - name: Install linker
-        run: sudo apt-get update && sudo apt-get install -y mold clang
+        run: sudo apt-get update && sudo apt-get install -y mold
+      # The tests create their own databases, which the MARIADB_USER account
+      # (privileges on quarry_demo only) may not do. The runner has no mysql
+      # client, so run the client that ships inside the service container.
       - name: Grant the test user access to every MariaDB database
-        run: >
-          mysql -h127.0.0.1 -uroot -proot
-          -e "GRANT ALL ON *.* TO 'quarry'@'%'; FLUSH PRIVILEGES;"
-      - run: cargo fmt --all -- --check
+        run: |
+          id=$(docker ps --filter "ancestor=mariadb:10.11" --format '{{.ID}}' | head -n1)
+          docker exec "$id" mariadb -uroot -proot \
+            -e "GRANT ALL ON *.* TO 'quarry'@'%'; FLUSH PRIVILEGES;"
       - run: >
           cargo clippy -p quarry-core -p quarry-sql -p quarry-geo -p quarry-editor -p quarry-drivers
           --all-targets -- -D warnings
       - run: cargo test -p quarry-core -p quarry-sql -p quarry-geo -p quarry-editor -p quarry-drivers
+      # A throw-away sshd on 127.0.0.1:2222; see crates/quarry-drivers/tests/ssh/setup.sh.
+      - name: SSH tunnel tests
+        env:
+          QUARRY_TEST_SSH: "1"
+          QUARRY_TEST_SSH_DIR: ${{ runner.temp }}/ssh-test
+        run: |
+          sudo apt-get install -y openssh-server
+          sudo -E crates/quarry-drivers/tests/ssh/setup.sh
+          # the tests read the client keys as the unprivileged runner user
+          sudo chown -R "$(id -u):$(id -g)" "$QUARRY_TEST_SSH_DIR"
+          cargo test -p quarry-drivers --test ssh
+          sudo -E crates/quarry-drivers/tests/ssh/setup.sh stop
 
-  # The GPUI application on every platform we ship.
+  # The GPUI application on every platform we ship: build everything, run all
+  # tests (the Linux ones under a virtual X server with a software Vulkan driver).
   app:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-14, windows-2022]
+        include:
+          - os: ubuntu-24.04
+            rustflags: -C debuginfo=0 -C link-arg=-fuse-ld=mold
+          - os: macos-14
+            rustflags: -C debuginfo=0
+          - os: windows-2022
+            rustflags: -C debuginfo=0
     runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
-          components: clippy
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: app-${{ matrix.os }}
@@ -82,9 +129,32 @@ jobs:
             libxcb-xfixes0-dev libfontconfig-dev libasound2-dev libssl-dev libzstd-dev \
             libvulkan1 mesa-vulkan-drivers xvfb
       - run: cargo build --workspace --all-targets
-      - name: UI tests (headless)
+      - name: Tests (headless)
         if: runner.os == 'Linux'
         run: xvfb-run -a cargo test --workspace --exclude quarry-drivers
       - name: Tests
         if: runner.os != 'Linux'
         run: cargo test --workspace --exclude quarry-drivers
+
+  # Non-blocking until the whole workspace is warning-free.
+  clippy:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    env:
+      RUSTFLAGS: -C debuginfo=0 -C link-arg=-fuse-ld=mold
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: clippy
+      - name: Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mold clang libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libxcb1-dev libxcb-xkb-dev libxcb-render0-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libfontconfig-dev libasound2-dev libssl-dev libzstd-dev
+      - run: cargo clippy --workspace --all-targets -- -D warnings
