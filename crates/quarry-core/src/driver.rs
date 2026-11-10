@@ -1,4 +1,6 @@
-use crate::{Catalog, ConnectionConfig, DatabaseKind, ExecOptions, Plan, Result, ServerInfo, StatementOutcome};
+use crate::{
+    Catalog, ConnectionConfig, DatabaseKind, ExecOptions, Plan, Result, ServerInfo, StatementOutcome,
+};
 use async_trait::async_trait;
 
 /// A live session with one database.

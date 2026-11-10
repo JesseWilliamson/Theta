@@ -86,9 +86,12 @@ async fn authenticate(session: &mut Handle<Handler>, ssh: &SshConfig) -> Result<
                 .await
                 .map_err(|e| Error::Auth(format!("cannot reach ssh-agent (is SSH_AUTH_SOCK set?): {e}")))?;
             #[cfg(windows)]
-            let agent = AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await.map_err(|e| {
-                Error::Auth(format!("cannot reach the OpenSSH agent service (is ssh-agent running?): {e}"))
-            })?;
+            let agent =
+                AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await.map_err(|e| {
+                    Error::Auth(format!(
+                        "cannot reach the OpenSSH agent service (is ssh-agent running?): {e}"
+                    ))
+                })?;
             authenticate_with_agent(session, user, agent).await?
         }
     };

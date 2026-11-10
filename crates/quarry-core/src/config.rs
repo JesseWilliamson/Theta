@@ -9,7 +9,8 @@ pub enum DatabaseKind {
 }
 
 impl DatabaseKind {
-    pub const ALL: &'static [DatabaseKind] = &[DatabaseKind::Postgres, DatabaseKind::MySql, DatabaseKind::Sqlite];
+    pub const ALL: &'static [DatabaseKind] =
+        &[DatabaseKind::Postgres, DatabaseKind::MySql, DatabaseKind::Sqlite];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -57,9 +58,14 @@ pub enum SslMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", rename_all = "snake_case")]
 pub enum SshAuth {
-    Password { password: String },
+    Password {
+        password: String,
+    },
     /// Private key file (OpenSSH or PEM), optionally encrypted.
-    KeyFile { path: String, passphrase: Option<String> },
+    KeyFile {
+        path: String,
+        passphrase: Option<String>,
+    },
     /// Use the running ssh-agent (`SSH_AUTH_SOCK`).
     Agent,
 }
