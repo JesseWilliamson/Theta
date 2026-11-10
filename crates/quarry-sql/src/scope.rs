@@ -411,6 +411,16 @@ fn find_depth0(p: &Parsed, from: usize, to: usize, pred: impl Fn(&Parsed, usize)
 
 /// Output column names of the query in `from..to`, when they are statically obvious.
 pub(crate) fn derive_columns(p: &Parsed, from: usize, to: usize, catalog: Option<&Catalog>, ctes: &[CteDef]) -> Vec<String> {
+    derive_columns_ex(p, from, to, catalog, ctes).into_iter().map(|(n, _)| n).collect()
+}
+
+/// Names the query defines itself with `AS x` or a bare alias (not plain column references).
+pub(crate) fn select_aliases(p: &Parsed, from: usize, to: usize, catalog: Option<&Catalog>, ctes: &[CteDef]) -> Vec<String> {
+    derive_columns_ex(p, from, to, catalog, ctes).into_iter().filter(|(_, alias)| *alias).map(|(n, _)| n).collect()
+}
+
+/// Like [`derive_columns`], flagging which names are explicit aliases.
+fn derive_columns_ex(p: &Parsed, from: usize, to: usize, catalog: Option<&Catalog>, ctes: &[CteDef]) -> Vec<(String, bool)> {
     let mut from = from;
     let mut local_ctes: Vec<CteDef> = ctes.to_vec();
     if p.is_word(from, "WITH") {
@@ -435,7 +445,7 @@ pub(crate) fn derive_columns(p: &Parsed, from: usize, to: usize, catalog: Option
             }
             i += 1;
         }
-        return (1..=n).map(|k| format!("column{k}")).collect();
+        return (1..=n).map(|k| (format!("column{k}"), false)).collect();
     }
     let Some(sel) = find_depth0(p, from, to, |p, i| p.is_word(i, "SELECT")) else { return Vec::new() };
     let mut i = sel + 1;
@@ -471,7 +481,7 @@ pub(crate) fn derive_columns(p: &Parsed, from: usize, to: usize, catalog: Option
         items.push(s..list_end);
     }
     let mut scan: Option<ScopeScan> = None;
-    let mut out = Vec::new();
+    let mut out: Vec<(String, bool)> = Vec::new();
     for it in items {
         let (a, b) = (it.start, it.end.min(p.len()));
         if b <= a {
@@ -488,28 +498,28 @@ pub(crate) fn derive_columns(p: &Parsed, from: usize, to: usize, catalog: Option
             let sc = scan.get_or_insert_with(|| scan_scope(p, from, to, catalog, &local_ctes));
             for src in &sc.sources {
                 if qual.as_ref().is_none_or(|q| src.reference_name().eq_ignore_ascii_case(q)) {
-                    out.extend(source_columns(src, catalog, &local_ctes).into_iter().map(|c| c.name));
+                    out.extend(source_columns(src, catalog, &local_ctes).into_iter().map(|c| (c.name, false)));
                 }
             }
             continue;
         }
         let last = b - 1;
         if b - a >= 2 && p.is_word(last - 1, "AS") && p.is_ident(last) {
-            out.push(p.ident(last));
+            out.push((p.ident(last), true));
         } else if b - a == 1 && p.is_ident(last) {
-            out.push(p.ident(last));
+            out.push((p.ident(last), false));
         } else if b - a >= 3 && p.is_ident(last) && p.is_punct(last - 1, ".") {
-            out.push(p.ident(last));
+            out.push((p.ident(last), false));
         } else if b - a >= 2
             && is_alias_word(p, last)
             && (p.is_ident(last - 1) || matches!(p.toks[last - 1].kind, TokenKind::Number | TokenKind::String) || p.is_punct(last - 1, ")") || p.is_punct(last - 1, "]"))
             && !p.is_punct(last - 1, ".")
         {
-            out.push(p.ident(last));
+            out.push((p.ident(last), true));
         } else if p.is_ident(a) && p.is_punct(a + 1, "(") && p.closing(a + 1) + 1 == b {
-            out.push(p.ident(a).to_ascii_lowercase());
+            out.push((p.ident(a).to_ascii_lowercase(), false));
         } else if p.is_word(a, "CASE") {
-            out.push("case".into());
+            out.push(("case".into(), false));
         }
     }
     out

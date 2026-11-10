@@ -11,6 +11,8 @@ pub mod fk;
 pub mod generate;
 pub mod keywords;
 pub mod lexer;
+pub mod lint;
+pub mod plan;
 pub mod script;
 pub(crate) mod scope;
 
@@ -21,4 +23,6 @@ pub use complete::{CompletionItem, CompletionKind, CompletionList, CompletionReq
 pub use export::{ExportFormat, export};
 pub use fk::{JoinSuggestion, TableRef, VirtualForeignKey, infer_foreign_keys, suggest_joins, tables_in_scope};
 pub use generate::{build_delete, build_insert, build_update, select_top, sql_literal, table_ddl};
+pub use lint::{Diagnostic, Severity, lint};
+pub use plan::{Insight, PlanSummary, analyze_plan};
 pub use script::{StatementClass, StatementSpan, classify, split_statements, statement_at};
