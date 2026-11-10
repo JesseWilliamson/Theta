@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # Pure crates: fast, no GPU or window system needed.
+  libraries:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: quarry_demo
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: quarry_demo
+          MARIADB_USER: quarry
+          MARIADB_PASSWORD: quarry
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: libraries
+      - name: Install linker
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+      - name: Grant the test user access to every MariaDB database
+        run: >
+          mysql -h127.0.0.1 -uroot -proot
+          -e "GRANT ALL ON *.* TO 'quarry'@'%'; FLUSH PRIVILEGES;"
+      - run: cargo fmt --all -- --check
+      - run: >
+          cargo clippy -p quarry-core -p quarry-sql -p quarry-geo -p quarry-editor -p quarry-drivers
+          --all-targets -- -D warnings
+      - run: cargo test -p quarry-core -p quarry-sql -p quarry-geo -p quarry-editor -p quarry-drivers
+
+  # The GPUI application on every platform we ship.
+  app:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: app-${{ matrix.os }}
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mold clang libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libxcb1-dev libxcb-xkb-dev libxcb-render0-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libfontconfig-dev libasound2-dev libssl-dev libzstd-dev \
+            libvulkan1 mesa-vulkan-drivers xvfb
+      - run: cargo build --workspace --all-targets
+      - name: UI tests (headless)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a cargo test --workspace --exclude quarry-drivers
+      - name: Tests
+        if: runner.os != 'Linux'
+        run: cargo test --workspace --exclude quarry-drivers

@@ -1,0 +1,80 @@
+name: Release
+
+# Pushing a tag like v0.3.0 builds optimised binaries for every platform and
+# attaches them to a GitHub release (created as a draft if it does not exist).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04 # oldest supported glibc → runs on more distros
+            target: x86_64-unknown-linux-gnu
+            archive: quarry-linux-x86_64.tar.gz
+          - os: macos-14
+            target: aarch64-apple-darwin
+            archive: quarry-macos-arm64.tar.gz
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive: quarry-macos-x86_64.tar.gz
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            archive: quarry-windows-x86_64.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mold clang libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libxcb1-dev libxcb-xkb-dev libxcb-render0-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libfontconfig-dev libasound2-dev libssl-dev libzstd-dev
+      - run: cargo build --release -p quarry --target ${{ matrix.target }}
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir dist
+          cp target/${{ matrix.target }}/release/quarry dist/
+          cp README.md LICENSE dist/ 2>/dev/null || true
+          tar -C dist -czf ${{ matrix.archive }} .
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/quarry.exe dist/
+          Copy-Item README.md, LICENSE dist/ -ErrorAction SilentlyContinue
+          Compress-Archive -Path dist/* -DestinationPath ${{ matrix.archive }}
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --generate-notes
+          gh release upload "$TAG" "${{ matrix.archive }}" --clobber
