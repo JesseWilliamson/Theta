@@ -678,7 +678,39 @@ mod tests {
             kind: DatabaseKind::Postgres,
             color: None,
             phase: Phase::Connected { catalog: Some(c), loading: false, catalog_error: None },
+            inferred: &[],
         }]
+    }
+
+    #[test]
+    fn suggested_foreign_keys_nest_under_foreign_keys() {
+        let c = catalog();
+        let inferred = vec![VirtualForeignKey {
+            schema: "public".into(),
+            table: "orders".into(),
+            column: "region_id".into(),
+            referenced_schema: "public".into(),
+            referenced_table: "customers".into(),
+            referenced_column: "id".into(),
+            confidence: 0.8,
+            reason: "region_id looks like a reference to customers.id".into(),
+        }];
+        let mut views = view(&c);
+        views[0].inferred = &inferred;
+        let mut exp = set(default_expansion("c1", &c));
+        exp.insert(NodeKey::Table("c1".into(), "public".into(), "orders".into()));
+        let sec = |s| NodeKey::Section("c1".into(), "public".into(), "orders".into(), s);
+        exp.insert(sec(Section::ForeignKeys));
+        exp.insert(sec(Section::Suggested));
+        let rows = flatten(&views, &exp, "");
+        let group = rows.iter().find(|r| r.label == "Suggested").expect("suggested group");
+        assert_eq!(group.detail.as_deref(), Some("1"));
+        assert_eq!(group.icon, RowIcon::SuggestedForeignKey);
+        let leaf = rows.iter().find(|r| r.label == "region_id").expect("suggested leaf");
+        assert!(leaf.muted && leaf.type_text.as_deref().unwrap().contains("80%"));
+        assert!(leaf.tooltip.as_deref().unwrap().contains("customers.id"));
+        let fk = rows.iter().find(|r| r.label == "Foreign Keys").unwrap();
+        assert_eq!(fk.detail.as_deref(), Some("2"), "one declared plus one suggested");
     }
 
     fn set(keys: Vec<NodeKey>) -> HashSet<NodeKey> {

@@ -158,7 +158,7 @@ impl Workspace {
     }
 
     pub(super) fn restore_consoles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let saved = consoles::load_all(&consoles::consoles_dir());
+        let saved = consoles::load_all(&self.data_dir.join("consoles"));
         let mut active = None;
         for s in saved {
             let conn = s.connection_id.filter(|c| self.store.read(cx).config(c).is_some());
@@ -207,7 +207,7 @@ impl Workspace {
             active: self.active_tab == Some(id),
             file: c.file.clone(),
         };
-        let _ = consoles::save(&consoles::consoles_dir(), &saved);
+        let _ = consoles::save(&self.data_dir.join("consoles"), &saved);
     }
 
     pub(super) fn on_console_activated(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
@@ -1481,3 +1481,141 @@ impl Workspace {
 
 #[allow(dead_code)]
 fn _unused(_: Entity<()>, _: RwLock<()>) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::connections::ConnectionStore;
+    use crate::connections::secrets::SecretStore;
+    use gpui_kit::{TestAppContext, VisualTestContext};
+    use quarry_core::ConnectionConfig;
+
+    fn setup(
+        cx: &mut TestAppContext,
+        read_only: bool,
+    ) -> (Entity<ConnectionStore>, Entity<Workspace>, &mut VisualTestContext, String, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        // Drivers wake GPUI tasks from Tokio threads; the test scheduler must allow that from the start.
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            quarry_ui::init(cx);
+            crate::keymap::bind(cx);
+        });
+        let (store, _) = ConnectionStore::load(None, Arc::new(SecretStore::memory_only()));
+        let store = cx.new(|_| store);
+        let mut config = ConnectionConfig::new("t1", "test", DatabaseKind::Sqlite);
+        config.path = ":memory:".into();
+        config.read_only = read_only;
+        let id = store.update(cx, |s, cx| {
+            let id = s.add_temporary(config, cx);
+            s.connect(&id, cx);
+            id
+        });
+        let (ws, vcx) = cx.add_window_view(|window, cx| {
+            let mut ws = Workspace::with_data_dir(store.clone(), dir.path().to_path_buf(), window, cx);
+            ws.quiet = true;
+            ws
+        });
+        wait_for(vcx, |vcx| store.read_with(vcx, |s, _| s.state(&id).is_connected()));
+        (store, ws, vcx, id, dir)
+    }
+
+    /// Database drivers run on a real Tokio runtime, so poll instead of parking.
+    fn wait_for(vcx: &mut VisualTestContext, mut done: impl FnMut(&mut VisualTestContext) -> bool) {
+        vcx.executor().allow_parking();
+        for _ in 0..500 {
+            vcx.run_until_parked();
+            if done(vcx) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("timed out waiting for the condition");
+    }
+
+    #[gpui_kit::test]
+    fn query_runs_end_to_end_into_the_grid(cx: &mut TestAppContext) {
+        let (_, ws, vcx, id, _dir) = setup(cx, false);
+        let tab = ws.update_in(vcx, |ws, window, cx| {
+            let tab = ws.open_console(
+                Some(id.clone()),
+                Some("select 1 as a, 'x' as b union all select 2, 'y'".into()),
+                window,
+                cx,
+            );
+            ws.run_request(tab, RunReq::All, window, cx);
+            tab
+        });
+        wait_for(vcx, |vcx| {
+            ws.read_with(vcx, |ws, cx| ws.results.read(cx).grid.read(cx).result().is_some())
+        });
+        ws.read_with(vcx, |ws, cx| {
+            let grid = ws.results.read(cx).grid.read(cx);
+            assert_eq!(grid.result().unwrap().rows.len(), 2);
+            assert_eq!(ws.history.read(cx).len(), 1);
+            assert!(ws.consoles[&tab].results[0].title.starts_with("Result 1"));
+            assert!(ws.runs.is_empty(), "the run must have finished");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn two_statements_give_two_result_sets_and_stop_at_error(cx: &mut TestAppContext) {
+        let (_, ws, vcx, id, _dir) = setup(cx, false);
+        let tab = ws.update_in(vcx, |ws, window, cx| {
+            let tab = ws.open_console(
+                Some(id.clone()),
+                Some("select 1; select 2; select nope from nowhere; select 4".into()),
+                window,
+                cx,
+            );
+            ws.run_request(tab, RunReq::All, window, cx);
+            tab
+        });
+        wait_for(vcx, |vcx| ws.read_with(vcx, |ws, _| ws.runs.is_empty() && ws.consoles[&tab].summary.is_some()));
+        ws.read_with(vcx, |ws, cx| {
+            let c = &ws.consoles[&tab];
+            assert_eq!(c.results.len(), 2, "the failing statement stops the run");
+            assert!(c.summary.as_ref().unwrap().1, "the summary is an error");
+            assert_eq!(ws.messages.read(cx).entries().len(), 3);
+            assert_eq!(ws.history.read(cx).len(), 3);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn read_only_connection_refuses_writes(cx: &mut TestAppContext) {
+        let (_, ws, vcx, id, _dir) = setup(cx, true);
+        ws.update_in(vcx, |ws, window, cx| {
+            let tab = ws.open_console(Some(id.clone()), Some("create table t (a int)".into()), window, cx);
+            ws.run_request(tab, RunReq::All, window, cx);
+        });
+        vcx.run_until_parked();
+        ws.read_with(vcx, |ws, cx| {
+            assert!(ws.runs.is_empty());
+            let m = ws.messages.read(cx).entries();
+            assert_eq!(m.len(), 1);
+            assert!(m[0].lines[0].contains("read-only"));
+            assert_eq!(ws.history.read(cx).len(), 0, "a refused statement is not history");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn consoles_persist_and_restore(cx: &mut TestAppContext) {
+        let (store, ws, vcx, id, dir) = setup(cx, false);
+        ws.update_in(vcx, |ws, window, cx| {
+            ws.open_console(Some(id.clone()), Some("select 'kept'".into()), window, cx);
+        });
+        let saved = consoles::load_all(&dir.path().join("consoles"));
+        assert!(saved.iter().any(|c| c.text == "select 'kept'" && c.connection_id.as_deref() == Some("t1")));
+        // A second window over the same config dir restores it.
+        let (ws2, vcx2) = cx.add_window_view(|window, cx| {
+            let mut ws = Workspace::with_data_dir(store.clone(), dir.path().to_path_buf(), window, cx);
+            ws.quiet = true;
+            ws
+        });
+        ws2.read_with(vcx2, |ws, cx| {
+            let texts: Vec<String> = ws.tabs().iter().map(|t| ws.consoles[&t.id].editor.read(cx).text()).collect();
+            assert!(texts.iter().any(|t| t == "select 'kept'"), "{texts:?}");
+            assert!(ws.tabs().iter().all(|t| t.connection_id.as_deref() == Some("t1")));
+        });
+    }
+}

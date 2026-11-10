@@ -41,7 +41,7 @@ use persist::*;
 use quarry_ui::picker::{Picker, PickerDelegate, PickerEvent};
 use quarry_ui::{STATUS_BAR_HEIGHT, Settings, TAB_BAR_HEIGHT, TITLE_BAR_HEIGHT};
 use serde::{Deserialize, Serialize};
-use crate::exec::history::{HistoryStore, history_path};
+use crate::exec::history::HistoryStore;
 use crate::panels::history::{HistoryEvent, HistoryPanel};
 use crate::panels::messages::MessagesPanel;
 use crate::panels::results::{ResultsEvent, ResultsPanel};
@@ -175,6 +175,9 @@ pub struct Workspace {
     last_explain: Option<run::ExplainTarget>,
     startup: Option<run::Startup>,
     pending_geo_gen: u64,
+    /// Tests run in windows without a `Root`, where toasts cannot be shown.
+    quiet: bool,
+    data_dir: std::path::PathBuf,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -188,10 +191,20 @@ impl Focusable for Workspace {
 
 impl Workspace {
     pub fn new(store: Entity<ConnectionStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::with_data_dir(store, quarry_ui::settings::config_dir(), window, cx)
+    }
+
+    /// Like [`Workspace::new`] with an explicit directory for consoles, history and layout.
+    pub fn with_data_dir(
+        store: Entity<ConnectionStore>,
+        data_dir: std::path::PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let explorer = cx.new(|cx| Explorer::new(store.clone(), window, cx));
         let results = cx.new(|cx| ResultsPanel::new(window, cx));
         let messages = cx.new(|_| MessagesPanel::new());
-        let history = cx.new(|cx| HistoryPanel::new(HistoryStore::load(Some(history_path())), window, cx));
+        let history = cx.new(|cx| HistoryPanel::new(HistoryStore::load(Some(data_dir.join("history.jsonl"))), window, cx));
         let plan = cx.new(|cx| PlanPanel::new(window, cx));
         let map = cx.new(|cx| MapPanel::new(window, cx));
         let grid = results.read(cx).grid.clone();
@@ -218,7 +231,7 @@ impl Workspace {
             next_tab_id: 1,
             console_views: HashMap::new(),
             bottom_views: HashMap::new(),
-            state: WorkspaceState::load(&workspace_path()),
+            state: WorkspaceState::load(&data_dir.join("workspace.json")),
             active_connection: None,
             status: StatusSlots::default(),
             running: false,
@@ -241,6 +254,8 @@ impl Workspace {
             last_explain: None,
             startup: None,
             pending_geo_gen: 0,
+            quiet: false,
+            data_dir,
             _subscriptions: subscriptions,
         };
         ws.bottom_views.insert(BottomTab::Results, results.into());
@@ -339,7 +354,7 @@ impl Workspace {
         self.tabs.remove(pos);
         self.console_views.remove(&id);
         if let Some(c) = self.consoles.remove(&id) {
-            crate::exec::consoles::remove(&crate::exec::consoles::consoles_dir(), &c.key);
+            crate::exec::consoles::remove(&self.data_dir.join("consoles"), &c.key);
         }
         cx.emit(WorkspaceEvent::ConsoleClosed { tab_id: id });
         if self.active_tab == Some(id) {
@@ -428,6 +443,10 @@ impl Workspace {
         cx: &mut App,
     ) {
         let message = message.into();
+        // Toasts live in the window's Root; headless test windows have none.
+        if self.quiet {
+            return;
+        }
         {
             let t = gpui_kit::component::Theme::global_mut(cx);
             t.notification.placement = gpui_kit::Anchor::BottomRight;
@@ -445,7 +464,7 @@ impl Workspace {
     // ------------------------------------------------------------ internals
 
     fn save_layout(&mut self) {
-        self.state.save(&workspace_path());
+        self.state.save(&self.data_dir.join("workspace.json"));
         self.layout_dirty = false;
     }
 
