@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Quarry
+GenericName=Database IDE
+Comment=Keyboard-first database IDE for PostgreSQL, MySQL/MariaDB and SQLite
+Exec=quarry %U
+Icon=quarry
+Terminal=false
+Categories=Development;Database;IDE;
+Keywords=sql;database;postgres;postgresql;mysql;mariadb;sqlite;postgis;query;
+StartupNotify=true
+StartupWMClass=quarry

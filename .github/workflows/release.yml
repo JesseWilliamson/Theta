@@ -1,15 +1,21 @@
 name: Release
 
-# Pushing a tag like v0.3.0 builds optimised binaries for every platform and
-# attaches them to a GitHub release (created as a draft if it does not exist).
+# Pushing a tag like v0.3.0 builds installers for every platform and creates a DRAFT release
+# for the maintainer to review and publish. Run it by hand (Actions > Release > Run workflow)
+# with dry_run=true to build everything and get the files as workflow artifacts instead.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: Existing tag to build
+      ref:
+        description: Branch, tag or SHA to build (a real release needs an existing tag)
         required: true
+        default: main
+      dry_run:
+        description: Upload workflow artifacts only; do not create a release
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -17,7 +23,9 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  CARGO_NET_RETRY: 5
+  RUST_TOOLCHAIN: "1.97.0"
+  REF: ${{ github.event.inputs.ref || github.ref_name }}
 
 jobs:
   build:
@@ -25,56 +33,126 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04 # oldest supported glibc → runs on more distros
+          - name: linux-x86_64
+            os: ubuntu-22.04 # oldest supported glibc, so the binary runs on more distros
             target: x86_64-unknown-linux-gnu
-            archive: quarry-linux-x86_64.tar.gz
-          - os: macos-14
+          - name: macos-arm64
+            os: macos-15
             target: aarch64-apple-darwin
-            archive: quarry-macos-arm64.tar.gz
-          - os: macos-13
+          - name: macos-x86_64
+            os: macos-15-intel
             target: x86_64-apple-darwin
-            archive: quarry-macos-x86_64.tar.gz
-          - os: windows-2022
+          - name: windows-x86_64
+            os: windows-2022
             target: x86_64-pc-windows-msvc
-            archive: quarry-windows-x86_64.zip
+    name: build (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.TAG }}
-      - uses: dtolnay/rust-toolchain@stable
+          ref: ${{ env.REF }}
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release-${{ matrix.target }}
+      - name: Version
+        id: v
+        shell: bash
+        run: echo "version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="quarry"))')" >> "$GITHUB_OUTPUT"
       - name: Linux build dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y mold clang libxkbcommon-dev libxkbcommon-x11-dev \
+          sudo apt-get install -y clang libxkbcommon-dev libxkbcommon-x11-dev \
             libwayland-dev libxcb1-dev libxcb-xkb-dev libxcb-render0-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libfontconfig-dev libasound2-dev libssl-dev libzstd-dev
-      - run: cargo build --release -p quarry --target ${{ matrix.target }}
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+
+      # The GUI subsystem keeps Windows from opening a console window behind the app. Done with
+      # linker flags so no source change is needed; because --target is given, they do not leak
+      # into build scripts. (Adding #![cfg_attr(not(debug_assertions), windows_subsystem =
+      # "windows")] to crates/quarry/src/main.rs makes this unnecessary.)
+      - name: Build
+        shell: bash
+        env:
+          RUSTFLAGS: ${{ runner.os == 'Windows' && '-C link-args=/SUBSYSTEM:WINDOWS -C link-args=/ENTRY:mainCRTStartup' || '' }}
+        run: cargo build --release -p quarry --locked --target ${{ matrix.target }}
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage || true
+          chmod +x appimagetool || true
+          [ -s appimagetool ] && export APPIMAGETOOL=$PWD/appimagetool
+          packaging/linux/package.sh target/${{ matrix.target }}/release/quarry ${{ steps.v.outputs.version }} dist
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
         run: |
           mkdir dist
-          cp target/${{ matrix.target }}/release/quarry dist/
-          cp README.md LICENSE dist/ 2>/dev/null || true
-          tar -C dist -czf ${{ matrix.archive }} .
+          packaging/macos/bundle.sh target/${{ matrix.target }}/release/quarry \
+            ${{ steps.v.outputs.version }} "${{ endsWith(matrix.name, 'arm64') && 'arm64' || 'x86_64' }}" dist
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory dist | Out-Null
-          Copy-Item target/${{ matrix.target }}/release/quarry.exe dist/
-          Copy-Item README.md, LICENSE dist/ -ErrorAction SilentlyContinue
-          Compress-Archive -Path dist/* -DestinationPath ${{ matrix.archive }}
-      - name: Upload to release
+          $v = "${{ steps.v.outputs.version }}"
+          New-Item -ItemType Directory dist, stage | Out-Null
+          $exe = "target/${{ matrix.target }}/release/quarry.exe"
+          # Embed the icon and version info into the exe (no build script needed).
+          Invoke-WebRequest -Uri https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe -OutFile rcedit.exe
+          ./rcedit.exe $exe --set-icon packaging/windows/quarry.ico `
+            --set-file-version "$v.0" --set-product-version "$v" `
+            --set-version-string ProductName Quarry --set-version-string FileDescription "Quarry database IDE" `
+            --set-version-string InternalName quarry --set-version-string OriginalFilename quarry.exe `
+            --set-version-string LegalCopyright "Quarry contributors"
+          # Verify the subsystem really is GUI (2) and not console (3).
+          $b = [IO.File]::ReadAllBytes((Resolve-Path $exe))
+          $pe = [BitConverter]::ToInt32($b, 0x3c)
+          $sub = [BitConverter]::ToUInt16($b, $pe + 24 + 68)
+          Write-Host "PE subsystem: $sub"
+          if ($sub -ne 2) { throw "quarry.exe is not a GUI-subsystem binary" }
+          Copy-Item $exe stage/quarry.exe
+          Copy-Item README.md, CHANGELOG.md, docs/THIRD_PARTY.md, crates/quarry-ui/NOTICE stage/
+          Get-ChildItem LICENSE* -ErrorAction SilentlyContinue | Copy-Item -Destination stage/
+          Compress-Archive -Path stage/* -DestinationPath "dist/quarry-$v-windows-x86_64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  # Checksums + notes in one place; creates the draft release unless this is a dry run.
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REF }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums and release notes
+        run: |
+          (cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+          packaging/release-notes.sh "$REF" > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: |
+            dist/*
+            RELEASE_NOTES.md
+      - name: Create draft release
+        if: github.event_name == 'push' || inputs.dry_run == false
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --generate-notes
-          gh release upload "$TAG" "${{ matrix.archive }}" --clobber
+          git show-ref --verify --quiet "refs/tags/$REF" || { echo "$REF is not a tag"; exit 1; }
+          gh release create "$REF" --draft --title "Quarry ${REF#v}" --notes-file RELEASE_NOTES.md dist/*
