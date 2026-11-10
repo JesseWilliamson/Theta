@@ -363,6 +363,31 @@ fn stress(n: usize) -> Dataset {
     (vec![layer("points"), layer("polygons")], f)
 }
 
+/// `n` polygons of 10 000 vertices each (500k vertices at n = 50).
+fn bigpoly(n: usize) -> Dataset {
+    let mut rng = Rng(7);
+    let mut f = Vec::new();
+    for j in 0..n {
+        let (x, y) = (-150.0 + rng.next() * 300.0, -50.0 + rng.next() * 100.0);
+        let r = 2.0 + rng.next() * 6.0;
+        let ph = rng.next() * 6.0;
+        let mut ring: Vec<[f64; 2]> = (0..10_000)
+            .map(|k| {
+                let a = std::f64::consts::TAU * k as f64 / 10_000.0;
+                let rr = r
+                    * (1.0
+                        + 0.2 * (a * 7.0 + ph).sin()
+                        + 0.03 * (a * 97.0).sin()
+                        + 0.004 * (a * 1013.0).sin());
+                [x + rr * a.cos(), y + rr * a.sin() * 0.8]
+            })
+            .collect();
+        ring.push(ring[0]);
+        f.push(feat(Geometry::Polygon(vec![ring]), Some(4326), j, 0, &format!("big {j}"), &[]));
+    }
+    (vec![layer("polygons")], f)
+}
+
 fn mixed() -> Dataset {
     let (layers, mut f) = cities();
     let base = f.len();
@@ -390,6 +415,12 @@ fn main() {
                     stress_n = n;
                 }
             }
+            "--bigpoly" => {
+                which = "bigpoly".into();
+                if let Some(n) = args.next().and_then(|v| v.parse().ok()) {
+                    stress_n = n;
+                }
+            }
             "--select" => select = args.next().and_then(|v| v.parse().ok()),
             _ => {}
         }
@@ -412,6 +443,7 @@ fn main() {
                     "utm" => utm(),
                     "mixed" => mixed(),
                     "stress" => stress(stress_n),
+                    "bigpoly" => bigpoly(stress_n),
                     "empty" => (vec![], vec![]),
                     _ => cities(),
                 };

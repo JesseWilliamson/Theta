@@ -20,6 +20,8 @@ use std::time::Instant;
 const SMOOTHING_S: f64 = 0.085;
 /// Consecutive failed tile fetches before the "offline?" chip appears.
 const OFFLINE_AFTER: u32 = 3;
+/// How long new tile requests stay paused once the network looks down.
+const PAUSE_AFTER_OFFLINE: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Animation targets; each frame moves the camera a fraction of the way there.
 #[derive(Default)]
@@ -76,6 +78,9 @@ pub struct TileStore {
     /// Failures since the last success.
     pub consecutive_failures: u32,
     last_wanted: Vec<TileId>,
+    pub(crate) last_plan: Vec<TileId>,
+    /// While set and in the future, no new requests are started (the network looks down).
+    paused_until: Option<Instant>,
 }
 
 impl TileStore {
@@ -89,6 +94,8 @@ impl TileStore {
             failed: HashSet::new(),
             consecutive_failures: 0,
             last_wanted: Vec::new(),
+            last_plan: Vec::new(),
+            paused_until: None,
         }
     }
 
@@ -99,6 +106,7 @@ impl TileStore {
             self.template = template;
             self.failed.clear();
             self.consecutive_failures = 0;
+            self.paused_until = None;
             self.last_wanted.clear();
         }
     }
@@ -121,19 +129,27 @@ impl TileStore {
             let key = TileKey { template_hash: self.hash, tile: *t };
             let _ = self.lru.get(&key);
         }
-        if visible == self.last_wanted.as_slice() && self.failed.is_empty() {
+        if visible == self.last_wanted.as_slice() {
             return;
         }
         self.last_wanted = visible.to_vec();
         let hash = self.hash;
-        let plan = plan_requests(
-            visible,
-            |t| self.lru.contains(&TileKey { template_hash: hash, tile: t }),
-            &HashSet::new(),
-            &self.failed,
-            usize::MAX,
-        );
-        self.loader.set_wanted(&self.template, plan);
+        let paused = self.paused_until.is_some_and(|t| Instant::now() < t);
+        let plan = if paused {
+            Vec::new()
+        } else {
+            plan_requests(
+                visible,
+                |t| self.lru.contains(&TileKey { template_hash: hash, tile: t }),
+                &HashSet::new(),
+                &self.failed,
+                usize::MAX,
+            )
+        };
+        if plan != self.last_plan {
+            self.loader.set_wanted(&self.template, plan.clone());
+            self.last_plan = plan;
+        }
     }
 
     /// Absorb one worker result; true when the view should repaint.
@@ -149,6 +165,10 @@ impl TileStore {
                 if r.key.template_hash == self.hash {
                     self.failed.insert(r.key.tile);
                     self.consecutive_failures += 1;
+                    if self.consecutive_failures >= OFFLINE_AFTER {
+                        // Stop hammering a dead network; Retry (or a template change) lifts this.
+                        self.paused_until = Some(Instant::now() + PAUSE_AFTER_OFFLINE);
+                    }
                     self.last_wanted.clear();
                     return self.consecutive_failures == OFFLINE_AFTER;
                 }
@@ -161,6 +181,8 @@ impl TileStore {
     pub fn retry(&mut self) {
         self.failed.clear();
         self.consecutive_failures = 0;
+        self.paused_until = None;
+        self.last_plan.clear();
         self.last_wanted.clear();
     }
 
@@ -708,6 +730,32 @@ mod tests {
         assert_eq!(c.tiles.failed.len(), 3);
         c.tiles.retry();
         assert!(!c.tiles.offline() && c.tiles.failed.is_empty());
+    }
+
+    #[test]
+    fn requests_pause_while_offline_until_retry() {
+        let mut c = core_with(vec![pt(0.0, 0.0, 0)]);
+        for i in 0..3 {
+            let key = c.tiles.key(TileId { z: 1, x: i, y: 0 });
+            c.tiles.accept(TileResult { key, image: Err("boom".into()) });
+        }
+        c.tiles.want(&[TileId { z: 2, x: 0, y: 0 }]);
+        assert!(c.tiles.last_plan.is_empty(), "paused: nothing is requested");
+        c.tiles.retry();
+        c.tiles.want(&[TileId { z: 2, x: 1, y: 1 }]);
+        assert_eq!(c.tiles.last_plan, vec![TileId { z: 2, x: 1, y: 1 }]);
+    }
+
+    #[test]
+    fn world_copies_cover_a_zoomed_out_viewport() {
+        let mut c = core_with(vec![pt(0.0, 0.0, 0)]);
+        c.camera = Camera::Geo(quarry_geo::MapView { center: [0.0, 0.0], zoom: 0.0, size: [1000.0, 300.0] });
+        let t = c.camera.transform();
+        let offs = c.wrap_offsets(&t, [1000.0, 300.0]);
+        assert!(offs.contains(&-2.0) && offs.contains(&0.0) && offs.contains(&1.0), "{offs:?}");
+        c.camera = Camera::Geo(quarry_geo::MapView { center: [0.0, 0.0], zoom: 8.0, size: [1000.0, 300.0] });
+        let t = c.camera.transform();
+        assert_eq!(c.wrap_offsets(&t, [1000.0, 300.0]), vec![0.0]);
     }
 
     #[test]
