@@ -315,48 +315,53 @@ impl<D: PickerDelegate> Picker<D> {
                             },
                         )
                     }));
-                h_flex()
-                    .id(SharedString::from(format!("picker-row-{}", item.id)))
-                    .h(px(ROW_H))
-                    .mx_1()
-                    .px_2()
-                    .gap_2()
-                    .items_center()
-                    .rounded(px(4.))
-                    .cursor_default()
-                    .when(selected, |this| this.bg(theme.list_active))
-                    .on_mouse_move(cx.listener(move |this, _, _, cx| this.select_index(position, cx)))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.select_index(position, cx);
-                        this.confirm(window, cx);
-                    }))
-                    .when_some(item.icon, |this, icon| {
-                        this.child(Icon::new(icon).size(px(14.)).text_color(theme.muted_foreground))
-                    })
+                div()
+                    .w_full()
+                    .px_1()
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .text_size(px(13.))
-                            .text_color(theme.foreground)
-                            .child(styled),
+                        h_flex()
+                            .id(SharedString::from(format!("picker-row-{}", item.id)))
+                            .h(px(ROW_H))
+                            .w_full()
+                            .px_2()
+                            .gap_2()
+                            .items_center()
+                            .rounded(px(4.))
+                            .cursor_default()
+                            .when(selected, |this| this.bg(theme.list_active))
+                            .on_mouse_move(cx.listener(move |this, _, _, cx| this.select_index(position, cx)))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.select_index(position, cx);
+                                this.confirm(window, cx);
+                            }))
+                            .when_some(item.icon, |this, icon| {
+                                this.child(Icon::new(icon).size(px(14.)).text_color(theme.muted_foreground))
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .text_size(px(13.))
+                                    .text_color(theme.foreground)
+                                    .child(styled),
+                            )
+                            .when_some(item.detail.clone(), |this, d| {
+                                this.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_size(px(12.))
+                                        .text_color(theme.muted_foreground)
+                                        .child(d),
+                                )
+                            })
+                            .when_some(item.key_hint.clone(), |this, k| this.child(KeyHint::from_label(k)))
+                            .when(item.checked, |this| {
+                                this.child(Icon::new(IconName::Check).size(px(14.)).text_color(theme.ring))
+                            }),
                     )
-                    .when_some(item.detail.clone(), |this, d| {
-                        this.child(
-                            div()
-                                .flex_shrink_0()
-                                .text_size(px(12.))
-                                .text_color(theme.muted_foreground)
-                                .child(d),
-                        )
-                    })
-                    .when_some(item.key_hint.clone(), |this, k| this.child(KeyHint::from_label(k)))
-                    .when(item.checked, |this| {
-                        this.child(Icon::new(IconName::Check).size(px(14.)).text_color(theme.ring))
-                    })
                     .into_any_element()
             }
         }
@@ -459,5 +464,108 @@ impl<D: PickerDelegate> Render for Picker<D> {
                         }),
                 ),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::TestAppContext;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct Log {
+        previews: Vec<String>,
+        confirmed: Vec<String>,
+        dismissed: Vec<bool>,
+    }
+
+    struct Fake(Arc<Mutex<Log>>);
+
+    impl PickerDelegate for Fake {
+        fn items(&mut self, _: &mut App) -> Vec<PickerItem> {
+            vec![
+                PickerItem::new("a", "New Console").section("File"),
+                PickerItem::new("b", "New Connection").section("File"),
+                PickerItem::new("c", "Toggle Explorer").section("View"),
+            ]
+        }
+        fn selection_changed(&mut self, item: &PickerItem, _: &mut App) {
+            self.0.lock().unwrap().previews.push(item.id.to_string());
+        }
+        fn confirm(&mut self, item: &PickerItem, _: &mut Window, _: &mut App) {
+            self.0.lock().unwrap().confirmed.push(item.id.to_string());
+        }
+        fn dismissed(&mut self, confirmed: bool, _: &mut Window, _: &mut App) {
+            self.0.lock().unwrap().dismissed.push(confirmed);
+        }
+    }
+
+    fn open(
+        cx: &mut TestAppContext,
+    ) -> (Entity<Picker<Fake>>, Arc<Mutex<Log>>, &mut gpui_kit::VisualTestContext) {
+        cx.update(crate::init);
+        let log = Arc::new(Mutex::new(Log::default()));
+        let delegate = Fake(log.clone());
+        let (picker, vcx) = cx.add_window_view(|window, cx| Picker::new(delegate, window, cx));
+        (picker, log, vcx)
+    }
+
+    #[gpui_kit::test]
+    fn sections_and_wrapping_navigation(cx: &mut TestAppContext) {
+        let (picker, log, vcx) = open(cx);
+        picker.update(vcx, |p, cx| {
+            // Two section headers plus three items.
+            assert_eq!(p.rows.len(), 5);
+            assert_eq!(p.selectable.len(), 3);
+            assert_eq!(p.selected_item().unwrap().id.as_ref(), "a");
+            p.move_selection(1, cx);
+            p.move_selection(1, cx);
+            assert_eq!(p.selected_item().unwrap().id.as_ref(), "c");
+            p.move_selection(1, cx); // wraps
+            assert_eq!(p.selected_item().unwrap().id.as_ref(), "a");
+            p.move_selection(-1, cx);
+            assert_eq!(p.selected_item().unwrap().id.as_ref(), "c");
+        });
+        assert_eq!(log.lock().unwrap().previews, vec!["b", "c", "a", "c"]);
+    }
+
+    #[gpui_kit::test]
+    fn typing_filters_and_enter_confirms(cx: &mut TestAppContext) {
+        let (picker, log, vcx) = open(cx);
+        picker.update(vcx, |p, cx| {
+            p.query = "nco".into();
+            p.refilter(cx);
+            // Ranked results, headers gone.
+            assert_eq!(p.rows.len(), 2);
+            assert_eq!(p.selected_item().unwrap().id.as_ref(), "a");
+        });
+        picker.update_in(vcx, |p, window, cx| p.confirm(window, cx));
+        let log = log.lock().unwrap();
+        assert_eq!(log.confirmed, vec!["a"]);
+        assert_eq!(log.dismissed, vec![true]);
+    }
+
+    #[gpui_kit::test]
+    fn cancel_reports_unconfirmed_once(cx: &mut TestAppContext) {
+        let (picker, log, vcx) = open(cx);
+        picker.update_in(vcx, |p, window, cx| {
+            p.cancel(window, cx);
+            p.cancel(window, cx);
+            p.confirm(window, cx);
+        });
+        let log = log.lock().unwrap();
+        assert_eq!(log.dismissed, vec![false]);
+        assert!(log.confirmed.is_empty());
+    }
+
+    #[gpui_kit::test]
+    fn no_match_leaves_nothing_selectable(cx: &mut TestAppContext) {
+        let (picker, _, vcx) = open(cx);
+        picker.update(vcx, |p, cx| {
+            p.query = "zzzz".into();
+            p.refilter(cx);
+            assert!(p.selectable.is_empty() && p.selected_item().is_none());
+        });
     }
 }

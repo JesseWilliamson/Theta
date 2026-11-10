@@ -1,0 +1,137 @@
+//! Application bootstrap: platform setup, store creation, window, start-up
+//! connections from the command line.
+
+use crate::cli::Args;
+use crate::connections::secrets::SecretStore;
+use crate::connections::url::parse_connection_url;
+use crate::connections::{ConnectionStore, connections_path, new_connection_id};
+use crate::workspace::Workspace;
+use crate::{demo, keymap, runtime};
+use gpui_kit::component::TitleBar;
+use gpui_kit::{AppContext as _, Bounds, Entity, Focusable as _, WindowBounds, WindowOptions, px, size};
+use quarry_core::{Catalog, ConnectionConfig, DatabaseKind, Schema, Table, TableKind};
+use std::sync::Arc;
+
+pub fn run(args: Args) {
+    // Start the I/O runtime eagerly so the first connect does not pay for it.
+    let _ = runtime::runtime();
+    quarry_ui::application().run(move |cx| {
+        quarry_ui::init(cx);
+        keymap::bind(cx);
+        keymap::set_menus(cx);
+        if let Some(theme) = &args.theme {
+            quarry_ui::themes::set_theme(theme, cx);
+        }
+
+        let (store, warning) =
+            ConnectionStore::load(Some(connections_path()), Arc::new(SecretStore::system()));
+        let store: Entity<ConnectionStore> = cx.new(|_| store);
+
+        let (w, h) = quarry_ui::window_size_from_env().unwrap_or((1440., 900.));
+        let bounds = Bounds::centered(None, size(px(w), px(h)), cx);
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_min_size: Some(size(px(800.), px(500.))),
+            #[cfg(target_os = "linux")]
+            window_decorations: Some(gpui_kit::WindowDecorations::Client),
+            #[cfg(target_os = "linux")]
+            window_background: gpui_kit::WindowBackgroundAppearance::Opaque,
+            ..TitleBar::window_options()
+        };
+        let store_for_window = store.clone();
+        let opened = gpui_kit::open_window(options, cx, move |window, cx| {
+            cx.new(|cx| Workspace::new(store_for_window, window, cx))
+        });
+        let (handle, workspace) = match opened {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("quarry: could not open a window: {e}");
+                cx.quit();
+                return;
+            }
+        };
+        handle
+            .update(cx, |_, window, cx| {
+                window.set_window_title("Quarry");
+                workspace.read(cx).focus_handle(cx).focus(window, cx);
+                if let Some(w) = warning {
+                    workspace
+                        .update(cx, |ws, cx| ws.notify(crate::connections::NoticeKind::Error, w, window, cx));
+                }
+            })
+            .ok();
+        cx.activate(true);
+        cx.on_window_closed(|cx, _| {
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
+
+        startup_connections(&args, &store, cx);
+    });
+}
+
+fn startup_connections(args: &Args, store: &Entity<ConnectionStore>, cx: &mut gpui_kit::App) {
+    for url in &args.connect {
+        match parse_connection_url(url) {
+            Ok(parsed) => {
+                let config = parsed.into_config(new_connection_id(), None);
+                store.update(cx, |s, cx| {
+                    let id = s.add_temporary(config, cx);
+                    s.connect(&id, cx);
+                });
+            }
+            Err(e) => eprintln!("quarry: --connect {url}: {e}"),
+        }
+    }
+    if args.demo {
+        let store = store.clone();
+        cx.spawn(async move |cx| {
+            let result = demo::create_demo_database().await;
+            cx.update(|cx| match result {
+                Ok(()) => store.update(cx, |s, cx| {
+                    let existing =
+                        s.configs().iter().find(|c| c.name == demo::DEMO_NAME).map(|c| c.id.clone());
+                    let id = existing.unwrap_or_else(|| s.add(demo::demo_config(&new_connection_id()), cx));
+                    s.connect(&id, cx);
+                }),
+                Err(e) => eprintln!("quarry: could not create the demo database: {e}"),
+            })
+        })
+        .detach();
+    }
+    if let Some(n) = args.stress_catalog {
+        store.update(cx, |s, cx| {
+            let config =
+                ConnectionConfig::new("stress", format!("Stress ({n} tables)"), DatabaseKind::Postgres);
+            let id = s.add_temporary(config, cx);
+            s.set_catalog_synthetic(
+                &id,
+                synthetic_catalog(n),
+                Arc::new(crate::connections::NullConnection),
+                cx,
+            );
+        });
+    }
+}
+
+/// A large synthetic catalog for `--stress-catalog`.
+pub fn synthetic_catalog(tables: usize) -> Catalog {
+    let tables = (0..tables)
+        .map(|i| Table {
+            name: format!("table_{i:05}"),
+            kind: if i % 9 == 0 { TableKind::View } else { TableKind::Table },
+            columns: vec![],
+            primary_key: vec![],
+            foreign_keys: vec![],
+            indexes: vec![],
+            row_estimate: Some((i as u64 * 7919) % 2_000_000),
+            comment: None,
+        })
+        .collect();
+    Catalog {
+        schemas: vec![Schema { name: "public".into(), tables, routines: vec![], sequences: vec![] }],
+        default_schema: Some("public".into()),
+    }
+}

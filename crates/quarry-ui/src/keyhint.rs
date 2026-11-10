@@ -109,6 +109,17 @@ fn key_label(key: &str, mac: bool) -> String {
     }
 }
 
+/// The operating system this binary was built for, in GPUI's terms.
+pub fn host_os() -> gpui_kit::OperatingSystem {
+    if cfg!(target_os = "macos") {
+        gpui_kit::OperatingSystem::Mac
+    } else if cfg!(target_os = "windows") {
+        gpui_kit::OperatingSystem::Windows
+    } else {
+        gpui_kit::OperatingSystem::Linux
+    }
+}
+
 /// Whether to use macOS glyphs.
 pub fn is_mac() -> bool {
     cfg!(target_os = "macos")

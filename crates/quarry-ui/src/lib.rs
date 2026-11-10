@@ -24,7 +24,7 @@ pub mod zed_import;
 pub use assets::QuarryAssets;
 pub use colors::{EditorColors, SyntaxColors};
 pub use db_icon::{DbIcon, DbKindIcon};
-pub use keyhint::{KeyHint, format_keystrokes, is_mac};
+pub use keyhint::{KeyHint, format_keystrokes, host_os, is_mac};
 pub use panel::{EmptyState, PanelHeader, tool_button};
 pub use settings::{KeymapMode, Settings, config_dir};
 pub use themes::{ThemeInfo, import_zed_theme_file};
