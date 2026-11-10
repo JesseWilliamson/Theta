@@ -8,7 +8,9 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Pushes to main run to completion (several agents push in quick succession and cancelling
+  # every run would mean no run ever finishes); only superseded pull-request runs are cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
