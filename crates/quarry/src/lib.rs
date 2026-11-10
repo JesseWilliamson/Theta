@@ -14,6 +14,7 @@ pub mod exec;
 pub mod explorer;
 pub mod keymap;
 pub mod palette;
+pub mod panels;
 pub mod runtime;
 pub mod sqlgen;
 pub mod workspace;

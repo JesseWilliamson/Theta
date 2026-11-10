@@ -1,7 +1,8 @@
 //! Command-line flags (small enough that a hand-rolled parser beats a dependency).
 //!
 //! ```text
-//! quarry [--demo] [--connect URL]... [--stress-catalog[=N]] [--theme NAME]
+//! quarry [--demo] [--connect URL]... [--run SQL | --script FILE] [--ssh user@host:port --ssh-key PATH]
+//!        [--stress-catalog[=N]] [--theme NAME]
 //! ```
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -13,6 +14,12 @@ pub struct Args {
     /// Debug: add a synthetic connection with this many tables.
     pub stress_catalog: Option<usize>,
     pub theme: Option<String>,
+    /// SQL to run once the first start-up connection is ready.
+    pub run: Option<String>,
+    pub script: Option<String>,
+    /// SSH tunnel for `--connect`: `user@host:port`.
+    pub ssh: Option<String>,
+    pub ssh_key: Option<String>,
 }
 
 pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<Args, String> {
@@ -22,6 +29,10 @@ pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<A
         match arg.as_str() {
             "--demo" => out.demo = true,
             "--connect" => out.connect.push(it.next().ok_or("--connect needs a URL")?),
+            "--run" => out.run = Some(it.next().ok_or("--run needs SQL")?),
+            "--script" => out.script = Some(it.next().ok_or("--script needs a file")?),
+            "--ssh" => out.ssh = Some(it.next().ok_or("--ssh needs user@host:port")?),
+            "--ssh-key" => out.ssh_key = Some(it.next().ok_or("--ssh-key needs a path")?),
             "--theme" => out.theme = Some(it.next().ok_or("--theme needs a theme name")?),
             "--stress-catalog" => out.stress_catalog = Some(5000),
             a if a.starts_with("--stress-catalog=") => {

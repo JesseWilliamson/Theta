@@ -68,6 +68,20 @@ pub fn run(args: Args) {
         })
         .detach();
 
+        let startup_sql = match (&args.run, &args.script) {
+            (Some(sql), _) => Some(sql.clone()),
+            (None, Some(path)) => match std::fs::read_to_string(path) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    eprintln!("quarry: --script {path}: {e}");
+                    None
+                }
+            },
+            _ => None,
+        };
+        if let Some(sql) = startup_sql {
+            workspace.update(cx, |ws, _| ws.run_startup_sql(sql));
+        }
         startup_connections(&args, &store, cx);
     });
 }
@@ -76,7 +90,10 @@ fn startup_connections(args: &Args, store: &Entity<ConnectionStore>, cx: &mut gp
     for url in &args.connect {
         match parse_connection_url(url) {
             Ok(parsed) => {
-                let config = parsed.into_config(new_connection_id(), None);
+                let mut config = parsed.into_config(new_connection_id(), None);
+                if let Some(ssh) = &args.ssh {
+                    config.ssh = parse_ssh(ssh, args.ssh_key.as_deref());
+                }
                 store.update(cx, |s, cx| {
                     let id = s.add_temporary(config, cx);
                     s.connect(&id, cx);
@@ -133,5 +150,29 @@ pub fn synthetic_catalog(tables: usize) -> Catalog {
     Catalog {
         schemas: vec![Schema { name: "public".into(), tables, routines: vec![], sequences: vec![] }],
         default_schema: Some("public".into()),
+    }
+}
+
+/// `user@host[:port]` plus an optional key file.
+pub fn parse_ssh(spec: &str, key: Option<&str>) -> Option<quarry_core::SshConfig> {
+    let (user, rest) = spec.split_once('@')?;
+    let (host, port) = match rest.rsplit_once(':') {
+        Some((h, p)) => (h, p.parse().ok()?),
+        None => (rest, 22),
+    };
+    let auth = quarry_core::SshAuth::KeyFile { path: key?.to_string(), passphrase: None };
+    Some(quarry_core::SshConfig { host: host.to_string(), port, user: user.to_string(), auth })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ssh_spec_parses() {
+        let c = parse_ssh("bob@box.example:2222", Some("/k")).unwrap();
+        assert_eq!((c.user.as_str(), c.host.as_str(), c.port), ("bob", "box.example", 2222));
+        assert_eq!(parse_ssh("bob@box", Some("/k")).unwrap().port, 22);
+        assert!(parse_ssh("nohost", Some("/k")).is_none());
     }
 }

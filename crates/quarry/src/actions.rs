@@ -38,6 +38,13 @@ actions!(
         Explain,
         ExplainAnalyze,
         FormatDocument,
+        BeginTransaction,
+        CommitTransaction,
+        RollbackTransaction,
+        OpenSqlFile,
+        SaveConsole,
+        OpenSettings,
+        WelcomeDemo,
         // Explorer (key context "Explorer")
         ExplorerNext,
         ExplorerPrevious,

@@ -15,7 +15,9 @@
 //!   as [`WorkspaceEvent`]s.
 
 mod bottom;
+pub mod console;
 pub mod persist;
+mod run;
 mod status_bar;
 mod tabs;
 mod title_bar;
@@ -38,7 +40,16 @@ use persist::*;
 use quarry_ui::picker::{Picker, PickerDelegate, PickerEvent};
 use quarry_ui::{STATUS_BAR_HEIGHT, Settings, TAB_BAR_HEIGHT, TITLE_BAR_HEIGHT};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use crate::exec::history::{HistoryStore, history_path};
+use crate::panels::history::{HistoryEvent, HistoryPanel};
+use crate::panels::messages::MessagesPanel;
+use crate::panels::results::{ResultsEvent, ResultsPanel};
+use console::Console;
+use quarry_editor_view::EditorStatus;
+use quarry_grid::GridEvent;
+use quarry_map_view::{MapEvent, MapPanel};
+use quarry_plan_view::{PlanEvent, PlanPanel};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -147,6 +158,22 @@ pub struct Workspace {
     modal: Option<Modal>,
     layout_dirty: bool,
     tabs_scroll: gpui_kit::ScrollHandle,
+    consoles: HashMap<u64, Console>,
+    console_counter: usize,
+    results: Entity<ResultsPanel>,
+    messages: Entity<MessagesPanel>,
+    history: Entity<HistoryPanel>,
+    plan: Entity<PlanPanel>,
+    map: Entity<MapPanel>,
+    map_badge: Option<usize>,
+    runs: HashMap<String, run::RunInfo>,
+    next_run_id: u64,
+    txn: HashSet<String>,
+    ticker: Option<gpui_kit::Task<()>>,
+    editor_status: Option<EditorStatus>,
+    last_explain: Option<run::ExplainTarget>,
+    startup: Option<run::Startup>,
+    pending_geo_gen: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -161,9 +188,23 @@ impl Focusable for Workspace {
 impl Workspace {
     pub fn new(store: Entity<ConnectionStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let explorer = cx.new(|cx| Explorer::new(store.clone(), window, cx));
+        let results = cx.new(|cx| ResultsPanel::new(window, cx));
+        let messages = cx.new(|_| MessagesPanel::new());
+        let history = cx.new(|cx| HistoryPanel::new(HistoryStore::load(Some(history_path())), window, cx));
+        let plan = cx.new(|cx| PlanPanel::new(window, cx));
+        let map = cx.new(|cx| MapPanel::new(window, cx));
+        let grid = results.read(cx).grid.clone();
         let subscriptions = vec![
             cx.subscribe_in(&store, window, Self::on_store_event),
             cx.subscribe_in(&explorer, window, Self::on_explorer_event),
+            cx.subscribe_in(&results, window, |this, _, e: &ResultsEvent, window, cx| {
+                let ResultsEvent::ActivateTab(i) = e;
+                this.activate_result(*i, window, cx);
+            }),
+            cx.subscribe_in(&grid, window, |this, _, e: &GridEvent, window, cx| this.on_grid_event(e.clone(), window, cx)),
+            cx.subscribe_in(&history, window, |this, _, e: &HistoryEvent, window, cx| this.on_history_event(e.clone(), window, cx)),
+            cx.subscribe_in(&plan, window, |this, _, e: &PlanEvent, window, cx| this.on_plan_event(e.clone(), window, cx)),
+            cx.subscribe_in(&map, window, |this, _, e: &MapEvent, window, cx| this.on_map_event(e.clone(), window, cx)),
             cx.observe_global::<quarry_ui::settings::SettingsStore>(|_, cx| cx.notify()),
         ];
         let focus = cx.focus_handle();
@@ -183,9 +224,34 @@ impl Workspace {
             modal: None,
             layout_dirty: false,
             tabs_scroll: gpui_kit::ScrollHandle::new(),
+            consoles: HashMap::new(),
+            console_counter: 0,
+            results: results.clone(),
+            messages: messages.clone(),
+            history: history.clone(),
+            plan: plan.clone(),
+            map: map.clone(),
+            map_badge: None,
+            runs: HashMap::new(),
+            next_run_id: 1,
+            txn: HashSet::new(),
+            ticker: None,
+            editor_status: None,
+            last_explain: None,
+            startup: None,
+            pending_geo_gen: 0,
             _subscriptions: subscriptions,
         };
+        ws.bottom_views.insert(BottomTab::Results, results.into());
+        ws.bottom_views.insert(BottomTab::Messages, messages.into());
+        ws.bottom_views.insert(BottomTab::History, history.into());
+        ws.bottom_views.insert(BottomTab::Plan, plan.into());
+        ws.bottom_views.insert(BottomTab::Map, map.into());
         ws.active_connection = ws.store.read(cx).first_connected().map(str::to_string);
+        ws.restore_consoles(window, cx);
+        if ws.tabs.is_empty() && !ws.store.read(cx).configs().is_empty() {
+            ws.open_console(None, None, window, cx);
+        }
         // Surface problems found while loading settings/themes exactly once.
         for warning in Settings::take_warnings(cx) {
             window.push_notification(Notification::warning(warning), cx);
@@ -246,22 +312,12 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> u64 {
         let connection_id = connection_id.or_else(|| self.active_connection_id(cx));
-        let id = self.next_tab_id;
-        self.next_tab_id += 1;
-        let number = self.tabs.len() + 1;
-        let title: SharedString = format!("Console {number}").into();
-        self.tabs.push(ConsoleTab {
-            id,
-            title,
-            connection_id: connection_id.clone(),
-            modified: false,
-            initial_sql: initial_sql.clone(),
-        });
-        if let Some(c) = &connection_id {
-            self.active_connection = Some(c.clone());
-        }
-        cx.emit(WorkspaceEvent::ConsoleOpened { tab_id: id, connection_id, initial_sql });
+        self.console_counter += 1;
+        let title = format!("console {}", self.console_counter);
+        let key = crate::exec::consoles::new_key();
+        let id = self.create_console(key, title, connection_id, initial_sql.unwrap_or_default(), 0, None, window, cx);
         self.activate_tab(id, window, cx);
+        self.save_all_consoles(cx);
         id
     }
 
@@ -272,6 +328,7 @@ impl Workspace {
                 self.active_connection = Some(c);
             }
             cx.emit(WorkspaceEvent::ActiveConsoleChanged { tab_id: Some(id) });
+            self.on_console_activated(id, _window, cx);
         }
         cx.notify();
     }
@@ -280,6 +337,9 @@ impl Workspace {
         let Some(pos) = self.tabs.iter().position(|t| t.id == id) else { return };
         self.tabs.remove(pos);
         self.console_views.remove(&id);
+        if let Some(c) = self.consoles.remove(&id) {
+            crate::exec::consoles::remove(&crate::exec::consoles::consoles_dir(), &c.key);
+        }
         cx.emit(WorkspaceEvent::ConsoleClosed { tab_id: id });
         if self.active_tab == Some(id) {
             self.active_tab = self.tabs.get(pos.min(self.tabs.len().saturating_sub(1))).map(|t| t.id);
@@ -389,6 +449,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.on_store_event_extra(event, window, cx);
         match event {
             StoreEvent::Notice { kind, message } => self.notify(*kind, message.clone(), window, cx),
             StoreEvent::StateChanged(id) => {
@@ -539,6 +600,7 @@ impl Workspace {
     /// Make `id` the active connection, connecting it first if needed.
     pub fn use_connection(&mut self, id: &str, cx: &mut Context<Self>) {
         self.set_active_connection(Some(id.to_string()), cx);
+        self.rebind_active_console(id, cx);
         let needs_connect =
             matches!(self.store.read(cx).state(id), ConnState::Disconnected | ConnState::Failed(_));
         if needs_connect {
@@ -745,9 +807,9 @@ impl Render for Workspace {
             ))
             .on_action(cx.listener(|this, _: &ToggleExplorer, _, cx| this.toggle_explorer(cx)))
             .on_action(cx.listener(|this, _: &ToggleBottomPanel, _, cx| this.toggle_bottom(cx)))
-            .on_action(cx.listener(|this, _: &CloseTab, _, cx| {
+            .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
                 if let Some(id) = this.active_tab {
-                    this.close_tab(id, cx);
+                    this.request_close_tab(id, window, cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.cycle_tab(1, window, cx)))
@@ -766,22 +828,37 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.zoom(1.0, cx)))
             .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom(-1.0, cx)))
             .on_action(cx.listener(|this, _: &ZoomReset, _, cx| this.zoom(0.0, cx)))
-            .on_action(cx.listener(|_, _: &Quit, _, cx| cx.quit()))
-            // Seams: the shell only announces these; the editor integration acts.
-            .on_action(
-                cx.listener(|_, _: &RunStatement, _, cx| cx.emit(WorkspaceEvent::Run(RunKind::Statement))),
-            )
-            .on_action(cx.listener(|_, _: &RunAll, _, cx| cx.emit(WorkspaceEvent::Run(RunKind::All))))
-            .on_action(cx.listener(|_, _: &CancelQuery, _, cx| cx.emit(WorkspaceEvent::Cancel)))
-            .on_action(
-                cx.listener(|_, _: &Explain, _, cx| cx.emit(WorkspaceEvent::Explain { analyze: false })),
-            )
-            .on_action(
-                cx.listener(|_, _: &ExplainAnalyze, _, cx| {
-                    cx.emit(WorkspaceEvent::Explain { analyze: true })
-                }),
-            )
-            .on_action(cx.listener(|_, _: &FormatDocument, _, cx| cx.emit(WorkspaceEvent::Format)))
+            .on_action(cx.listener(|this, _: &Quit, window, cx| this.request_quit(window, cx)))
+            .on_action(cx.listener(|this, _: &BeginTransaction, window, cx| this.txn_command("BEGIN", window, cx)))
+            .on_action(cx.listener(|this, _: &CommitTransaction, window, cx| this.txn_command("COMMIT", window, cx)))
+            .on_action(cx.listener(|this, _: &RollbackTransaction, window, cx| this.txn_command("ROLLBACK", window, cx)))
+            .on_action(cx.listener(|this, _: &OpenSqlFile, window, cx| this.open_sql_file(window, cx)))
+            .on_action(cx.listener(|this, _: &SaveConsole, window, cx| this.save_console_as(window, cx)))
+            .on_action(cx.listener(|this, _: &WelcomeDemo, window, cx| this.start_demo(window, cx)))
+            .on_action(cx.listener(|this, _: &RunStatement, window, cx| {
+                cx.emit(WorkspaceEvent::Run(RunKind::Statement));
+                this.run_active(run::RunReq::Statement, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &RunAll, window, cx| {
+                cx.emit(WorkspaceEvent::Run(RunKind::All));
+                this.run_active(run::RunReq::All, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &CancelQuery, window, cx| {
+                cx.emit(WorkspaceEvent::Cancel);
+                this.cancel_active(window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &Explain, window, cx| {
+                cx.emit(WorkspaceEvent::Explain { analyze: false });
+                this.explain_active(false, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ExplainAnalyze, window, cx| {
+                cx.emit(WorkspaceEvent::Explain { analyze: true });
+                this.explain_active(true, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FormatDocument, window, cx| {
+                cx.emit(WorkspaceEvent::Format);
+                this.format_active(false, window, cx)
+            }))
             .on_drag_move(
                 cx.listener(|this, e: &DragMoveEvent<ResizeDrag>, window, cx| this.on_resize(e, window, cx)),
             )

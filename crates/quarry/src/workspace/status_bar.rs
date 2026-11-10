@@ -4,7 +4,7 @@ use super::Workspace;
 use crate::actions::*;
 use crate::connections::ConnState;
 use gpui_kit::assets::IconName;
-use gpui_kit::component::{ActiveTheme as _, Selectable as _, h_flex};
+use gpui_kit::component::{ActiveTheme as _, Selectable as _, Sizable as _, h_flex};
 use gpui_kit::{
     AnyElement, Context, IntoElement, ParentElement as _, SharedString, Styled as _, Window, div, px,
 };
@@ -25,18 +25,63 @@ impl Workspace {
         };
 
         let mut right: Vec<AnyElement> = Vec::new();
+        if let Some(elapsed) = self.running_elapsed(cx) {
+            right.push(
+                h_flex()
+                    .px_2()
+                    .gap_1p5()
+                    .items_center()
+                    .child(gpui_kit::component::spinner::Spinner::new().xsmall().color(theme.warning))
+                    .child(
+                        div()
+                            .text_size(CHROME_TEXT_SIZE)
+                            .text_color(theme.foreground)
+                            .whitespace_nowrap()
+                            .child(format!("Running {:.1} s", elapsed.as_secs_f32())),
+                    )
+                    .into_any_element(),
+            );
+        }
         if let Some(info) = self.status.result_info.clone() {
             right.push(item(info));
         }
-        if let Some(n) = self.status.selection_count.filter(|n| *n > 0) {
-            right.push(item(format!("{n} selected").into()));
-        }
-        if self.active_console().is_some() {
-            let (l, c) = self.status.cursor.unwrap_or((1, 1));
-            right.push(item(format!("Ln {l}, Col {c}").into()));
-        }
-        if let Some(mode) = self.status.editor_mode.clone() {
-            right.push(item(mode));
+        if let Some(st) = self.editor_status.clone().filter(|_| self.active_console().is_some()) {
+            if st.selection_count > 1 {
+                right.push(item(format!("{} selections", st.selection_count).into()));
+            } else if st.selected_chars > 0 {
+                right.push(item(format!("{} selected", st.selected_chars).into()));
+            }
+            right.push(item(format!("Ln {}, Col {}", st.line, st.column).into()));
+            if !st.pending_keys.is_empty() {
+                right.push(
+                    div()
+                        .px_2()
+                        .text_size(CHROME_TEXT_SIZE)
+                        .text_color(theme.warning)
+                        .font_family(quarry_ui::Settings::get(cx).buffer_font_family.clone())
+                        .child(st.pending_keys.clone())
+                        .into_any_element(),
+                );
+            }
+            if st.keymap == quarry_editor::Keymap::Helix {
+                let color = match st.mode {
+                    quarry_editor::Mode::Insert => theme.success,
+                    quarry_editor::Mode::Select => theme.warning,
+                    _ => theme.primary,
+                };
+                right.push(
+                    div()
+                        .mx_1()
+                        .px_1p5()
+                        .rounded(px(3.))
+                        .bg(color.opacity(0.2))
+                        .text_size(CHROME_TEXT_SIZE)
+                        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                        .text_color(color)
+                        .child(st.mode_label())
+                        .into_any_element(),
+                );
+            }
         }
         if let Some(id) = self.active_connection_id(cx) {
             let store = self.store.read(cx);

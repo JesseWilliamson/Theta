@@ -78,7 +78,7 @@ impl Workspace {
                             )
                             .on_mouse_down(
                                 MouseButton::Middle,
-                                cx.listener(move |this, _, _, cx| this.close_tab(id, cx)),
+                                cx.listener(move |this, _, window, cx| this.request_close_tab(id, window, cx)),
                             )
                             .child(
                                 Icon::new(IconName::SquareTerminal)
@@ -111,9 +111,9 @@ impl Workspace {
                                     .justify_center()
                                     .rounded(px(3.))
                                     .hover(|s| s.bg(theme.border))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                    .on_click(cx.listener(move |this, _, window, cx| {
                                         cx.stop_propagation();
-                                        this.close_tab(id, cx);
+                                        this.request_close_tab(id, window, cx);
                                     }))
                                     .when(modified, |d| {
                                         d.child(

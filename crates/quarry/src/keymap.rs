@@ -47,6 +47,8 @@ pub fn bind(cx: &mut App) {
         kb("mod-e", Explain, None),
         kb("mod-shift-alt-e", ExplainAnalyze, None),
         kb("mod-shift-f", FormatDocument, None),
+        kb("mod-,", OpenSettings, None),
+        kb("mod-o", OpenSqlFile, None),
     ];
     // Explorer navigation.
     b.extend([
@@ -72,6 +74,7 @@ pub fn set_menus(cx: &mut App) {
         Menu {
             name: "Quarry".into(),
             items: vec![
+                MenuItem::action("Settings…", OpenSettings),
                 MenuItem::action("Settings File", OpenSettingsFile),
                 MenuItem::separator(),
                 MenuItem::action("Quit Quarry", Quit),
@@ -83,6 +86,8 @@ pub fn set_menus(cx: &mut App) {
             items: vec![
                 MenuItem::action("New Console", NewConsole),
                 MenuItem::action("New Connection…", NewConnection),
+                MenuItem::action("Open SQL File…", OpenSqlFile),
+                MenuItem::action("Save Console As…", SaveConsole),
                 MenuItem::separator(),
                 MenuItem::action("Close Tab", CloseTab),
             ],
@@ -107,6 +112,10 @@ pub fn set_menus(cx: &mut App) {
                 MenuItem::action("Explain", Explain),
                 MenuItem::action("Explain Analyze", ExplainAnalyze),
                 MenuItem::action("Format Document", FormatDocument),
+                MenuItem::separator(),
+                MenuItem::action("Begin Transaction", BeginTransaction),
+                MenuItem::action("Commit", CommitTransaction),
+                MenuItem::action("Roll Back", RollbackTransaction),
             ],
             disabled: false,
         },

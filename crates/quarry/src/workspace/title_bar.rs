@@ -49,7 +49,7 @@ impl Workspace {
         let tint =
             color.as_deref().and_then(|h| h.strip_prefix('#')).and_then(|h| u32::from_str_radix(h, 16).ok());
         let running = self.running;
-        let transaction = self.status.transaction.clone();
+        let transaction = self.txn_open_for_active(cx);
 
         let switcher = h_flex()
             .id("connection-switcher")
@@ -111,9 +111,31 @@ impl Workspace {
                         .items_center()
                         .pr_2()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .when_some(transaction, |d, t| {
+                        .when(transaction, |d| {
                             d.child(
-                                div().px_2().text_size(CHROME_TEXT_SIZE).text_color(theme.warning).child(t),
+                                h_flex()
+                                    .gap_1()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .px_1p5()
+                                            .rounded(px(3.))
+                                            .bg(theme.warning.opacity(0.2))
+                                            .text_size(CHROME_TEXT_SIZE)
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(theme.warning)
+                                            .child("TXN open"),
+                                    )
+                                    .child(
+                                        Button::new("txn-commit").small().ghost().label("Commit").on_click(
+                                            |_, window, cx| window.dispatch_action(Box::new(CommitTransaction), cx),
+                                        ),
+                                    )
+                                    .child(
+                                        Button::new("txn-rollback").small().ghost().label("Rollback").on_click(
+                                            |_, window, cx| window.dispatch_action(Box::new(RollbackTransaction), cx),
+                                        ),
+                                    ),
                             )
                         })
                         .child(
@@ -142,7 +164,8 @@ impl Workspace {
                         .child(div().w(px(1.)).h(px(14.)).mx_1().bg(theme.border))
                         .child(tool_button("settings", IconName::Settings, "Settings").dropdown_menu(
                             |menu, _, _| {
-                                menu.menu("Select Theme…", Box::new(SelectTheme))
+                                menu.menu("Settings…", Box::new(OpenSettings))
+                                    .menu("Select Theme…", Box::new(SelectTheme))
                                     .menu("Toggle Keymap (Helix / Standard)", Box::new(ToggleKeymap))
                                     .menu("Import Zed Theme…", Box::new(ImportZedTheme))
                                     .separator()
