@@ -1401,7 +1401,7 @@ impl Editor {
             let mut cols = Vec::new();
             for (line, v) in &rows {
                 if let Some(&i) = v.get(k) {
-                    let col = self.sels.v[i].from() - t.line_to_char(*line) + v[..k].iter().map(|&j| pad[j]).sum::<usize>();
+                    let col = self.sels.v[i].head - t.line_to_char(*line) + v[..k].iter().map(|&j| pad[j]).sum::<usize>();
                     target = target.max(col);
                     cols.push((i, col));
                 }
