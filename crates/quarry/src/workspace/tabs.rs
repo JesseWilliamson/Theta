@@ -78,7 +78,9 @@ impl Workspace {
                             )
                             .on_mouse_down(
                                 MouseButton::Middle,
-                                cx.listener(move |this, _, window, cx| this.request_close_tab(id, window, cx)),
+                                cx.listener(move |this, _, window, cx| {
+                                    this.request_close_tab(id, window, cx)
+                                }),
                             )
                             .child(
                                 Icon::new(IconName::SquareTerminal)

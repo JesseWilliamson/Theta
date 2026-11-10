@@ -54,13 +54,20 @@ pub fn dangerous_reason(sql: &str, kind: DatabaseKind, class: StatementClass) ->
     if class != StatementClass::Write {
         return None;
     }
-    quarry_sql::lint(sql, kind, None).into_iter().find(|d| d.message.contains("without WHERE")).map(|d| d.message)
+    quarry_sql::lint(sql, kind, None)
+        .into_iter()
+        .find(|d| d.message.contains("without WHERE"))
+        .map(|d| d.message)
 }
 
 /// First line of a statement for logs, shortened.
 pub fn first_line(sql: &str) -> String {
     let line = sql.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
-    if line.chars().count() > 90 { format!("{}…", line.chars().take(90).collect::<String>()) } else { line.to_string() }
+    if line.chars().count() > 90 {
+        format!("{}…", line.chars().take(90).collect::<String>())
+    } else {
+        line.to_string()
+    }
 }
 
 /// Where to put the squiggle for a failed statement: the server's position is

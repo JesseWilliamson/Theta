@@ -30,7 +30,8 @@ pub fn geometry_columns(result: &ResultSet) -> Vec<usize> {
             if result.rows.iter().any(|r| matches!(r.get(i), Some(Value::Geometry(_)))) {
                 return true;
             }
-            let text_like = matches!(result.columns[i].kind, TypeKind::Text | TypeKind::Json | TypeKind::Other);
+            let text_like =
+                matches!(result.columns[i].kind, TypeKind::Text | TypeKind::Json | TypeKind::Other);
             if !text_like {
                 return false;
             }
@@ -45,13 +46,20 @@ fn label_column(columns: &[Column], geo: &[usize]) -> Option<usize> {
     let ok = |i: &usize| !geo.contains(i);
     (0..columns.len())
         .filter(ok)
-        .find(|&i| columns[i].kind == TypeKind::Text && ["name", "title", "label"].contains(&columns[i].name.to_lowercase().as_str()))
+        .find(|&i| {
+            columns[i].kind == TypeKind::Text
+                && ["name", "title", "label"].contains(&columns[i].name.to_lowercase().as_str())
+        })
         .or_else(|| (0..columns.len()).filter(ok).find(|&i| columns[i].kind == TypeKind::Text))
-        .or_else(|| (0..columns.len()).filter(ok).next())
+        .or_else(|| (0..columns.len()).find(ok))
 }
 
 fn cap(s: String) -> String {
-    if s.chars().count() > MAX_PROP_CHARS { format!("{}…", s.chars().take(MAX_PROP_CHARS).collect::<String>()) } else { s }
+    if s.chars().count() > MAX_PROP_CHARS {
+        format!("{}…", s.chars().take(MAX_PROP_CHARS).collect::<String>())
+    } else {
+        s
+    }
 }
 
 /// Build layers and features; `None` when the result has no geometry.
@@ -100,7 +108,11 @@ mod tests {
     #[test]
     fn wkb_column_becomes_layer() {
         let r = ResultSet {
-            columns: vec![col("id", TypeKind::Integer), col("name", TypeKind::Text), col("geom", TypeKind::Other)],
+            columns: vec![
+                col("id", TypeKind::Integer),
+                col("name", TypeKind::Text),
+                col("geom", TypeKind::Other),
+            ],
             rows: vec![
                 vec![Value::Int(1), Value::Text("A".into()), Value::Geometry(point_wkb(4.9, 52.37))],
                 vec![Value::Int(2), Value::Text("B".into()), Value::Null],
@@ -126,7 +138,11 @@ mod tests {
 
     #[test]
     fn no_geometry_gives_none() {
-        let r = ResultSet { columns: vec![col("a", TypeKind::Integer)], rows: vec![vec![Value::Int(1)]], truncated: false };
+        let r = ResultSet {
+            columns: vec![col("a", TypeKind::Integer)],
+            rows: vec![vec![Value::Int(1)]],
+            truncated: false,
+        };
         assert!(extract(&r).is_none());
     }
 

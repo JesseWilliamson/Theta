@@ -6,7 +6,11 @@ use quarry_sql::{build_delete, build_insert, build_update};
 
 /// One statement per change, in order. Changes that cannot be expressed safely
 /// (an update or delete without key columns, an empty update) are reported as errors.
-pub fn statements(kind: DatabaseKind, target: &EditTarget, changes: &[RowChange]) -> Result<Vec<String>, String> {
+pub fn statements(
+    kind: DatabaseKind,
+    target: &EditTarget,
+    changes: &[RowChange],
+) -> Result<Vec<String>, String> {
     let schema = target.schema.as_deref();
     let mut out = Vec::new();
     for c in changes {

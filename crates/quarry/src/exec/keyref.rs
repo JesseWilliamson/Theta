@@ -66,7 +66,11 @@ pub fn parse(readme: &str, mode: KeymapMode) -> Vec<KeyRef> {
         if cells.len() < 2 || cells[0].starts_with("---") || cells[0] == "keys" || cells[0] == "key" {
             continue;
         }
-        out.push(KeyRef { section: section.clone(), keys: strip_ticks(&cells[0]), action: strip_ticks(&cells[1]) });
+        out.push(KeyRef {
+            section: section.clone(),
+            keys: strip_ticks(&cells[0]),
+            action: strip_ticks(&cells[1]),
+        });
     }
     out
 }
@@ -96,6 +100,9 @@ mod tests {
     fn parses_escaped_pipes() {
         let t = "## Helix keymap\n\n| keys | action |\n| --- | --- |\n| `g\\|` | goto column |\n";
         let r = parse(t, KeymapMode::Helix);
-        assert_eq!(r, vec![KeyRef { section: "Helix keymap".into(), keys: "g|".into(), action: "goto column".into() }]);
+        assert_eq!(
+            r,
+            vec![KeyRef { section: "Helix keymap".into(), keys: "g|".into(), action: "goto column".into() }]
+        );
     }
 }

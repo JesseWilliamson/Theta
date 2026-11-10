@@ -72,7 +72,10 @@ pub fn reference_columns(result: &ResultSet, catalog: Option<&Catalog>, target: 
     (0..result.columns.len())
         .filter(|&i| {
             let name = result.columns[i].origin.as_ref().map(|o| o.column.as_str()).unwrap_or("");
-            table.foreign_keys.iter().any(|fk| fk.columns.len() == 1 && fk.columns[0].eq_ignore_ascii_case(name))
+            table
+                .foreign_keys
+                .iter()
+                .any(|fk| fk.columns.len() == 1 && fk.columns[0].eq_ignore_ascii_case(name))
         })
         .collect()
 }
@@ -86,7 +89,10 @@ pub fn reference_target(
 ) -> Option<(Option<String>, String, String)> {
     let (_, table) = catalog.find_table(target_table.0.as_deref(), target_table.1)?;
     let name = result.columns.get(column)?.origin.as_ref()?.column.as_str();
-    let fk = table.foreign_keys.iter().find(|fk| fk.columns.len() == 1 && fk.columns[0].eq_ignore_ascii_case(name))?;
+    let fk = table
+        .foreign_keys
+        .iter()
+        .find(|fk| fk.columns.len() == 1 && fk.columns[0].eq_ignore_ascii_case(name))?;
     Some((fk.referenced_schema.clone(), fk.referenced_table.clone(), fk.referenced_columns.first()?.clone()))
 }
 
@@ -101,7 +107,11 @@ mod tests {
             name: name.into(),
             type_name: "int".into(),
             kind: TypeKind::Integer,
-            origin: Some(ColumnOrigin { schema: Some("public".into()), table: table.into(), column: c.into() }),
+            origin: Some(ColumnOrigin {
+                schema: Some("public".into()),
+                table: table.into(),
+                column: c.into(),
+            }),
         }
     }
     fn rs(cols: Vec<Column>) -> ResultSet {
@@ -111,8 +121,9 @@ mod tests {
     #[test]
     fn editable_when_pk_present() {
         let cat = fixtures::shop();
-        let t = analyze(&rs(vec![col("id", "customers", "id"), col("name", "customers", "name")]), Some(&cat))
-            .unwrap();
+        let t =
+            analyze(&rs(vec![col("id", "customers", "id"), col("name", "customers", "name")]), Some(&cat))
+                .unwrap();
         assert_eq!(t.table, "customers");
         assert_eq!(t.key_columns, vec![0]);
     }
@@ -127,7 +138,8 @@ mod tests {
     #[test]
     fn refuses_joins_and_computed() {
         let cat = fixtures::shop();
-        let e = analyze(&rs(vec![col("id", "customers", "id"), col("id", "orders", "id")]), Some(&cat)).unwrap_err();
+        let e = analyze(&rs(vec![col("id", "customers", "id"), col("id", "orders", "id")]), Some(&cat))
+            .unwrap_err();
         assert!(e.contains("several tables"));
         let mut c = col("x", "customers", "id");
         c.origin = None;

@@ -76,7 +76,7 @@ pub fn fmt_int(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -86,7 +86,13 @@ pub fn fmt_int(n: u64) -> String {
 
 pub fn fmt_ms(d: std::time::Duration) -> String {
     let ms = d.as_secs_f64() * 1000.0;
-    if ms >= 10_000.0 { format!("{:.1} s", ms / 1000.0) } else if ms >= 100.0 { format!("{ms:.0} ms") } else { format!("{ms:.1} ms").replace(".0 ms", " ms") }
+    if ms >= 10_000.0 {
+        format!("{:.1} s", ms / 1000.0)
+    } else if ms >= 100.0 {
+        format!("{ms:.0} ms")
+    } else {
+        format!("{ms:.1} ms").replace(".0 ms", " ms")
+    }
 }
 
 #[cfg(test)]

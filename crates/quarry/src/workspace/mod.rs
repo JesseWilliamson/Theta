@@ -18,16 +18,21 @@ mod bottom;
 pub mod console;
 pub mod persist;
 mod run;
-mod welcome;
 mod status_bar;
 mod tabs;
 mod title_bar;
+mod welcome;
 
 use crate::actions::*;
 use crate::connections::{ConnState, ConnectionStore, NoticeKind, StoreEvent};
+use crate::exec::history::HistoryStore;
 use crate::explorer::{Explorer, ExplorerEvent};
 use crate::palette;
+use crate::panels::history::{HistoryEvent, HistoryPanel};
+use crate::panels::messages::MessagesPanel;
+use crate::panels::results::{ResultsEvent, ResultsPanel};
 use crate::sqlgen;
+use console::Console;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme as _, WindowExt as _, h_flex, v_flex};
@@ -38,18 +43,13 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, px,
 };
 use persist::*;
-use quarry_ui::picker::{Picker, PickerDelegate, PickerEvent};
-use quarry_ui::{STATUS_BAR_HEIGHT, Settings, TAB_BAR_HEIGHT, TITLE_BAR_HEIGHT};
-use serde::{Deserialize, Serialize};
-use crate::exec::history::HistoryStore;
-use crate::panels::history::{HistoryEvent, HistoryPanel};
-use crate::panels::messages::MessagesPanel;
-use crate::panels::results::{ResultsEvent, ResultsPanel};
-use console::Console;
 use quarry_editor_view::EditorStatus;
 use quarry_grid::GridEvent;
 use quarry_map_view::{MapEvent, MapPanel};
 use quarry_plan_view::{PlanEvent, PlanPanel};
+use quarry_ui::picker::{Picker, PickerDelegate, PickerEvent};
+use quarry_ui::{STATUS_BAR_HEIGHT, Settings, TAB_BAR_HEIGHT, TITLE_BAR_HEIGHT};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -168,13 +168,11 @@ pub struct Workspace {
     map: Entity<MapPanel>,
     map_badge: Option<usize>,
     runs: HashMap<String, run::RunInfo>,
-    next_run_id: u64,
     txn: HashSet<String>,
     ticker: Option<gpui_kit::Task<()>>,
     editor_status: Option<EditorStatus>,
     last_explain: Option<run::ExplainTarget>,
     startup: Option<run::Startup>,
-    pending_geo_gen: u64,
     /// Tests run in windows without a `Root`, where toasts cannot be shown.
     quiet: bool,
     data_dir: std::path::PathBuf,
@@ -204,7 +202,9 @@ impl Workspace {
         let explorer = cx.new(|cx| Explorer::new(store.clone(), window, cx));
         let results = cx.new(|cx| ResultsPanel::new(window, cx));
         let messages = cx.new(|_| MessagesPanel::new());
-        let history = cx.new(|cx| HistoryPanel::new(HistoryStore::load(Some(data_dir.join("history.jsonl"))), window, cx));
+        let history = cx.new(|cx| {
+            HistoryPanel::new(HistoryStore::load(Some(data_dir.join("history.jsonl"))), window, cx)
+        });
         let plan = cx.new(|cx| PlanPanel::new(window, cx));
         let map = cx.new(|cx| MapPanel::new(window, cx));
         let grid = results.read(cx).grid.clone();
@@ -215,10 +215,18 @@ impl Workspace {
                 let ResultsEvent::ActivateTab(i) = e;
                 this.activate_result(*i, window, cx);
             }),
-            cx.subscribe_in(&grid, window, |this, _, e: &GridEvent, window, cx| this.on_grid_event(e.clone(), window, cx)),
-            cx.subscribe_in(&history, window, |this, _, e: &HistoryEvent, window, cx| this.on_history_event(e.clone(), window, cx)),
-            cx.subscribe_in(&plan, window, |this, _, e: &PlanEvent, window, cx| this.on_plan_event(e.clone(), window, cx)),
-            cx.subscribe_in(&map, window, |this, _, e: &MapEvent, window, cx| this.on_map_event(e.clone(), window, cx)),
+            cx.subscribe_in(&grid, window, |this, _, e: &GridEvent, window, cx| {
+                this.on_grid_event(e.clone(), window, cx)
+            }),
+            cx.subscribe_in(&history, window, |this, _, e: &HistoryEvent, window, cx| {
+                this.on_history_event(e.clone(), window, cx)
+            }),
+            cx.subscribe_in(&plan, window, |this, _, e: &PlanEvent, window, cx| {
+                this.on_plan_event(e.clone(), window, cx)
+            }),
+            cx.subscribe_in(&map, window, |this, _, e: &MapEvent, window, cx| {
+                this.on_map_event(e.clone(), window, cx)
+            }),
             cx.observe_global::<quarry_ui::settings::SettingsStore>(|_, cx| cx.notify()),
         ];
         let focus = cx.focus_handle();
@@ -247,13 +255,11 @@ impl Workspace {
             map: map.clone(),
             map_badge: None,
             runs: HashMap::new(),
-            next_run_id: 1,
             txn: HashSet::new(),
             ticker: None,
             editor_status: None,
             last_explain: None,
             startup: None,
-            pending_geo_gen: 0,
             quiet: false,
             data_dir,
             _subscriptions: subscriptions,
@@ -331,7 +337,16 @@ impl Workspace {
         self.console_counter += 1;
         let title = format!("console {}", self.console_counter);
         let key = crate::exec::consoles::new_key();
-        let id = self.create_console(key, title, connection_id, initial_sql.unwrap_or_default(), 0, None, window, cx);
+        let id = self.create_console(
+            key,
+            title,
+            connection_id,
+            initial_sql.unwrap_or_default(),
+            0,
+            None,
+            window,
+            cx,
+        );
         self.activate_tab(id, window, cx);
         self.save_all_consoles(cx);
         id
@@ -482,7 +497,10 @@ impl Workspace {
                 if self.store.read(cx).state(id).is_connected() && self.active_connection.is_none() {
                     self.set_active_connection(Some(id.clone()), cx);
                 }
-                if self.store.read(cx).state(id).is_connected() && self.tabs.is_empty() && self.startup.is_none() {
+                if self.store.read(cx).state(id).is_connected()
+                    && self.tabs.is_empty()
+                    && self.startup.is_none()
+                {
                     self.open_console(Some(id.clone()), None, window, cx);
                 }
                 cx.notify();
@@ -870,10 +888,18 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom(-1.0, cx)))
             .on_action(cx.listener(|this, _: &ZoomReset, _, cx| this.zoom(0.0, cx)))
             .on_action(cx.listener(|this, _: &Quit, window, cx| this.request_quit(window, cx)))
-            .on_action(cx.listener(|this, _: &BeginTransaction, window, cx| this.txn_command("BEGIN", window, cx)))
-            .on_action(cx.listener(|this, _: &CommitTransaction, window, cx| this.txn_command("COMMIT", window, cx)))
-            .on_action(cx.listener(|this, _: &RollbackTransaction, window, cx| this.txn_command("ROLLBACK", window, cx)))
-            .on_action(cx.listener(|_, _: &OpenSettings, window, cx| crate::dialogs::settings::open(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &BeginTransaction, window, cx| this.txn_command("BEGIN", window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &CommitTransaction, window, cx| this.txn_command("COMMIT", window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &RollbackTransaction, window, cx| {
+                this.txn_command("ROLLBACK", window, cx)
+            }))
+            .on_action(
+                cx.listener(|_, _: &OpenSettings, window, cx| crate::dialogs::settings::open(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &OpenSqlFile, window, cx| this.open_sql_file(window, cx)))
             .on_action(cx.listener(|this, _: &SaveConsole, window, cx| this.save_console_as(window, cx)))
             .on_action(cx.listener(|this, _: &WelcomeDemo, window, cx| this.start_demo(window, cx)))

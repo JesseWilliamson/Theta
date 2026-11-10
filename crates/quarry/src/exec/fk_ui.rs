@@ -34,7 +34,8 @@ pub fn alter_table_sql(kind: DatabaseKind, default: Option<&str>, v: &VirtualFor
 }
 
 fn alias(table: &str, taken: &str) -> String {
-    let a: String = table.chars().next().map(|c| c.to_ascii_lowercase().to_string()).unwrap_or_else(|| "t".into());
+    let a: String =
+        table.chars().next().map(|c| c.to_ascii_lowercase().to_string()).unwrap_or_else(|| "t".into());
     if a == taken { format!("{a}2") } else { a }
 }
 
@@ -76,7 +77,12 @@ pub fn related_tables(
         let rs = fk.referenced_schema.clone().unwrap_or_else(|| schema.to_string());
         let pairs: Vec<_> = fk.columns.iter().cloned().zip(fk.referenced_columns.iter().cloned()).collect();
         out.push(Related {
-            via: format!("{} → {}.{}", fk.columns.join(", "), fk.referenced_table, fk.referenced_columns.join(", ")),
+            via: format!(
+                "{} → {}.{}",
+                fk.columns.join(", "),
+                fk.referenced_table,
+                fk.referenced_columns.join(", ")
+            ),
             sql: join_sql(kind, default, (schema, table), (&rs, &fk.referenced_table), &pairs),
             schema: rs,
             table: fk.referenced_table.clone(),
@@ -93,7 +99,12 @@ pub fn related_tables(
                     let pairs: Vec<_> =
                         fk.referenced_columns.iter().cloned().zip(fk.columns.iter().cloned()).collect();
                     out.push(Related {
-                        via: format!("{}.{} → {}", t.name, fk.columns.join(", "), fk.referenced_columns.join(", ")),
+                        via: format!(
+                            "{}.{} → {}",
+                            t.name,
+                            fk.columns.join(", "),
+                            fk.referenced_columns.join(", ")
+                        ),
                         sql: join_sql(kind, default, (schema, table), (&s.name, &t.name), &pairs),
                         schema: s.name.clone(),
                         table: t.name.clone(),

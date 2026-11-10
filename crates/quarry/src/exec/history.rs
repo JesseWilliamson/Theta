@@ -86,7 +86,7 @@ impl HistoryStore {
     /// Fuzzy-filtered entries, newest first.
     pub fn search<'a>(&'a self, query: &str) -> Vec<&'a HistoryEntry> {
         let q = query.trim();
-        let mut out: Vec<(i64, &HistoryEntry)> = self
+        let mut out: Vec<(_, &HistoryEntry)> = self
             .entries
             .iter()
             .rev()
@@ -94,18 +94,21 @@ impl HistoryStore {
                 if q.is_empty() {
                     return Some((0, e));
                 }
-                quarry_ui::fuzzy::fuzzy_match(q, &e.sql).map(|m| (m.score as i64, e))
+                quarry_ui::fuzzy::fuzzy_match(q, &e.sql).map(|m| (m.score, e))
             })
             .collect();
         if !q.is_empty() {
-            out.sort_by(|a, b| b.0.cmp(&a.0));
+            out.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
         }
         out.into_iter().map(|(_, e)| e).collect()
     }
 }
 
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 #[allow(dead_code)]
@@ -116,7 +119,15 @@ mod tests {
     use super::*;
 
     fn e(sql: &str, at: u64) -> HistoryEntry {
-        HistoryEntry { at, connection: "c".into(), sql: sql.into(), duration_ms: 1, rows: Some(1), ok: true, error: None }
+        HistoryEntry {
+            at,
+            connection: "c".into(),
+            sql: sql.into(),
+            duration_ms: 1,
+            rows: Some(1),
+            ok: true,
+            error: None,
+        }
     }
 
     #[test]

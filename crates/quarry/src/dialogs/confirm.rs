@@ -5,8 +5,8 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{ActiveTheme as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, AppContext as _, Context, InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window, div, px,
+    App, AppContext as _, Context, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 use std::rc::Rc;
 
@@ -67,7 +67,11 @@ impl Render for ConfirmView {
                 h_flex()
                     .justify_end()
                     .gap_2()
-                    .child(Button::new("confirm-cancel").label("Cancel").on_click(|_, window, cx| window.close_dialog(cx)))
+                    .child(
+                        Button::new("confirm-cancel")
+                            .label("Cancel")
+                            .on_click(|_, window, cx| window.close_dialog(cx)),
+                    )
                     .children(self.choices.iter().enumerate().map(|(i, c)| {
                         let run = c.run.clone();
                         let b = Button::new(("confirm-choice", i)).label(SharedString::from(c.label.clone()));

@@ -49,10 +49,8 @@ impl Message {
 
 /// `HH:MM:SS` in UTC-free local-ish form (seconds since midnight UTC; good enough for a log).
 pub fn clock_now() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let secs =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let offset = local_offset_secs();
     let t = (secs as i64 + offset).rem_euclid(86_400);
     format!("{:02}:{:02}:{:02}", t / 3600, (t / 60) % 60, t % 60)
@@ -145,14 +143,22 @@ impl Render for MessagesPanel {
                                 .child(SharedString::from(m.statement.clone())),
                         ),
                 )
-                .children(m.lines.iter().map(|l| {
-                    div().text_size(px(13.)).text_color(color).child(SharedString::from(l.clone()))
-                }))
+                .children(
+                    m.lines.iter().map(|l| {
+                        div().text_size(px(13.)).text_color(color).child(SharedString::from(l.clone()))
+                    }),
+                )
                 .children(m.code.iter().map(|c| {
-                    div().text_size(CHROME_TEXT_SIZE).text_color(theme.muted_foreground).child(format!("Code: {c}"))
+                    div()
+                        .text_size(CHROME_TEXT_SIZE)
+                        .text_color(theme.muted_foreground)
+                        .child(format!("Code: {c}"))
                 }))
                 .children(m.detail.iter().map(|d| {
-                    div().text_size(CHROME_TEXT_SIZE).text_color(theme.muted_foreground).child(format!("Detail: {d}"))
+                    div()
+                        .text_size(CHROME_TEXT_SIZE)
+                        .text_color(theme.muted_foreground)
+                        .child(format!("Detail: {d}"))
                 }))
                 .children(m.hint.iter().map(|h| {
                     div().text_size(CHROME_TEXT_SIZE).text_color(theme.warning).child(format!("Hint: {h}"))
@@ -170,11 +176,9 @@ impl Render for MessagesPanel {
                     .justify_end()
                     .border_b_1()
                     .border_color(theme.border)
-                    .child(
-                        tool_button("messages-copy", IconName::Copy, "Copy All").on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(all_text.clone()))
-                        }),
-                    )
+                    .child(tool_button("messages-copy", IconName::Copy, "Copy All").on_click(
+                        move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(all_text.clone())),
+                    ))
                     .child(
                         tool_button("messages-clear", IconName::Eraser, "Clear")
                             .on_click(cx.listener(|this, _, _, cx| this.clear(cx))),

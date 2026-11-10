@@ -124,7 +124,12 @@ impl Render for ResultsPanel {
                 .gap_2()
                 .items_start()
                 .child(Icon::new(icon).size(px(14.)).text_color(color))
-                .child(div().text_size(px(13.)).text_color(theme.foreground).child(SharedString::from(s.text.clone())))
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .text_color(theme.foreground)
+                        .child(SharedString::from(s.text.clone())),
+                )
                 .into_any_element()
         } else {
             EmptyState::new(IconName::Table, "Run a query to see results")

@@ -18,7 +18,10 @@ use std::ops::Range;
 pub enum HistoryEvent {
     /// Insert into the active console.
     Insert(String),
-    OpenNew { connection: String, sql: String },
+    OpenNew {
+        connection: String,
+        sql: String,
+    },
 }
 
 pub struct HistoryPanel {
@@ -106,7 +109,8 @@ impl HistoryPanel {
             .child(div().w(px(58.)).text_color(theme.muted_foreground).child(clock(e.at)))
             .child(
                 div()
-                    .w(px(110.))
+                    .w(px(170.))
+                    .flex_shrink_0()
                     .overflow_x_hidden()
                     .whitespace_nowrap()
                     .text_color(theme.muted_foreground)
@@ -144,22 +148,28 @@ impl HistoryPanel {
                 let (p1, p2) = (panel.clone(), panel.clone());
                 let (s1, s2, s3) = (sql2.clone(), sql2.clone(), sql2.clone());
                 let c = conn.clone();
-                menu.item(PopupMenuItem::new("Insert into Console").icon(Icon::new(IconName::CornerDownLeft)).on_click(
-                    move |_, _, cx| {
-                        p1.update(cx, |_, cx| cx.emit(HistoryEvent::Insert(s1.clone()))).ok();
-                    },
-                ))
-                .item(PopupMenuItem::new("Open in New Console").icon(Icon::new(IconName::SquareTerminal)).on_click(
-                    move |_, _, cx| {
-                        p2.update(cx, |_, cx| {
-                            cx.emit(HistoryEvent::OpenNew { connection: c.clone(), sql: s2.clone() })
-                        })
-                        .ok();
-                    },
-                ))
-                .item(PopupMenuItem::new("Copy").icon(Icon::new(IconName::Copy)).on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(s3.clone()))
-                }))
+                menu.item(
+                    PopupMenuItem::new("Insert into Console")
+                        .icon(Icon::new(IconName::CornerDownLeft))
+                        .on_click(move |_, _, cx| {
+                            p1.update(cx, |_, cx| cx.emit(HistoryEvent::Insert(s1.clone()))).ok();
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new("Open in New Console")
+                        .icon(Icon::new(IconName::SquareTerminal))
+                        .on_click(move |_, _, cx| {
+                            p2.update(cx, |_, cx| {
+                                cx.emit(HistoryEvent::OpenNew { connection: c.clone(), sql: s2.clone() })
+                            })
+                            .ok();
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new("Copy").icon(Icon::new(IconName::Copy)).on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(s3.clone()))
+                    }),
+                )
             })
             .into_any_element()
     }
@@ -174,7 +184,9 @@ impl Render for HistoryPanel {
                 .description("Statements you run are kept here so you can run them again.")
                 .into_any_element()
         } else if count == 0 {
-            EmptyState::new(IconName::Search, "No matches").description("Nothing in the history matches.").into_any_element()
+            EmptyState::new(IconName::Search, "No matches")
+                .description("Nothing in the history matches.")
+                .into_any_element()
         } else {
             uniform_list(
                 "history-rows",
@@ -190,13 +202,12 @@ impl Render for HistoryPanel {
         v_flex()
             .size_full()
             .child(
-                div()
-                    .px_2()
-                    .py_1()
-                    .flex_shrink_0()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(Input::new(&self.filter).small().cleanable(true).prefix(Icon::new(IconName::Search).size(px(13.)))),
+                div().px_2().py_1().flex_shrink_0().border_b_1().border_color(theme.border).child(
+                    Input::new(&self.filter)
+                        .small()
+                        .cleanable(true)
+                        .prefix(Icon::new(IconName::Search).size(px(13.))),
+                ),
             )
             .child(div().flex_1().min_h_0().child(body))
     }

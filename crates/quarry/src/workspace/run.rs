@@ -13,7 +13,6 @@ use crate::panels::history::HistoryEvent;
 use crate::panels::messages::{Message, MessageKind, clock_now};
 use crate::runtime;
 use gpui_kit::{App, AppContext as _, ClipboardItem, Context, Entity, Window};
-use std::path::PathBuf;
 use quarry_core::{Connection, DatabaseKind, Error, ExecOptions, StatementOutcome};
 use quarry_editor::{Effect, Selection};
 use quarry_editor_view::{EditorEvent, StatementStatus};
@@ -22,9 +21,13 @@ use quarry_map_view::MapEvent;
 use quarry_plan_view::{PlanEvent, PlanInput};
 use quarry_sql::{ExportFormat, FormatOptions, StatementClass};
 use quarry_ui::Settings;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
+
+/// Text, cursor byte offset and the selection (start byte, text) of a console.
+type Snapshot = (String, usize, Option<(usize, String)>);
 
 pub enum RunReq {
     Statement,
@@ -33,11 +36,9 @@ pub enum RunReq {
 }
 
 pub struct RunInfo {
-    pub console: u64,
     pub started: Instant,
     pub cancelled: bool,
     pub failed: bool,
-    pub id: u64,
 }
 
 #[derive(Clone)]
@@ -236,7 +237,8 @@ impl Workspace {
     fn on_editor_event(&mut self, id: u64, ev: EditorEvent, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
             EditorEvent::Edited { .. } => {
-                let modified = self.consoles.get(&id).is_some_and(|c| c.editor.read(cx).editor().is_modified());
+                let modified =
+                    self.consoles.get(&id).is_some_and(|c| c.editor.read(cx).editor().is_modified());
                 self.set_tab_modified(id, modified, cx);
                 self.schedule_save(id, cx);
                 self.refresh_editor_status(id, cx);
@@ -321,7 +323,9 @@ impl Workspace {
                         self.use_connection(&id, cx);
                         self.rebind_active_console(&id, cx);
                     }
-                    None => self.notify(NoticeKind::Error, format!("No connection named “{arg}”"), window, cx),
+                    None => {
+                        self.notify(NoticeKind::Error, format!("No connection named “{arg}”"), window, cx)
+                    }
                 }
             }
             "run" => self.run_request(self.active_tab.unwrap_or(0), RunReq::Statement, window, cx),
@@ -350,7 +354,7 @@ impl Workspace {
     }
 
     /// Text, cursor byte offset and the selection (start byte, text) of a console.
-    fn editor_snapshot(&self, id: u64, cx: &App) -> Option<(String, usize, Option<(usize, String)>)> {
+    fn editor_snapshot(&self, id: u64, cx: &App) -> Option<Snapshot> {
         let c = self.consoles.get(&id)?;
         let ed = c.editor.read(cx).editor();
         let text = ed.text();
@@ -397,7 +401,8 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<(String, Arc<dyn Connection>)> {
-        let Some(conn_id) = self.tabs.iter().find(|t| t.id == id).and_then(|t| t.connection_id.clone()) else {
+        let Some(conn_id) = self.tabs.iter().find(|t| t.id == id).and_then(|t| t.connection_id.clone())
+        else {
             self.notify(NoticeKind::Info, "Choose a connection for this console first", window, cx);
             window.dispatch_action(Box::new(crate::actions::OpenConnectionPicker), cx);
             return None;
@@ -422,7 +427,7 @@ impl Workspace {
     }
 
     fn start_run(&mut self, id: u64, picks: Vec<Picked>, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((conn_id, connection)) = self.connection_for(id, window, cx) else { return };
+        let Some((conn_id, _)) = self.connection_for(id, window, cx) else { return };
         if self.runs.contains_key(&conn_id) {
             // Policy: one query at a time per connection; a second run is refused, not queued.
             let name = self.conn_name(&conn_id, cx);
@@ -483,12 +488,8 @@ impl Workspace {
         if self.runs.contains_key(&conn_id) {
             return;
         }
-        let run_id = self.next_run_id;
-        self.next_run_id += 1;
-        self.runs.insert(
-            conn_id.clone(),
-            RunInfo { console: id, started: Instant::now(), cancelled: false, failed: false, id: run_id },
-        );
+        self.runs
+            .insert(conn_id.clone(), RunInfo { started: Instant::now(), cancelled: false, failed: false });
         if let Some(c) = self.consoles.get_mut(&id) {
             c.results.clear();
             c.active_result = 0;
@@ -555,7 +556,8 @@ impl Workspace {
                         .with_elapsed(out.elapsed)
                         .with_statement(p.sql.clone());
                     let truncated = rs.truncated;
-                    let table_hint = rs.columns.iter().find_map(|c| c.origin.as_ref().map(|o| o.table.clone()));
+                    let table_hint =
+                        rs.columns.iter().find_map(|c| c.origin.as_ref().map(|o| o.table.clone()));
                     let number = self.consoles.get(&id).map_or(0, |c| c.results.len()) + 1;
                     let title = match table_hint {
                         Some(t) => format!("Result {number} · {t}"),
@@ -581,7 +583,9 @@ impl Workspace {
                     self.detect_geometry(id, item_index, rs, window, cx);
                 } else {
                     let line = match out.rows_affected {
-                        Some(n) => format!("{v} — {} affected · {}", plural(n, "row", "rows"), fmt_ms(out.elapsed)),
+                        Some(n) => {
+                            format!("{v} — {} affected · {}", plural(n, "row", "rows"), fmt_ms(out.elapsed))
+                        }
                         None => format!("{v} — OK · {}", fmt_ms(out.elapsed)),
                     };
                     if let Some(c) = self.consoles.get_mut(&id) {
@@ -653,7 +657,9 @@ impl Workspace {
             return;
         };
         run.cancelled = true;
-        let ConnState::Connected { connection, .. } = self.store.read(cx).state(&conn_id).clone() else { return };
+        let ConnState::Connected { connection, .. } = self.store.read(cx).state(&conn_id).clone() else {
+            return;
+        };
         cx.spawn_in(window, async move |this, cx| {
             let r = runtime::spawn_result(async move { connection.cancel().await }).await;
             if let Err(e) = r {
@@ -759,13 +765,8 @@ impl Workspace {
                 }
             },
             HistoryEvent::OpenNew { connection, sql } => {
-                let conn = self
-                    .store
-                    .read(cx)
-                    .configs()
-                    .iter()
-                    .find(|c| c.name == connection)
-                    .map(|c| c.id.clone());
+                let conn =
+                    self.store.read(cx).configs().iter().find(|c| c.name == connection).map(|c| c.id.clone());
                 self.open_console(conn, Some(sql), window, cx);
             }
         }
@@ -803,7 +804,11 @@ impl Workspace {
             self.results.update(cx, |r, cx| r.show_sets(titles, active, cx));
             let grid = self.results.read(cx).grid.clone();
             grid.update(cx, |g, cx| g.set_result(rs.clone(), meta.clone(), window, cx));
-            let mut info = format!("{} · {}", plural(rs.rows.len() as u64, "row", "rows"), meta.elapsed.map(fmt_ms).unwrap_or_default());
+            let mut info = format!(
+                "{} · {}",
+                plural(rs.rows.len() as u64, "row", "rows"),
+                meta.elapsed.map(fmt_ms).unwrap_or_default()
+            );
             if rs.truncated {
                 info += " · truncated";
             }
@@ -894,9 +899,12 @@ impl Workspace {
     pub(super) fn on_grid_event(&mut self, e: GridEvent, window: &mut Window, cx: &mut Context<Self>) {
         match e {
             GridEvent::SubmitChanges(changes) => self.submit_changes(changes, window, cx),
-            GridEvent::Copied { cells } => {
-                self.notify(NoticeKind::Info, format!("Copied {}", plural(cells as u64, "cell", "cells")), window, cx)
-            }
+            GridEvent::Copied { cells } => self.notify(
+                NoticeKind::Info,
+                format!("Copied {}", plural(cells as u64, "cell", "cells")),
+                window,
+                cx,
+            ),
             GridEvent::Export(req) => self.export_grid(req, window, cx),
             GridEvent::ShowOnMap { row, .. } => {
                 self.set_bottom_tab(BottomTab::Map, cx);
@@ -907,7 +915,13 @@ impl Workspace {
         }
     }
 
-    fn follow_reference(&mut self, column: usize, value: quarry_core::Value, window: &mut Window, cx: &mut Context<Self>) {
+    fn follow_reference(
+        &mut self,
+        column: usize,
+        value: quarry_core::Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some((item, conn)) = self.active_item() else { return };
         let Some(catalog) = self.store.read(cx).catalog(&conn) else { return };
         let Some(target) = item.meta.editable.clone() else { return };
@@ -919,7 +933,11 @@ impl Workspace {
         let kind = self.store.read(cx).config(&conn).map(|c| c.kind).unwrap_or(DatabaseKind::Postgres);
         let sql = format!(
             "SELECT * FROM {} WHERE {} = {}",
-            quarry_sql::keywords::qualified_name(schema.as_deref().or(target.schema.as_deref()), &table, kind),
+            quarry_sql::keywords::qualified_name(
+                schema.as_deref().or(target.schema.as_deref()),
+                &table,
+                kind
+            ),
             quarry_sql::keywords::quote_if_needed(&col, kind),
             quarry_sql::sql_literal(&value, kind)
         );
@@ -928,7 +946,12 @@ impl Workspace {
         self.run_request(id, RunReq::All, window, cx);
     }
 
-    fn submit_changes(&mut self, changes: Vec<quarry_grid::RowChange>, window: &mut Window, cx: &mut Context<Self>) {
+    fn submit_changes(
+        &mut self,
+        changes: Vec<quarry_grid::RowChange>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let grid = self.results.read(cx).grid.clone();
         let Some((item, conn)) = self.active_item() else { return };
         let Some(target) = item.meta.editable.clone() else {
@@ -959,10 +982,14 @@ impl Workspace {
             "Apply changes?",
             format!("{} will be applied in one transaction.", plural(n as u64, "statement", "statements")),
             stmts,
-            vec![Choice::new(format!("Apply {n} {}", if n == 1 { "change" } else { "changes" }), Tone::Primary, move |window, cx| {
-                let (stmts, conn, connection) = (stmts2.clone(), conn2.clone(), connection2.clone());
-                ws.update(cx, |this, cx| this.apply_changes(conn, connection, stmts, window, cx)).ok();
-            })],
+            vec![Choice::new(
+                format!("Apply {n} {}", if n == 1 { "change" } else { "changes" }),
+                Tone::Primary,
+                move |window, cx| {
+                    let (stmts, conn, connection) = (stmts2.clone(), conn2.clone(), connection2.clone());
+                    ws.update(cx, |this, cx| this.apply_changes(conn, connection, stmts, window, cx)).ok();
+                },
+            )],
         );
         // Cancelling the dialog leaves the edits staged; nothing else to do.
         let _ = ws2;
@@ -1008,15 +1035,30 @@ impl Workspace {
                             &conn_id,
                             &stmts[0],
                             MessageKind::Ok,
-                            vec![format!("Applied {}{tail}", plural(stmts.len() as u64, "change", "changes"))],
+                            vec![format!(
+                                "Applied {}{tail}",
+                                plural(stmts.len() as u64, "change", "changes")
+                            )],
                             None,
                             cx,
                         );
-                        this.notify(NoticeKind::Success, format!("Applied {}{tail}", plural(stmts.len() as u64, "change", "changes")), window, cx);
+                        this.notify(
+                            NoticeKind::Success,
+                            format!("Applied {}{tail}", plural(stmts.len() as u64, "change", "changes")),
+                            window,
+                            cx,
+                        );
                     }
                     Err(e) => {
                         grid.update(cx, |g, cx| g.changes_failed(e.to_string(), cx));
-                        this.log(&conn_id, &stmts[0], MessageKind::Error, vec![format!("Changes rolled back: {e}")], Some(&e), cx);
+                        this.log(
+                            &conn_id,
+                            &stmts[0],
+                            MessageKind::Error,
+                            vec![format!("Changes rolled back: {e}")],
+                            Some(&e),
+                            cx,
+                        );
                         this.notify(NoticeKind::Error, format!("Changes rolled back: {e}"), window, cx);
                     }
                 }
@@ -1039,19 +1081,39 @@ impl Workspace {
             F::Tsv => (ExportFormat::Tsv, "tsv"),
             F::Json => (ExportFormat::Json, "json"),
             F::Markdown => (ExportFormat::Markdown, "md"),
-            F::SqlInserts => (ExportFormat::SqlInserts { table: table.clone().unwrap_or_else(|| "result".into()) }, "sql"),
+            F::SqlInserts => {
+                (ExportFormat::SqlInserts { table: table.clone().unwrap_or_else(|| "result".into()) }, "sql")
+            }
         };
         let text = quarry_sql::export(&rs, &fmt, kind);
         if req.to_clipboard {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
-            self.notify(NoticeKind::Success, format!("Copied {} as {}", plural(n, "row", "rows"), req.format.label()), window, cx);
+            self.notify(
+                NoticeKind::Success,
+                format!("Copied {} as {}", plural(n, "row", "rows"), req.format.label()),
+                window,
+                cx,
+            );
         } else {
             let name = format!("{}.{ext}", table.unwrap_or_else(|| "result".into()));
-            self.save_text_file(name, text, format!("Exported {} as {}", plural(n, "row", "rows"), req.format.label()), window, cx);
+            self.save_text_file(
+                name,
+                text,
+                format!("Exported {} as {}", plural(n, "row", "rows"), req.format.label()),
+                window,
+                cx,
+            );
         }
     }
 
-    fn save_text_file(&mut self, suggested: String, text: String, ok: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn save_text_file(
+        &mut self,
+        suggested: String,
+        text: String,
+        ok: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let dir = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
         let rx = cx.prompt_for_new_path(&dir, Some(&suggested));
         cx.spawn_in(window, async move |this, cx| {
@@ -1059,7 +1121,12 @@ impl Workspace {
             let r = std::fs::write(&path, text);
             this.update_in(cx, |this, window, cx| match r {
                 Ok(()) => this.notify(NoticeKind::Success, format!("{ok}: {}", path.display()), window, cx),
-                Err(e) => this.notify(NoticeKind::Error, format!("Could not write {}: {e}", path.display()), window, cx),
+                Err(e) => this.notify(
+                    NoticeKind::Error,
+                    format!("Could not write {}: {e}", path.display()),
+                    window,
+                    cx,
+                ),
             })
             .ok();
         })
@@ -1115,7 +1182,8 @@ impl Workspace {
     }
 
     fn run_explain(&mut self, t: ExplainTarget, analyze: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let ConnState::Connected { connection, .. } = self.store.read(cx).state(&t.connection_id).clone() else {
+        let ConnState::Connected { connection, .. } = self.store.read(cx).state(&t.connection_id).clone()
+        else {
             self.notify(NoticeKind::Info, "Connect first", window, cx);
             return;
         };
@@ -1136,7 +1204,14 @@ impl Workspace {
                 }
                 Err(e) => {
                     this.plan.update(cx, |p, cx| p.set_error(e.to_string(), cx));
-                    this.log(&t.connection_id, &t.sql, MessageKind::Error, vec![format!("Explain failed: {e}")], Some(&e), cx);
+                    this.log(
+                        &t.connection_id,
+                        &t.sql,
+                        MessageKind::Error,
+                        vec![format!("Explain failed: {e}")],
+                        Some(&e),
+                        cx,
+                    );
                 }
             })
             .ok();
@@ -1174,7 +1249,11 @@ impl Workspace {
     fn format_console(&mut self, id: u64, selection: bool, _window: &mut Window, cx: &mut Context<Self>) {
         let kind = self.console_kind(id, cx);
         let s = Settings::get(cx).format.clone();
-        let opts = FormatOptions { indent_width: s.indent, uppercase_keywords: s.uppercase_keywords, ..Default::default() };
+        let opts = FormatOptions {
+            indent_width: s.indent,
+            uppercase_keywords: s.uppercase_keywords,
+            ..Default::default()
+        };
         let Some(c) = self.consoles.get(&id) else { return };
         c.editor.update(cx, |e, cx| {
             e.update_editor(cx, |ed| {
@@ -1194,9 +1273,15 @@ impl Workspace {
 
     // ------------------------------------------------------------ transactions
 
-    pub(super) fn refresh_txn(&mut self, conn_id: String, connection: Arc<dyn Connection>, cx: &mut Context<Self>) {
+    pub(super) fn refresh_txn(
+        &mut self,
+        conn_id: String,
+        connection: Arc<dyn Connection>,
+        cx: &mut Context<Self>,
+    ) {
         cx.spawn(async move |this, cx| {
-            let open = runtime::spawn(async move { connection.in_transaction().await }).await.unwrap_or(false);
+            let open =
+                runtime::spawn(async move { connection.in_transaction().await }).await.unwrap_or(false);
             this.update(cx, |this, cx| {
                 if open {
                     this.txn.insert(conn_id);
@@ -1241,7 +1326,14 @@ impl Workspace {
             this.update_in(cx, |this, window, cx| {
                 match r {
                     Ok(out) => {
-                        this.log(&conn_id, sql, MessageKind::Ok, vec![format!("{sql} — OK · {}", fmt_ms(out.elapsed))], None, cx);
+                        this.log(
+                            &conn_id,
+                            sql,
+                            MessageKind::Ok,
+                            vec![format!("{sql} — OK · {}", fmt_ms(out.elapsed))],
+                            None,
+                            cx,
+                        );
                         let n = this.conn_name(&conn_id, cx);
                         this.push_history(&n, sql, out.elapsed, None, None, cx);
                     }
@@ -1363,7 +1455,15 @@ impl Workspace {
             return;
         }
         let dir = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-        let name = format!("{}.sql", self.tabs.iter().find(|t| t.id == id).map(|t| t.title.to_string()).unwrap_or_default().replace(' ', "-"));
+        let name = format!(
+            "{}.sql",
+            self.tabs
+                .iter()
+                .find(|t| t.id == id)
+                .map(|t| t.title.to_string())
+                .unwrap_or_default()
+                .replace(' ', "-")
+        );
         let rx = cx.prompt_for_new_path(&dir, Some(&name));
         cx.spawn_in(window, async move |this, cx| {
             let Ok(Ok(Some(path))) = rx.await else { return };
@@ -1372,7 +1472,14 @@ impl Workspace {
         .detach();
     }
 
-    fn write_console_file(&mut self, id: u64, path: std::path::PathBuf, text: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn write_console_file(
+        &mut self,
+        id: u64,
+        path: std::path::PathBuf,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match std::fs::write(&path, text) {
             Ok(()) => {
                 if let Some(c) = self.consoles.get_mut(&id) {
@@ -1386,7 +1493,9 @@ impl Workspace {
                 self.schedule_save(id, cx);
                 self.notify(NoticeKind::Success, format!("Saved {}", path.display()), window, cx);
             }
-            Err(e) => self.notify(NoticeKind::Error, format!("Could not save {}: {e}", path.display()), window, cx),
+            Err(e) => {
+                self.notify(NoticeKind::Error, format!("Could not save {}: {e}", path.display()), window, cx)
+            }
         }
     }
 
@@ -1412,13 +1521,19 @@ impl Workspace {
     pub fn open_sql_path(&mut self, path: std::path::PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         match std::fs::read_to_string(&path) {
             Ok(text) => {
-                let title = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "query.sql".into());
+                let title = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "query.sql".into());
                 let conn = self.active_connection_id(cx);
-                let id = self.create_console(consoles::new_key(), title, conn, text, 0, Some(path), window, cx);
+                let id =
+                    self.create_console(consoles::new_key(), title, conn, text, 0, Some(path), window, cx);
                 self.activate_tab(id, window, cx);
                 self.save_all_consoles(cx);
             }
-            Err(e) => self.notify(NoticeKind::Error, format!("Could not open {}: {e}", path.display()), window, cx),
+            Err(e) => {
+                self.notify(NoticeKind::Error, format!("Could not open {}: {e}", path.display()), window, cx)
+            }
         }
     }
 
@@ -1438,7 +1553,12 @@ impl Workspace {
         }
     }
 
-    pub(super) fn on_store_event_extra(&mut self, ev: &StoreEvent, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn on_store_event_extra(
+        &mut self,
+        ev: &StoreEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match ev {
             StoreEvent::CatalogChanged(id) => {
                 self.on_catalog_changed(id, cx);
@@ -1446,7 +1566,8 @@ impl Workspace {
             }
             StoreEvent::StateChanged(id) => {
                 self.on_catalog_changed(id, cx);
-                if let ConnState::Connected { connection, catalog: None, .. } = self.store.read(cx).state(id).clone()
+                if let ConnState::Connected { connection, catalog: None, .. } =
+                    self.store.read(cx).state(id).clone()
                     && self.store.read(cx).catalog_error(id).is_some()
                 {
                     let _ = connection;
@@ -1464,8 +1585,14 @@ impl Workspace {
             this.update(cx, |this, cx| match result {
                 Ok(()) => {
                     let id = store.update(cx, |s, cx| {
-                        let existing = s.configs().iter().find(|c| c.name == crate::demo::DEMO_NAME).map(|c| c.id.clone());
-                        let id = existing.unwrap_or_else(|| s.add(crate::demo::demo_config(&crate::connections::new_connection_id()), cx));
+                        let existing = s
+                            .configs()
+                            .iter()
+                            .find(|c| c.name == crate::demo::DEMO_NAME)
+                            .map(|c| c.id.clone());
+                        let id = existing.unwrap_or_else(|| {
+                            s.add(crate::demo::demo_config(&crate::connections::new_connection_id()), cx)
+                        });
                         s.connect(&id, cx);
                         id
                     });
@@ -1546,9 +1673,7 @@ mod tests {
             ws.run_request(tab, RunReq::All, window, cx);
             tab
         });
-        wait_for(vcx, |vcx| {
-            ws.read_with(vcx, |ws, cx| ws.results.read(cx).grid.read(cx).result().is_some())
-        });
+        wait_for(vcx, |vcx| ws.read_with(vcx, |ws, cx| ws.results.read(cx).grid.read(cx).result().is_some()));
         ws.read_with(vcx, |ws, cx| {
             let grid = ws.results.read(cx).grid.read(cx);
             assert_eq!(grid.result().unwrap().rows.len(), 2);
@@ -1571,7 +1696,9 @@ mod tests {
             ws.run_request(tab, RunReq::All, window, cx);
             tab
         });
-        wait_for(vcx, |vcx| ws.read_with(vcx, |ws, _| ws.runs.is_empty() && ws.consoles[&tab].summary.is_some()));
+        wait_for(vcx, |vcx| {
+            ws.read_with(vcx, |ws, _| ws.runs.is_empty() && ws.consoles[&tab].summary.is_some())
+        });
         ws.read_with(vcx, |ws, cx| {
             let c = &ws.consoles[&tab];
             assert_eq!(c.results.len(), 2, "the failing statement stops the run");
@@ -1613,7 +1740,8 @@ mod tests {
             ws
         });
         ws2.read_with(vcx2, |ws, cx| {
-            let texts: Vec<String> = ws.tabs().iter().map(|t| ws.consoles[&t.id].editor.read(cx).text()).collect();
+            let texts: Vec<String> =
+                ws.tabs().iter().map(|t| ws.consoles[&t.id].editor.read(cx).text()).collect();
             assert!(texts.iter().any(|t| t == "select 'kept'"), "{texts:?}");
             assert!(ws.tabs().iter().all(|t| t.connection_id.as_deref() == Some("t1")));
         });

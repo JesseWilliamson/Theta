@@ -10,8 +10,8 @@ use gpui_kit::component::{ActiveTheme as _, IndexPath, Sizable as _, WindowExt a
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
-    div, px,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription,
+    Window, div, px,
 };
 use quarry_ui::settings::{DEFAULT_TILE_URL, KeymapMode, MAX_FONT_SIZE, MIN_FONT_SIZE};
 use quarry_ui::{CHROME_TEXT_SIZE, KeyHint, Settings};
@@ -93,7 +93,9 @@ impl SettingsView {
         let mut rows: Vec<(String, String, String)> = crate::palette::command_list(window);
         let mode = s.keymap;
         rows.extend(
-            keyref::editor_keys(mode).into_iter().map(|k| (format!("Editor · {}", k.section), k.action, k.keys)),
+            keyref::editor_keys(mode)
+                .into_iter()
+                .map(|k| (format!("Editor · {}", k.section), k.action, k.keys)),
         );
         let subs = vec![
             cx.subscribe_in(&ui_font, window, |_, _, e: &SelectEvent<Vec<&'static str>>, _, cx| {
@@ -162,13 +164,19 @@ impl SettingsView {
         h_flex()
             .gap_1()
             .items_center()
-            .child(Button::new(SharedString::from(format!("{id}-dec"))).small().label("−").on_click(
-                move |_, _, cx| Settings::update(cx, |s| dec(s)),
-            ))
+            .child(
+                Button::new(SharedString::from(format!("{id}-dec")))
+                    .small()
+                    .label("−")
+                    .on_click(move |_, _, cx| Settings::update(cx, |s| dec(s))),
+            )
             .child(div().w(px(64.)).flex().justify_center().text_size(px(13.)).child(text))
-            .child(Button::new(SharedString::from(format!("{id}-inc"))).small().label("+").on_click(
-                move |_, _, cx| Settings::update(cx, |s| inc(s)),
-            ))
+            .child(
+                Button::new(SharedString::from(format!("{id}-inc")))
+                    .small()
+                    .label("+")
+                    .on_click(move |_, _, cx| Settings::update(cx, |s| inc(s))),
+            )
             .into_any_element()
     }
 
@@ -243,12 +251,17 @@ impl SettingsView {
             b.on_click(move |_, _, cx| Settings::update(cx, |s| s.keymap = mode))
         };
         v_flex()
-            .child(self.row(
-                "Keymap",
-                Some("Helix is modal; Standard behaves like a conventional editor"),
-                h_flex().gap_1().child(seg("km-helix", KeymapMode::Helix)).child(seg("km-std", KeymapMode::Standard)),
-                cx,
-            ))
+            .child(
+                self.row(
+                    "Keymap",
+                    Some("Helix is modal; Standard behaves like a conventional editor"),
+                    h_flex()
+                        .gap_1()
+                        .child(seg("km-helix", KeymapMode::Helix))
+                        .child(seg("km-std", KeymapMode::Standard)),
+                    cx,
+                ),
+            )
             .child(self.row(
                 "Format: indent width",
                 None,
@@ -275,7 +288,11 @@ impl SettingsView {
     fn data(&self, cx: &mut Context<Self>) -> AnyElement {
         let s = Settings::get(cx).clone();
         let pos = ROW_LIMITS.iter().position(|&n| n == s.row_limit).unwrap_or(2);
-        let label = if s.row_limit == 0 { "No limit".to_string() } else { crate::workspace::console::fmt_int(s.row_limit as u64) };
+        let label = if s.row_limit == 0 {
+            "No limit".to_string()
+        } else {
+            crate::workspace::console::fmt_int(s.row_limit as u64)
+        };
         v_flex()
             .child(self.row(
                 "Row limit",
@@ -293,13 +310,17 @@ impl SettingsView {
 
     fn map(&self, cx: &mut Context<Self>) -> AnyElement {
         let tile = self.tile.clone();
+        let theme = cx.theme().clone();
         v_flex()
-            .child(self.row(
-                "Tile URL template",
-                Some("XYZ template with {z}, {x} and {y}. Respect the tile provider's usage policy."),
-                div().w(px(380.)).child(Input::new(&self.tile)),
-                cx,
-            ))
+            .gap_2()
+            .child(div().text_size(px(13.)).child("Tile URL template"))
+            .child(
+                div()
+                    .text_size(CHROME_TEXT_SIZE)
+                    .text_color(theme.muted_foreground)
+                    .child("XYZ template with {z}, {x} and {y}. Respect the tile provider's usage policy."),
+            )
+            .child(Input::new(&self.tile))
             .child(div().pt_3().child(Button::new("tile-reset").label("Reset to OpenStreetMap").on_click(
                 move |_, window, cx| {
                     Settings::update(cx, |s| s.map_tile_url = DEFAULT_TILE_URL.to_string());
@@ -369,14 +390,19 @@ impl SettingsView {
             .child(line(format!("Version {}", env!("CARGO_PKG_VERSION"))))
             .child(line("A keyboard-first database IDE for PostgreSQL, MySQL, MariaDB and SQLite.".into()))
             .child(
-                Button::new("about-repo").label("github.com/JesseWilliamson/Quarry").on_click(|_, _, cx| {
-                    cx.open_url("https://github.com/JesseWilliamson/Quarry")
-                }),
+                Button::new("about-repo")
+                    .label("github.com/JesseWilliamson/Quarry")
+                    .on_click(|_, _, cx| cx.open_url("https://github.com/JesseWilliamson/Quarry")),
             )
             .child(div().pt_3().font_weight(FontWeight::MEDIUM).text_size(px(13.)).child("Bundled assets"))
             .child(line("Fonts: IBM Plex Sans and Lilex, both under the SIL Open Font License 1.1.".into()))
-            .child(line("Themes and UI components: gpui-kit (Apache-2.0); each theme credits its author in NOTICE.".into()))
-            .child(line("Map tiles: © OpenStreetMap contributors (ODbL) when the default URL is used.".into()))
+            .child(line(
+                "Themes and UI components: gpui-kit (Apache-2.0); each theme credits its author in NOTICE."
+                    .into(),
+            ))
+            .child(line(
+                "Map tiles: © OpenStreetMap contributors (ODbL) when the default URL is used.".into(),
+            ))
             .into_any_element()
     }
 }
@@ -396,8 +422,8 @@ impl Render for SettingsView {
             .gap_4()
             .items_start()
             .h(px(470.))
-            .child(
-                v_flex().w(px(150.)).flex_shrink_0().gap_0p5().children(Section::ALL.into_iter().map(|sec| {
+            .child(v_flex().w(px(150.)).flex_shrink_0().gap_0p5().children(Section::ALL.into_iter().map(
+                |sec| {
                     let active = sec == self.section;
                     div()
                         .id(sec.label())
@@ -407,14 +433,18 @@ impl Render for SettingsView {
                         .text_size(px(13.))
                         .cursor_default()
                         .when(active, |d| d.bg(theme.list_active).font_weight(FontWeight::MEDIUM))
-                        .when(!active, |d| d.hover(|s| s.bg(theme.list_hover)).text_color(theme.muted_foreground))
+                        .when(!active, |d| {
+                            d.hover(|s| s.bg(theme.list_hover)).text_color(theme.muted_foreground)
+                        })
                         .child(sec.label())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.section = sec;
                             cx.notify();
                         }))
-                })),
+                },
+            )))
+            .child(
+                div().id("settings-body").flex_1().min_w_0().h_full().overflow_y_scroll().pr_1().child(body),
             )
-            .child(div().id("settings-body").flex_1().min_w_0().h_full().overflow_y_scroll().pr_1().child(body))
     }
 }

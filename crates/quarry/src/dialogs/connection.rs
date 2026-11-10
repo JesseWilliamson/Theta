@@ -803,6 +803,8 @@ impl Render for ConnectionForm {
                     .items_center()
                     .mt_1()
                     .pt_3()
+                    // The form above reserves a scrollbar gutter; keep the footer on the same grid.
+                    .pr(px(7.))
                     .border_t_1()
                     .border_color(theme.border)
                     .child(

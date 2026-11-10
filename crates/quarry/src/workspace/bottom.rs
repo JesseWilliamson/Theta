@@ -92,20 +92,17 @@ impl Workspace {
                                     })
                                     .child(tab.label()),
                             )
-                            .when_some(
-                                (tab == BottomTab::Map).then_some(self.map_badge).flatten(),
-                                |d, n| {
-                                    d.child(
-                                        div()
-                                            .px_1()
-                                            .rounded_full()
-                                            .bg(theme.primary.opacity(0.25))
-                                            .text_size(px(10.))
-                                            .text_color(theme.primary)
-                                            .child(n.to_string()),
-                                    )
-                                },
-                            )
+                            .when_some((tab == BottomTab::Map).then_some(self.map_badge).flatten(), |d, n| {
+                                d.child(
+                                    div()
+                                        .px_1()
+                                        .rounded_full()
+                                        .bg(theme.primary.opacity(0.25))
+                                        .text_size(px(10.))
+                                        .text_color(theme.primary)
+                                        .child(n.to_string()),
+                                )
+                            })
                             .when(!active, |d| d.hover(|s| s.bg(theme.list_hover)))
                             .on_click(cx.listener(move |this, _, _, cx| this.set_bottom_tab(tab, cx)))
                     })))

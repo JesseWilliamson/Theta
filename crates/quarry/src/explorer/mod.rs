@@ -25,11 +25,11 @@ use gpui_kit::{
     WeakEntity, Window, div, px, uniform_list,
 };
 use quarry_core::{DatabaseKind, Table};
-use quarry_ui::{DbIcon, DbKindIcon, EmptyState, PanelHeader, ROW_HEIGHT, Settings, tool_button};
 use quarry_sql::VirtualForeignKey;
+use quarry_ui::{DbIcon, DbKindIcon, EmptyState, PanelHeader, ROW_HEIGHT, Settings, tool_button};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::ops::Range;
+use std::sync::Arc;
 use tree::*;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -351,7 +351,8 @@ impl Explorer {
     fn suggested_sql(&self, key: &NodeKey, join: bool, cx: &App) -> Option<String> {
         let NodeKey::Leaf(c, s, t, Section::Suggested, name) = key else { return None };
         let (_, list) = self.inferred.get(c)?;
-        let v = list.iter().find(|v| &v.schema == s && &v.table == t && &tree::suggested_leaf_name(v) == name)?;
+        let v =
+            list.iter().find(|v| &v.schema == s && &v.table == t && &tree::suggested_leaf_name(v) == name)?;
         let store = self.store.read(cx);
         let kind = store.config(c)?.kind;
         let catalog = store.catalog(c)?;
@@ -514,12 +515,17 @@ impl Explorer {
                         }
                     },
                 ))
-                .item(item(&explorer, "Generate JOIN Query", IconName::SquareTerminal, move |this, cx| {
-                    if let Some(sql) = this.suggested_sql(&k2, true, cx) {
-                        let c = k2.connection_id().to_string();
-                        cx.emit(ExplorerEvent::NewConsole { connection_id: c, sql: Some(sql) });
-                    }
-                }))
+                .item(item(
+                    &explorer,
+                    "Generate JOIN Query",
+                    IconName::SquareTerminal,
+                    move |this, cx| {
+                        if let Some(sql) = this.suggested_sql(&k2, true, cx) {
+                            let c = k2.connection_id().to_string();
+                            cx.emit(ExplorerEvent::NewConsole { connection_id: c, sql: Some(sql) });
+                        }
+                    },
+                ))
             }
             NodeKey::Column(_, _, _, name)
             | NodeKey::Schema(_, name)

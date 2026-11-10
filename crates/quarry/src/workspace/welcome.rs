@@ -47,10 +47,9 @@ impl Workspace {
                     .child(Icon::new(IconName::Database).size(px(34.)).text_color(theme.primary))
                     .child(div().text_size(px(28.)).font_weight(FontWeight::SEMIBOLD).child("Quarry"))
                     .child(
-                        div()
-                            .text_size(px(14.))
-                            .text_color(theme.muted_foreground)
-                            .child("A keyboard-first database IDE for PostgreSQL, MySQL, MariaDB and SQLite."),
+                        div().text_size(px(14.)).text_color(theme.muted_foreground).child(
+                            "A keyboard-first database IDE for PostgreSQL, MySQL, MariaDB and SQLite.",
+                        ),
                     ),
             )
             .child(

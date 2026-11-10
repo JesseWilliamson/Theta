@@ -537,7 +537,9 @@ fn flatten_table(
                 sr.expandable = true;
                 sr.expanded = sopen;
                 sr.detail = Some(suggested.len().to_string());
-                sr.tooltip = Some("Relationships implied by column names and types, not declared as constraints".into());
+                sr.tooltip = Some(
+                    "Relationships implied by column names and types, not declared as constraints".into(),
+                );
                 out.push(sr);
                 if sopen {
                     for v in &suggested {
@@ -552,8 +554,11 @@ fn flatten_table(
                         } else {
                             format!("{}.{}", v.referenced_schema, v.referenced_table)
                         };
-                        r.type_text =
-                            Some(format!("→ {target}.{} · {:.0}%", v.referenced_column, v.confidence * 100.0));
+                        r.type_text = Some(format!(
+                            "→ {target}.{} · {:.0}%",
+                            v.referenced_column,
+                            v.confidence * 100.0
+                        ));
                         r.tooltip = Some(v.reason.clone());
                         r.muted = true;
                         out.push(r);
@@ -824,7 +829,14 @@ mod tests {
     #[test]
     fn status_rows_for_connection_phases() {
         let key = |p: Phase<'static>| {
-            let v = vec![ConnView { id: "c", name: "X", kind: DatabaseKind::Sqlite, color: None, phase: p, inferred: &[] }];
+            let v = vec![ConnView {
+                id: "c",
+                name: "X",
+                kind: DatabaseKind::Sqlite,
+                color: None,
+                phase: p,
+                inferred: &[],
+            }];
             flatten(&v, &set(vec![NodeKey::Connection("c".into())]), "")
         };
         assert_eq!(key(Phase::Disconnected).len(), 1);

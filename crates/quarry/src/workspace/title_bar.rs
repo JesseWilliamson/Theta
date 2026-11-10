@@ -128,13 +128,19 @@ impl Workspace {
                                     )
                                     .child(
                                         Button::new("txn-commit").small().ghost().label("Commit").on_click(
-                                            |_, window, cx| window.dispatch_action(Box::new(CommitTransaction), cx),
+                                            |_, window, cx| {
+                                                window.dispatch_action(Box::new(CommitTransaction), cx)
+                                            },
                                         ),
                                     )
                                     .child(
-                                        Button::new("txn-rollback").small().ghost().label("Rollback").on_click(
-                                            |_, window, cx| window.dispatch_action(Box::new(RollbackTransaction), cx),
-                                        ),
+                                        Button::new("txn-rollback")
+                                            .small()
+                                            .ghost()
+                                            .label("Rollback")
+                                            .on_click(|_, window, cx| {
+                                                window.dispatch_action(Box::new(RollbackTransaction), cx)
+                                            }),
                                     ),
                             )
                         })
