@@ -1712,7 +1712,9 @@ mod tests {
             best = best.min(t.elapsed().as_micros());
             assert!(!l.items.is_empty());
         }
-        assert!(best < 10_000, "completion took {best}us");
+        // `CI` (set by GitHub Actions) widens wall-clock bounds for slow, shared runners.
+        let slack = if std::env::var_os("CI").is_some() { 10 } else { 1 };
+        assert!(best < 10_000 * slack, "completion took {best}us");
         // A table-name completion over all 500 tables.
         let tail = format!("{sql}select * from tab");
         let t = std::time::Instant::now();
@@ -1723,6 +1725,6 @@ mod tests {
             catalog: Some(&cat),
         });
         assert!(!l.items.is_empty());
-        assert!(t.elapsed().as_millis() < 10, "table completion took {:?}", t.elapsed());
+        assert!(t.elapsed().as_millis() < 10 * slack as u128, "table completion took {:?}", t.elapsed());
     }
 }

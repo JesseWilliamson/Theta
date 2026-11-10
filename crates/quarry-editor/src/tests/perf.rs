@@ -3,6 +3,13 @@
 use super::*;
 use std::time::{Duration, Instant};
 
+/// Wall-clock bounds are for a quiet developer machine. Shared CI runners (`CI` is set by GitHub
+/// Actions) are several times slower and noisier, so the bounds widen there; an O(document)
+/// regression is still orders of magnitude over even the widened budget.
+fn slack() -> u32 {
+    if std::env::var_os("CI").is_some() { 10 } else { 1 }
+}
+
 fn big_doc() -> String {
     (0..20_000)
         .map(|i| format!("SELECT col_{i}, other FROM table_{i} WHERE id = {i} AND name = 'x'; -- line {i}\n"))
@@ -13,11 +20,11 @@ fn big_doc() -> String {
 /// long as nothing is egregiously slow; a real O(document) regression would hit many keys.
 fn assert_fast(mut times: Vec<(Duration, String)>, what: &str) {
     times.sort_by_key(|t| std::cmp::Reverse(t.0));
-    let budget = Duration::from_millis(5);
+    let budget = Duration::from_millis(5) * slack();
     let over = times.iter().filter(|t| t.0 > budget).count();
     eprintln!("{what} worst: {:?} ({})", times[0].0, times[0].1);
     assert!(
-        over <= 1 && times[0].0 < Duration::from_millis(40),
+        over <= 1 && times[0].0 < Duration::from_millis(40) * slack(),
         "{what}: slow keys {:?}",
         &times[..over.clamp(1, 4)]
     );
@@ -106,7 +113,7 @@ fn typing_in_insert_mode_is_fast() {
         worst = worst.max(t.elapsed());
     }
     eprintln!("insert worst: {worst:?}");
-    assert!(worst < Duration::from_millis(20), "{worst:?}");
+    assert!(worst < Duration::from_millis(20) * slack(), "{worst:?}");
 }
 
 #[test]
@@ -169,7 +176,7 @@ fn many_cursors_stay_responsive() {
     feed(&mut e, "ix");
     let typed = t.elapsed();
     feed(&mut e, "<esc>");
-    assert!(typed < Duration::from_millis(50), "{typed:?}");
+    assert!(typed < Duration::from_millis(50) * slack(), "{typed:?}");
     assert!(e.text().matches("xSELECT").count() >= 150);
 }
 
@@ -205,7 +212,7 @@ fn search_keys_on_20k_lines() {
             worst = (keys_worst, keys.to_string());
         }
     }
-    assert!(worst.0 < Duration::from_millis(20), "{worst:?}");
+    assert!(worst.0 < Duration::from_millis(20) * slack(), "{worst:?}");
     // the highlight cache keeps repeated asks cheap
     let t = Instant::now();
     e.search_matches();

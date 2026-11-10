@@ -816,6 +816,8 @@ mod tests {
         let cat = fixtures::big(500);
         let t = std::time::Instant::now();
         let _ = infer_foreign_keys(&cat);
-        assert!(t.elapsed().as_millis() < 100, "{:?}", t.elapsed());
+        // `CI` (set by GitHub Actions) widens wall-clock bounds for slow, shared runners.
+        let slack = if std::env::var_os("CI").is_some() { 10 } else { 1 };
+        assert!(t.elapsed().as_millis() < 100 * slack, "{:?}", t.elapsed());
     }
 }
