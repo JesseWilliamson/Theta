@@ -15,8 +15,8 @@ use crate::types::*;
 use crate::view::{BACKGROUND_THRESHOLD, build_view};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::{
-    App, AppContext as _, Bounds, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Pixels, SharedString,
-    Subscription, Task, Window, px,
+    App, AppContext as _, Bounds, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Pixels,
+    SharedString, Subscription, Task, Window, px,
 };
 use quarry_core::{ResultSet, TypeKind, Value};
 use quarry_ui::Settings;
@@ -70,6 +70,7 @@ pub(crate) struct RenderStats {
     pub total: std::time::Duration,
     pub worst: std::time::Duration,
     pub cells: usize,
+    pub first: Option<std::time::Instant>,
 }
 
 pub struct ResultGrid {
@@ -104,6 +105,9 @@ pub struct ResultGrid {
     pub(crate) inspector_dirty: bool,
     cache: HashMap<(u32, u32), CachedCell>,
     pub(crate) loading: bool,
+    /// Body width before an inspector toggle; the cursor is re-revealed once the
+    /// measured width differs.
+    pub(crate) reveal_pending: Option<f32>,
     pub(crate) helix_g: bool,
     pub(crate) helix_visual: bool,
     pub(crate) resize: Option<Resize>,
@@ -116,7 +120,8 @@ impl EventEmitter<GridEvent> for ResultGrid {}
 impl ResultGrid {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         crate::actions::bind_keys(cx);
-        let filter_input = cx.new(|cx| InputState::new(window, cx).placeholder("Filter rows…  (column:text to narrow)"));
+        let filter_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter rows…  (column:text to narrow)"));
         let inspector_text = cx.new(|cx| TextareaState::new(window, cx));
         let subs = vec![cx.subscribe_in(&filter_input, window, |this, _, ev: &InputEvent, window, cx| {
             if matches!(ev, InputEvent::Change) {
@@ -156,10 +161,14 @@ impl ResultGrid {
             inspector_dirty: false,
             cache: HashMap::new(),
             loading: false,
+            reveal_pending: None,
             helix_g: false,
             helix_visual: false,
             resize: None,
-            stats: RenderStats { enabled: std::env::var_os("QUARRY_GRID_TIMING").is_some(), ..Default::default() },
+            stats: RenderStats {
+                enabled: std::env::var_os("QUARRY_GRID_TIMING").is_some(),
+                ..Default::default()
+            },
             _subs: subs,
         }
     }
@@ -167,7 +176,13 @@ impl ResultGrid {
     // ---------------------------------------------------------------- public API
 
     /// Show `result`, resetting sort, filter, selection and pending edits.
-    pub fn set_result(&mut self, result: Arc<ResultSet>, meta: GridMeta, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn set_result(
+        &mut self,
+        result: Arc<ResultSet>,
+        meta: GridMeta,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.measure_font(window, cx);
         self.view_task = None;
         self.view_gen += 1;
@@ -329,7 +344,9 @@ impl ResultGrid {
     }
 
     pub(crate) fn is_deleted(&self, r: usize) -> bool {
-        self.pending.as_ref().is_some_and(|p| p.row_state(self.row_ref(r)) == crate::pending::RowState::Deleted)
+        self.pending
+            .as_ref()
+            .is_some_and(|p| p.row_state(self.row_ref(r)) == crate::pending::RowState::Deleted)
     }
 
     pub(crate) fn value_at(&self, r: usize, c: usize) -> &Value {
@@ -402,7 +419,13 @@ impl ResultGrid {
                 if key_cols.contains(&c) || meta.reference_columns.contains(&c) {
                     px += 16.0;
                 }
-                let longest = rs.rows.iter().take(layout::SAMPLE_ROWS).map(|r| r.get(c).map_or(4, display_chars)).max().unwrap_or(4);
+                let longest = rs
+                    .rows
+                    .iter()
+                    .take(layout::SAMPLE_ROWS)
+                    .map(|r| r.get(c).map_or(4, display_chars))
+                    .max()
+                    .unwrap_or(4);
                 layout::auto_width(px, longest, self.char_w)
             })
             .collect()
@@ -411,7 +434,8 @@ impl ResultGrid {
     pub(crate) fn autofit_column(&mut self, col: usize, cx: &mut Context<Self>) {
         let Some(rs) = self.result.clone() else { return };
         let Some(c) = rs.columns.get(col) else { return };
-        let mut longest = (0..self.n_rows().min(1000)).map(|r| display_chars(self.value_at(r, col))).max().unwrap_or(4);
+        let mut longest =
+            (0..self.n_rows().min(1000)).map(|r| display_chars(self.value_at(r, col))).max().unwrap_or(4);
         // Also cover what is on screen, which may be far from the first rows.
         let (_, sy) = self.scroll.xy();
         let vis = layout::visible_rows(sy, 600.0, ROW_H, self.n_rows(), 0);
@@ -618,7 +642,9 @@ impl ResultGrid {
     // --------------------------------------------------------------------- copy
 
     fn range_rows(&self, range: CellRange) -> Vec<Vec<Value>> {
-        (range.r0..=range.r1).map(|r| (range.c0..=range.c1).map(|c| self.value_at(r, c).clone()).collect()).collect()
+        (range.r0..=range.r1)
+            .map(|r| (range.c0..=range.c1).map(|c| self.value_at(r, c).clone()).collect())
+            .collect()
     }
 
     pub(crate) fn copy_selection(&mut self, with_headers: bool, cx: &mut Context<Self>) {
@@ -636,7 +662,13 @@ impl ResultGrid {
         cx.emit(GridEvent::Copied { cells: names.len() });
     }
 
-    pub(crate) fn request_export(&mut self, format: ExportFormatChoice, selection_only: bool, to_clipboard: bool, cx: &mut Context<Self>) {
+    pub(crate) fn request_export(
+        &mut self,
+        format: ExportFormatChoice,
+        selection_only: bool,
+        to_clipboard: bool,
+        cx: &mut Context<Self>,
+    ) {
         cx.emit(GridEvent::Export(ExportRequest { format, selection_only, to_clipboard }));
     }
 
@@ -645,6 +677,9 @@ impl ResultGrid {
     pub(crate) fn toggle_inspector(&mut self, cx: &mut Context<Self>) {
         self.inspector_open = !self.inspector_open;
         self.inspector_dirty = true;
+        // The body is re-measured only after the next paint; re-reveal the
+        // cursor cell once its width has changed.
+        self.reveal_pending = Some(f32::from(self.body_bounds.get().size.width));
         cx.notify();
     }
 

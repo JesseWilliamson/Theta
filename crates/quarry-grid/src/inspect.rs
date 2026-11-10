@@ -19,11 +19,14 @@ pub const MAX_EWKT_CHARS: usize = 20_000;
 pub const MAX_BODY_CHARS: usize = 200_000;
 pub const MAX_HEX_BYTES: usize = 4096;
 
+/// Highlight spans over a pretty-printed JSON text.
+pub type JsonSpans = Vec<(Range<usize>, JsonTok)>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Body {
     Null,
     Text(String),
-    Json { text: String, spans: Vec<(Range<usize>, JsonTok)> },
+    Json { text: String, spans: JsonSpans },
     Hex(String),
     Geometry { facts: Vec<(&'static str, String)>, ewkt: String },
 }
@@ -43,8 +46,13 @@ pub fn inspect_value(value: &Value) -> Inspect {
         Value::Bytes(b) => Inspect {
             stats: format!("{} bytes", format_count(b.len())),
             body: Body::Hex(hex_dump(b, MAX_HEX_BYTES)),
-            note: (b.len() > MAX_HEX_BYTES)
-                .then(|| format!("Showing the first {} of {} bytes.", format_count(MAX_HEX_BYTES), format_count(b.len()))),
+            note: (b.len() > MAX_HEX_BYTES).then(|| {
+                format!(
+                    "Showing the first {} of {} bytes.",
+                    format_count(MAX_HEX_BYTES),
+                    format_count(b.len())
+                )
+            }),
         },
         Value::Geometry(b) => inspect_geometry(b),
         Value::Json(s) => {
@@ -76,7 +84,10 @@ fn cap(s: &str) -> (String, Option<String>) {
     match s.char_indices().nth(MAX_BODY_CHARS) {
         Some((i, _)) => (
             s[..i].to_string(),
-            Some(format!("Showing the first {} characters; export the cell to see all of it.", format_count(MAX_BODY_CHARS))),
+            Some(format!(
+                "Showing the first {} characters; export the cell to see all of it.",
+                format_count(MAX_BODY_CHARS)
+            )),
         ),
         None => (s.to_string(), None),
     }
@@ -98,8 +109,9 @@ fn inspect_geometry(bytes: &[u8]) -> Inspect {
         ("Vertices", format_count(g.coord_count())),
         ("Summary", quarry_geo::describe(&feature)),
     ];
-    if let Some(b) = g.bbox() {
-        facts.push(("Bounds", format!("{:.6}, {:.6} → {:.6}, {:.6}", b.min[0], b.min[1], b.max[0], b.max[1])));
+    if let Some(b) = g.bbox().filter(|b| b.min != b.max) {
+        facts
+            .push(("Bounds", format!("{:.6}, {:.6} → {:.6}, {:.6}", b.min[0], b.min[1], b.max[0], b.max[1])));
     }
     let full = quarry_geo::to_ewkt(&feature, None);
     let (ewkt, note) = match full.char_indices().nth(MAX_EWKT_CHARS) {
@@ -141,11 +153,11 @@ pub fn hex_dump(bytes: &[u8], limit: usize) -> String {
 /// Re-indent JSON text without reordering keys or touching number/string
 /// text, and report highlight spans over the result. `None` when `text` is
 /// not valid JSON.
-pub fn json_pretty(text: &str) -> Option<(String, Vec<(Range<usize>, JsonTok)>)> {
+pub fn json_pretty(text: &str) -> Option<(String, JsonSpans)> {
     serde_json::from_str::<serde_json::Value>(text).ok()?;
     let b = text.as_bytes();
     let mut out = String::with_capacity(text.len() * 2);
-    let mut spans: Vec<(Range<usize>, JsonTok)> = Vec::new();
+    let mut spans: JsonSpans = Vec::new();
     let mut depth = 0usize;
     let mut i = 0;
     let newline = |out: &mut String, depth: usize| {
@@ -154,7 +166,7 @@ pub fn json_pretty(text: &str) -> Option<(String, Vec<(Range<usize>, JsonTok)>)>
             out.push_str("  ");
         }
     };
-    let push = |out: &mut String, spans: &mut Vec<(Range<usize>, JsonTok)>, s: &str, tok: JsonTok| {
+    let push = |out: &mut String, spans: &mut JsonSpans, s: &str, tok: JsonTok| {
         let start = out.len();
         out.push_str(s);
         spans.push((start..out.len(), tok));
@@ -210,11 +222,16 @@ pub fn json_pretty(text: &str) -> Option<(String, Vec<(Range<usize>, JsonTok)>)>
             }
             _ => {
                 let mut j = i;
-                while j < b.len() && !matches!(b[j], b',' | b'}' | b']' | b':') && !b[j].is_ascii_whitespace() {
+                while j < b.len() && !matches!(b[j], b',' | b'}' | b']' | b':') && !b[j].is_ascii_whitespace()
+                {
                     j += 1;
                 }
                 let word = &text[i..j];
-                let tok = if matches!(word, "true" | "false" | "null") { JsonTok::Literal } else { JsonTok::Number };
+                let tok = if matches!(word, "true" | "false" | "null") {
+                    JsonTok::Literal
+                } else {
+                    JsonTok::Number
+                };
                 push(&mut out, &mut spans, word, tok);
                 i = j;
             }
@@ -234,7 +251,9 @@ mod tests {
             pretty,
             "{\n  \"b\": 1,\n  \"a\": [\n    true,\n    null,\n    \"x\"\n  ],\n  \"e\": {},\n  \"s\": []\n}"
         );
-        let kinds = |tok| spans.iter().filter(|(_, t)| *t == tok).map(|(r, _)| &pretty[r.clone()]).collect::<Vec<_>>();
+        let kinds = |tok| {
+            spans.iter().filter(|(_, t)| *t == tok).map(|(r, _)| &pretty[r.clone()]).collect::<Vec<_>>()
+        };
         assert_eq!(kinds(JsonTok::Key), ["\"b\"", "\"a\"", "\"e\"", "\"s\""]);
         assert_eq!(kinds(JsonTok::Str), ["\"x\""]);
         assert_eq!(kinds(JsonTok::Literal), ["true", "null"]);

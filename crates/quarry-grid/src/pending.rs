@@ -57,7 +57,14 @@ static NULL: Value = Value::Null;
 
 impl Pending {
     pub fn new(target: EditTarget, ncols: usize) -> Self {
-        Pending { target, ncols, edits: BTreeMap::new(), deleted: BTreeSet::new(), new_rows: Vec::new(), undo: Vec::new() }
+        Pending {
+            target,
+            ncols,
+            edits: BTreeMap::new(),
+            deleted: BTreeSet::new(),
+            new_rows: Vec::new(),
+            undo: Vec::new(),
+        }
     }
 
     pub fn target(&self) -> &EditTarget {
@@ -95,10 +102,14 @@ impl Pending {
     /// The value to display: staged edit, else the original, else NULL.
     pub fn effective<'a>(&'a self, rs: &'a ResultSet, row: RowRef, col: usize) -> &'a Value {
         match row {
-            RowRef::Orig(r) => {
-                self.edits.get(&(r, col)).or_else(|| rs.rows.get(r).and_then(|row| row.get(col))).unwrap_or(&NULL)
+            RowRef::Orig(r) => self
+                .edits
+                .get(&(r, col))
+                .or_else(|| rs.rows.get(r).and_then(|row| row.get(col)))
+                .unwrap_or(&NULL),
+            RowRef::New(i) => {
+                self.new_rows.get(i).and_then(|r| r.values.get(col)).and_then(Option::as_ref).unwrap_or(&NULL)
             }
-            RowRef::New(i) => self.new_rows.get(i).and_then(|r| r.values.get(col)).and_then(Option::as_ref).unwrap_or(&NULL),
         }
     }
 
@@ -211,12 +222,16 @@ impl Pending {
 
     /// Number of `RowChange`s `changes` would produce.
     pub fn count(&self) -> usize {
-        let edited_rows: BTreeSet<usize> = self.edits.keys().map(|(r, _)| *r).filter(|r| !self.deleted.contains(r)).collect();
+        let edited_rows: BTreeSet<usize> =
+            self.edits.keys().map(|(r, _)| *r).filter(|r| !self.deleted.contains(r)).collect();
         edited_rows.len() + self.deleted.len() + self.new_rows.len()
     }
 
     fn col_name(rs: &ResultSet, col: usize) -> String {
-        rs.columns.get(col).map(|c| c.origin.as_ref().map_or_else(|| c.name.clone(), |o| o.column.clone())).unwrap_or_default()
+        rs.columns
+            .get(col)
+            .map(|c| c.origin.as_ref().map_or_else(|| c.name.clone(), |o| o.column.clone()))
+            .unwrap_or_default()
     }
 
     fn key_of(&self, rs: &ResultSet, row: usize) -> Vec<(String, Value)> {
@@ -380,7 +395,10 @@ mod tests {
         p.set_cell(&rs, RowRef::Orig(0), 1, Value::Text("Anna".into()));
         p.delete_row(RowRef::Orig(0));
         assert_eq!(p.count(), 1);
-        assert_eq!(p.changes(&rs), vec![RowChange::Delete { row: 0, key: vec![("id".into(), Value::Int(1))] }]);
+        assert_eq!(
+            p.changes(&rs),
+            vec![RowChange::Delete { row: 0, key: vec![("id".into(), Value::Int(1))] }]
+        );
         assert_eq!(p.row_state(RowRef::Orig(0)), RowState::Deleted);
         assert!(p.undo());
         assert_eq!(p.row_state(RowRef::Orig(0)), RowState::Normal);
@@ -398,7 +416,10 @@ mod tests {
         p.set_cell(&rs, RowRef::New(i), 1, Value::Text("Dee".into()));
         assert!(p.new_cell_filled(i, 1));
         assert!(!p.new_cell_filled(i, 2));
-        assert_eq!(p.changes(&rs), vec![RowChange::Insert { values: vec![("name".into(), Value::Text("Dee".into()))] }]);
+        assert_eq!(
+            p.changes(&rs),
+            vec![RowChange::Insert { values: vec![("name".into(), Value::Text("Dee".into()))] }]
+        );
         assert_eq!(p.effective(&rs, RowRef::New(i), 1), &Value::Text("Dee".into()));
         assert_eq!(p.effective(&rs, RowRef::New(i), 2), &Value::Null);
         // clearing a value unfills the column

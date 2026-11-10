@@ -89,7 +89,9 @@ fn parse_uuid(t: &str) -> Result<Value, String> {
     let t = t.trim_matches(['{', '}']);
     let hex: String = t.chars().filter(|c| *c != '-').collect();
     let hyphens_ok = t.len() == hex.len()
-        || (t.len() == 36 && t.matches('-').count() == 4 && [8, 13, 18, 23].iter().all(|&i| t.as_bytes()[i] == b'-'));
+        || (t.len() == 36
+            && t.matches('-').count() == 4
+            && [8, 13, 18, 23].iter().all(|&i| t.as_bytes()[i] == b'-'));
     if hex.len() != 32 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) || !hyphens_ok {
         return Err("Expected a UUID like 123e4567-e89b-12d3-a456-426614174000".into());
     }
@@ -105,16 +107,19 @@ fn parse_date(t: &str) -> Result<(), String> {
     if y.len() != 4 || m.len() != 2 || d.len() != 2 {
         return Err(err());
     }
-    let (y, m, d): (i32, u32, u32) = (
-        y.parse().map_err(|_| err())?,
-        m.parse().map_err(|_| err())?,
-        d.parse().map_err(|_| err())?,
-    );
+    let (y, m, d): (i32, u32, u32) =
+        (y.parse().map_err(|_| err())?, m.parse().map_err(|_| err())?, d.parse().map_err(|_| err())?);
     let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
     let max_day = match m {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
-        2 => if leap { 29 } else { 28 },
+        2 => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
         _ => return Err("Month must be 01-12".into()),
     };
     if d == 0 || d > max_day { Err(format!("Day must be 01-{max_day} for that month")) } else { Ok(()) }
@@ -146,7 +151,9 @@ fn parse_timestamp(t: &str) -> Result<Value, String> {
     };
     parse_date(date)?;
     let has_zone = rest.ends_with(['Z', 'z'])
-        || rest.rfind(['+', '-']).is_some_and(|i| i > 0 && rest[i + 1..].bytes().all(|b| b.is_ascii_digit() || b == b':'));
+        || rest
+            .rfind(['+', '-'])
+            .is_some_and(|i| i > 0 && rest[i + 1..].bytes().all(|b| b.is_ascii_digit() || b == b':'));
     parse_time(rest).map_err(|_| err())?;
     let text = format!("{date} {rest}");
     Ok(if has_zone { Value::TimestampTz(text) } else { Value::Timestamp(text) })
@@ -158,7 +165,8 @@ fn parse_bytes(t: &str) -> Result<Value, String> {
     if !hex.len().is_multiple_of(2) || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("Expected hex bytes like \\xdeadbeef".into());
     }
-    let bytes = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap_or(0)).collect();
+    let bytes =
+        (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap_or(0)).collect();
     Ok(Value::Bytes(bytes))
 }
 

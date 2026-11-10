@@ -51,7 +51,11 @@ pub fn selection_summary(rows: usize, cols: usize, agg: Option<NumericAgg>) -> S
         && !a.mixed
         && a.count > 0
     {
-        out.push_str(&format!(" · sum {} · avg {}", format_number(a.sum), format_number(a.sum / a.count as f64)));
+        out.push_str(&format!(
+            " · sum {} · avg {}",
+            format_number(a.sum),
+            format_number(a.sum / a.count as f64)
+        ));
     }
     out
 }

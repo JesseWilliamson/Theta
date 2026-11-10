@@ -111,9 +111,10 @@ pub fn compare_values(a: &Value, b: &Value) -> Ordering {
         | (Time(x), Time(y))
         | (Timestamp(x), Timestamp(y))
         | (TimestampTz(x), TimestampTz(y)) => x.cmp(y),
-        (Text(x) | Json(x) | Uuid(x) | Interval(x) | Unknown(x), Text(y) | Json(y) | Uuid(y) | Interval(y) | Unknown(y)) => {
-            natural_cmp(x, y)
-        }
+        (
+            Text(x) | Json(x) | Uuid(x) | Interval(x) | Unknown(x),
+            Text(y) | Json(y) | Uuid(y) | Interval(y) | Unknown(y),
+        ) => natural_cmp(x, y),
         (Array(x), Array(y)) => {
             for (p, q) in x.iter().zip(y) {
                 let ord = compare_nullable(p, q);
@@ -194,7 +195,8 @@ pub fn sort_indices(result: &ResultSet, indices: &mut [u32], keys: &[SortKey]) {
     indices.sort_by(|&a, &b| {
         let (ra, rb) = (&result.rows[a as usize], &result.rows[b as usize]);
         for k in keys {
-            let (va, vb) = (ra.get(k.column).unwrap_or(&Value::Null), rb.get(k.column).unwrap_or(&Value::Null));
+            let (va, vb) =
+                (ra.get(k.column).unwrap_or(&Value::Null), rb.get(k.column).unwrap_or(&Value::Null));
             let ord = compare_for_sort(va, vb, k.descending);
             if ord != Ordering::Equal {
                 return ord;
@@ -274,7 +276,10 @@ mod tests {
         assert_eq!(compare_values(&Value::Float(2.5), &Value::Int(2)), Ordering::Greater);
         assert_eq!(compare_values(&Value::Int(-1), &Value::UInt(0)), Ordering::Less);
         assert_eq!(compare_values(&Value::UInt(u64::MAX), &Value::Int(i64::MAX)), Ordering::Greater);
-        assert_eq!(compare_values(&Value::Decimal("10".into()), &Value::Decimal("9".into())), Ordering::Greater);
+        assert_eq!(
+            compare_values(&Value::Decimal("10".into()), &Value::Decimal("9".into())),
+            Ordering::Greater
+        );
     }
 
     #[test]
@@ -289,7 +294,13 @@ mod tests {
 
     #[test]
     fn mixed_variants_have_total_order() {
-        let vals = [Value::Bool(true), Value::Int(1), t("a"), Value::Date("2020-01-01".into()), Value::Bytes(vec![1])];
+        let vals = [
+            Value::Bool(true),
+            Value::Int(1),
+            t("a"),
+            Value::Date("2020-01-01".into()),
+            Value::Bytes(vec![1]),
+        ];
         for a in &vals {
             for b in &vals {
                 assert_eq!(compare_values(a, b), compare_values(b, a).reverse());
@@ -298,7 +309,8 @@ mod tests {
     }
 
     fn result(rows: Vec<Vec<Value>>) -> ResultSet {
-        let col = |n: &str| Column { name: n.into(), type_name: "x".into(), kind: TypeKind::Other, origin: None };
+        let col =
+            |n: &str| Column { name: n.into(), type_name: "x".into(), kind: TypeKind::Other, origin: None };
         ResultSet { columns: vec![col("a"), col("b")], rows, truncated: false }
     }
 
@@ -312,7 +324,11 @@ mod tests {
             vec![t("a"), Value::Int(1)],
         ]);
         let mut idx: Vec<u32> = (0..5).collect();
-        sort_indices(&rs, &mut idx, &[SortKey { column: 0, descending: false }, SortKey { column: 1, descending: true }]);
+        sort_indices(
+            &rs,
+            &mut idx,
+            &[SortKey { column: 0, descending: false }, SortKey { column: 1, descending: true }],
+        );
         assert_eq!(idx, vec![1, 2, 4, 0, 3]);
     }
 

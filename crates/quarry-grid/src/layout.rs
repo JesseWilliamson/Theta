@@ -99,7 +99,13 @@ impl ColumnLayout {
 }
 
 /// Rows `[first, last]` visible plus `overscan` either side, clamped to `nrows`.
-pub fn visible_rows(scroll_y: f32, viewport_h: f32, row_h: f32, nrows: usize, overscan: usize) -> Range<usize> {
+pub fn visible_rows(
+    scroll_y: f32,
+    viewport_h: f32,
+    row_h: f32,
+    nrows: usize,
+    overscan: usize,
+) -> Range<usize> {
     if nrows == 0 || viewport_h <= 0.0 {
         return 0..0;
     }

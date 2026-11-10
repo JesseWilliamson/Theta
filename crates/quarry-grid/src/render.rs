@@ -3,29 +3,33 @@
 //! hover are overlay rectangles rather than per-cell state, and cell text comes
 //! from a cache, so frame cost depends on the viewport, not the result size.
 
-use crate::actions::{EditCancel, EditNext, EditPrev, FilterClose};
+use crate::actions::{EditCancel, EditNext, EditPrev, FilterClose, NextCell, PrevCell};
+use crate::contrast::ensure_contrast;
 use crate::editing::After;
 use crate::format::{CellKind, format_count, format_duration};
 use crate::grid::{CachedCell, HEADER_H, ROW_H, ResultGrid};
 use crate::layout::{self, CELL_PAD};
 use crate::pending::{CellState, RowRef, RowState};
-use crate::selection::Extent;
+use crate::selection::{Extent, Motion};
 use crate::types::ExportFormatChoice;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
+use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _, h_flex, v_flex};
-use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::component::{
+    ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _, h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, Context, Div, FontWeight, Hsla, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
-    Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window, canvas, div, px,
+    AnyElement, App, Context, Div, FontWeight, Hsla, InteractiveElement as _, IntoElement, MouseButton,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window, canvas,
+    div, px,
 };
-use quarry_core::{TypeKind, Value};
+use quarry_core::TypeKind;
 use quarry_ui::{CHROME_TEXT_SIZE, Settings, tool_button};
 use std::time::Instant;
 
@@ -51,10 +55,13 @@ pub(crate) struct Palette {
 
 pub(crate) fn palette(cx: &App) -> Palette {
     let t = cx.theme();
+    // Text colours that a theme leaves too faint are pulled toward the
+    // foreground until they reach WCAG AA (4.5:1) on the grid background.
+    let readable = |c: Hsla| ensure_contrast(c, t.background, t.foreground, 4.5);
     Palette {
         bg: t.background,
         fg: t.foreground,
-        muted: t.muted_foreground,
+        muted: readable(t.muted_foreground),
         line: t.border.opacity(0.55),
         head_bg: t.title_bar,
         hover: t.foreground.opacity(0.045),
@@ -63,10 +70,10 @@ pub(crate) fn palette(cx: &App) -> Palette {
         modified: t.warning.opacity(0.20),
         added: t.success.opacity(0.17),
         deleted: t.danger.opacity(0.17),
-        green: t.green,
-        red: t.red,
-        warning: t.warning,
-        danger: t.danger,
+        green: readable(t.green),
+        red: readable(t.red),
+        warning: readable(t.warning),
+        danger: readable(t.danger),
         border: t.border,
     }
 }
@@ -96,6 +103,8 @@ impl Render for ResultGrid {
             .on_action(cx.listener(|this, _: &EditPrev, window, cx| {
                 this.commit_edit(After::Left, window, cx);
             }))
+            .on_action(cx.listener(|this, _: &NextCell, _, cx| this.move_selection(Motion::Next, false, cx)))
+            .on_action(cx.listener(|this, _: &PrevCell, _, cx| this.move_selection(Motion::Prev, false, cx)))
             .on_action(cx.listener(|this, _: &EditCancel, window, cx| this.cancel_edit(window, cx)))
             .on_action(cx.listener(|this, _: &FilterClose, window, cx| this.close_filter(window, cx)));
         if self.result.is_none() {
@@ -114,20 +123,26 @@ impl Render for ResultGrid {
             .into_any_element();
         if self.stats.enabled {
             let dt = started.elapsed();
+            let wall_start = *self.stats.first.get_or_insert(started);
             self.stats.frames += 1;
             self.stats.total += dt;
             self.stats.worst = self.stats.worst.max(dt);
-            if self.stats.frames == 60 {
+            if self.stats.frames == 20 {
+                // "period" is wall time between renders: the whole frame
+                // (layout + software paint), of which `render` is the part this
+                // crate controls.
                 eprintln!(
-                    "grid render: {} frames, avg {:.2} ms, worst {:.2} ms, {} cells built last frame",
+                    "grid render: {} frames, build avg {:.2} ms worst {:.2} ms, frame period avg {:.1} ms, {} cells built",
                     self.stats.frames,
                     self.stats.total.as_secs_f64() * 1000.0 / self.stats.frames as f64,
                     self.stats.worst.as_secs_f64() * 1000.0,
+                    wall_start.elapsed().as_secs_f64() * 1000.0 / self.stats.frames as f64,
                     self.stats.cells
                 );
                 self.stats.frames = 0;
                 self.stats.total = Default::default();
                 self.stats.worst = Default::default();
+                self.stats.first = None;
             }
         }
         out
@@ -231,7 +246,8 @@ impl ResultGrid {
                             .selected(self.inspector_open)
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))),
                     ),
-            ).into_any_element()
+            )
+            .into_any_element()
     }
 
     fn render_filter(&self, cx: &mut Context<Self>, p: Palette) -> AnyElement {
@@ -263,7 +279,8 @@ impl ResultGrid {
             .child(
                 tool_button("grid-filter-close", IconName::X, "Close filter (Esc)")
                     .on_click(cx.listener(|this, _, window, cx| this.close_filter(window, cx))),
-            ).into_any_element()
+            )
+            .into_any_element()
     }
 
     // ------------------------------------------------------------------- footer
@@ -285,13 +302,12 @@ impl ResultGrid {
                         .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
                         .child(format!("Could not apply changes: {err}")),
                 )
-                .child(
-                    tool_button("grid-error-dismiss", IconName::X, "Dismiss")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.submit_error = None;
-                            cx.notify();
-                        })),
-                );
+                .child(tool_button("grid-error-dismiss", IconName::X, "Dismiss").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.submit_error = None;
+                        cx.notify();
+                    },
+                )));
         } else {
             let mut label = format!("{} row{}", format_count(n), if n == 1 { "" } else { "s" });
             if self.filter_query.is_some() {
@@ -326,11 +342,8 @@ impl ResultGrid {
             }
         }
         let lock = (self.pending.is_none()).then(|| {
-            let reason = self
-                .meta
-                .read_only_reason
-                .clone()
-                .unwrap_or_else(|| "This result is read-only.".to_string());
+            let reason =
+                self.meta.read_only_reason.clone().unwrap_or_else(|| "This result is read-only.".to_string());
             div()
                 .id("grid-readonly")
                 .child(Icon::new(IconName::Lock).size(px(12.)).text_color(p.muted))
@@ -356,7 +369,8 @@ impl ResultGrid {
                     .when(self.helix_visual, |d| d.child(div().text_color(p.accent).child("VISUAL")))
                     .children(self.summary.clone().map(|s| div().child(s)))
                     .children(lock),
-            ).into_any_element()
+            )
+            .into_any_element()
     }
 
     // --------------------------------------------------------------------- grid
@@ -377,6 +391,14 @@ impl ResultGrid {
         let (mw, mh) = (f32::from(measured.size.width), f32::from(measured.size.height));
         if (mw - bw).abs() > 0.5 || (mh - bh).abs() > 0.5 {
             cx.notify();
+        }
+        if let Some(old_w) = self.reveal_pending
+            && (mw - old_w).abs() > 1.0
+        {
+            self.reveal_pending = None;
+            if let Some(s) = self.sel {
+                self.reveal(s.cursor);
+            }
         }
         let (sx, sy) = self.scroll.xy();
         let rows = layout::visible_rows(sy, bh, ROW_H, nr, 1);
@@ -400,7 +422,8 @@ impl ResultGrid {
             for c in cols.clone() {
                 let cc = self.cell_text(r, c);
                 let cell_state = self.pending.as_ref().map_or(CellState::Normal, |pd| pd.cell_state(rr, c));
-                let unfilled = new_idx.is_some_and(|i| self.pending.as_ref().is_some_and(|pd| !pd.new_cell_filled(i, c)));
+                let unfilled = new_idx
+                    .is_some_and(|i| self.pending.as_ref().is_some_and(|pd| !pd.new_cell_filled(i, c)));
                 let tint = match (row_state, cell_state) {
                     (RowState::Deleted, _) => Some(p.deleted),
                     (RowState::New, _) => Some(p.added),
@@ -426,6 +449,8 @@ impl ResultGrid {
             }
             body_rows.push(
                 h_flex()
+                    .font_family(mono.clone())
+                    .text_size(px(fsize))
                     .absolute()
                     .top(px(y))
                     .left(px(self.cols.left(cols.start) - sx))
@@ -433,7 +458,9 @@ impl ResultGrid {
                     .children(cells)
                     .into_any_element(),
             );
-            gutter_cells.push(gutter_cell(r, new_idx, row_state, in_range_row, hovered, y, gw, &p).into_any_element());
+            gutter_cells.push(
+                gutter_cell(r, new_idx, row_state, in_range_row, hovered, y, gw, &p).into_any_element(),
+            );
         }
         self.stats.cells = built;
 
@@ -488,23 +515,36 @@ impl ResultGrid {
             editor_overlay.push(
                 div()
                     .key_context("GridCellEditor")
+                    .font_family(mono.clone())
+                    .text_size(px(fsize))
                     .absolute()
                     .left(px(x))
                     .top(px(y))
                     .w(px(w))
                     .h(px(ROW_H))
+                    .flex()
+                    .items_center()
+                    .px(px(CELL_PAD - 4.0))
                     .bg(p.bg)
                     .border_1()
                     .border_color(if ed.error.is_some() { p.danger } else { p.accent })
-                    .child(Input::new(&ed.input).appearance(false).bordered(false).focus_bordered(false).h_full())
+                    .child(
+                        Input::new(&ed.input)
+                            .xsmall()
+                            .appearance(false)
+                            .bordered(false)
+                            .focus_bordered(false),
+                    )
                     .into_any_element(),
             );
             if let Some(err) = &ed.error {
+                // Below the cell, or above it when the cell is on the last visible row.
+                let top = if y + ROW_H + 26.0 > bh { y - 24.0 } else { y + ROW_H + 2.0 };
                 editor_overlay.push(
                     div()
                         .absolute()
                         .left(px(x))
-                        .top(px(y + ROW_H + 2.0))
+                        .top(px(top))
                         .px_2()
                         .py_0p5()
                         .rounded(px(4.))
@@ -580,6 +620,8 @@ impl ResultGrid {
             .bottom_0()
             .w(px(gw))
             .overflow_hidden()
+            .font_family(mono.clone())
+            .text_size(px(fsize))
             .bg(p.head_bg)
             .border_r_1()
             .border_color(p.border.opacity(0.8))
@@ -598,10 +640,13 @@ impl ResultGrid {
             .border_r_1()
             .border_b_1()
             .border_color(p.border.opacity(0.8))
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
-                window.focus(&this.focus, cx);
-                this.select_all(cx);
-            }));
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    window.focus(&this.focus, cx);
+                    this.select_all(cx);
+                }),
+            );
 
         let header = div()
             .id("grid-header")
@@ -625,9 +670,15 @@ impl ResultGrid {
             .min_w_0()
             .h_full()
             .overflow_hidden()
-            .font_family(mono)
-            .text_size(px(fsize))
-            .child(div().size_full().when(loading, |d| d.opacity(0.55)).child(body_clip).child(gutter).child(header).child(corner))
+            .child(
+                div()
+                    .size_full()
+                    .when(loading, |d| d.opacity(0.55))
+                    .child(body_clip)
+                    .child(gutter)
+                    .child(header)
+                    .child(corner),
+            )
             .when(loading, |d| {
                 d.child(
                     div()
@@ -648,9 +699,9 @@ impl ResultGrid {
         let w = self.cols.width(c);
         let sort = self.sorts.iter().position(|k| k.column == c);
         let descending = sort.is_some_and(|i| self.sorts[i].descending);
-        let selected = self
-            .current_range()
-            .is_some_and(|r| (r.c0..=r.c1).contains(&c) && self.sel.is_some_and(|s| s.extent == Extent::Cols));
+        let selected = self.current_range().is_some_and(|r| {
+            (r.c0..=r.c1).contains(&c) && self.sel.is_some_and(|s| s.extent == Extent::Cols)
+        });
         let tip = format!("{} · {}", col.name, col.type_name);
         let grid = cx.entity();
         let sort_icon = match sort {
@@ -673,7 +724,10 @@ impl ResultGrid {
             .border_r_1()
             .border_color(p.line)
             .when(selected, |d| d.bg(p.sel_fill))
-            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev, window, cx| this.on_header_mouse_down(c, ev, window, cx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, ev, window, cx| this.on_header_mouse_down(c, ev, window, cx)),
+            )
             .child(
                 h_flex()
                     .flex_1()
@@ -681,8 +735,12 @@ impl ResultGrid {
                     .gap_1p5()
                     .items_center()
                     .overflow_hidden()
-                    .when(self.is_key_column(c), |d| d.child(Icon::new(IconName::Key).size(px(11.)).text_color(p.warning)))
-                    .when(self.is_reference_column(c), |d| d.child(Icon::new(IconName::Link).size(px(11.)).text_color(p.accent)))
+                    .when(self.is_key_column(c), |d| {
+                        d.child(Icon::new(IconName::Key).size(px(11.)).text_color(p.warning))
+                    })
+                    .when(self.is_reference_column(c), |d| {
+                        d.child(Icon::new(IconName::Link).size(px(11.)).text_color(p.accent))
+                    })
                     .child(
                         div()
                             .truncate()
@@ -711,13 +769,18 @@ impl ResultGrid {
                     .justify_center()
                     .gap_0p5()
                     .cursor_pointer()
-                    .child(
-                        Icon::new(sort_icon)
-                            .size(px(12.))
-                            .text_color(if sort.is_some() { p.accent } else { p.muted.opacity(0.45) }),
-                    )
+                    .child(Icon::new(sort_icon).size(px(12.)).text_color(if sort.is_some() {
+                        p.accent
+                    } else {
+                        p.muted.opacity(0.45)
+                    }))
                     .when(multi && sort.is_some(), |d| {
-                        d.child(div().text_size(px(10.)).text_color(p.accent).child((sort.unwrap_or(0) + 1).to_string()))
+                        d.child(
+                            div()
+                                .text_size(px(10.))
+                                .text_color(p.accent)
+                                .child((sort.unwrap_or(0) + 1).to_string()),
+                        )
                     })
                     .tooltip(|window, cx| Tooltip::new("Sort (Shift: add secondary key)").build(window, cx))
                     .on_mouse_down(
@@ -753,7 +816,16 @@ impl ResultGrid {
 
 /// A frozen row-number cell.
 #[allow(clippy::too_many_arguments)]
-fn gutter_cell(r: usize, new_idx: Option<usize>, state: RowState, in_range: bool, hovered: bool, y: f32, gw: f32, p: &Palette) -> Div {
+fn gutter_cell(
+    r: usize,
+    new_idx: Option<usize>,
+    state: RowState,
+    in_range: bool,
+    hovered: bool,
+    y: f32,
+    gw: f32,
+    p: &Palette,
+) -> Div {
     let label = if new_idx.is_some() { "+".to_string() } else { (r + 1).to_string() };
     div()
         .absolute()
@@ -776,14 +848,27 @@ fn gutter_cell(r: usize, new_idx: Option<usize>, state: RowState, in_range: bool
 }
 
 #[allow(clippy::too_many_arguments)]
-fn data_cell(w: f32, cc: &CachedCell, right: bool, unfilled: bool, tint: Option<Hsla>, strike: bool, modified: bool, p: &Palette) -> Div {
+fn data_cell(
+    w: f32,
+    cc: &CachedCell,
+    right: bool,
+    unfilled: bool,
+    tint: Option<Hsla>,
+    strike: bool,
+    modified: bool,
+    p: &Palette,
+) -> Div {
     let text: AnyElement = if unfilled {
-        div().italic().text_color(p.muted.opacity(0.6)).child("DEFAULT").into_any_element()
+        div().italic().text_color(p.muted).child("DEFAULT").into_any_element()
     } else {
         match cc.kind {
-            CellKind::Null => div().italic().text_color(p.muted.opacity(0.7)).child("NULL").into_any_element(),
-            CellKind::EmptyText => div().text_color(p.muted.opacity(0.7)).child("''").into_any_element(),
-            CellKind::Bool(b) => div().truncate().text_color(if b { p.green } else { p.red.opacity(0.85) }).child(cc.text.clone()).into_any_element(),
+            CellKind::Null => div().italic().text_color(p.muted).child("NULL").into_any_element(),
+            CellKind::EmptyText => div().text_color(p.muted).child("''").into_any_element(),
+            CellKind::Bool(b) => div()
+                .truncate()
+                .text_color(if b { p.green } else { p.red })
+                .child(cc.text.clone())
+                .into_any_element(),
             CellKind::Bytes => div().truncate().text_color(p.muted).child(cc.text.clone()).into_any_element(),
             CellKind::Geometry => h_flex()
                 .gap(px(5.))
@@ -810,9 +895,7 @@ fn data_cell(w: f32, cc: &CachedCell, right: bool, unfilled: bool, tint: Option<
         .when(right, |d| d.justify_end())
         .when_some(tint, |d, t| d.bg(t))
         .when(strike, |d| d.line_through().text_color(p.muted))
-        .when(modified, |d| {
-            d.child(div().absolute().top_0().right_0().w(px(6.)).h(px(6.)).bg(p.warning))
-        })
+        .when(modified, |d| d.child(div().absolute().top_0().right_0().w(px(6.)).h(px(6.)).bg(p.warning)))
         .child(text)
 }
 
@@ -843,10 +926,11 @@ fn export_menu(
             };
             let mut m = m.item(item("To file…", false, false)).item(item("To clipboard", false, true));
             if range_selected {
-                m = m
-                    .separator()
-                    .item(item("Selection to file…", true, false))
-                    .item(item("Selection to clipboard", true, true));
+                m = m.separator().item(item("Selection to file…", true, false)).item(item(
+                    "Selection to clipboard",
+                    true,
+                    true,
+                ));
             }
             m
         });
@@ -854,21 +938,28 @@ fn export_menu(
     menu
 }
 
-fn body_menu(menu: PopupMenu, grid: &gpui_kit::Entity<ResultGrid>, _: &mut Window, cx: &mut Context<PopupMenu>) -> PopupMenu {
+fn body_menu(
+    menu: PopupMenu,
+    grid: &gpui_kit::Entity<ResultGrid>,
+    _: &mut Window,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
     let (editable_cell, editable, is_geom, is_ref, has_sel) = {
         let g = grid.read(cx);
         (
             g.can_edit_cursor(),
             g.is_editable(),
             g.sel.is_some_and(|s| g.column_kind(s.cursor.col) == TypeKind::Geometry),
-            g.sel.is_some_and(|s| g.is_reference_column(s.cursor.col) && !g.value_at(s.cursor.row, s.cursor.col).is_null()),
+            g.sel.is_some_and(|s| {
+                g.is_reference_column(s.cursor.col) && !g.value_at(s.cursor.row, s.cursor.col).is_null()
+            }),
             g.sel.is_some(),
         )
     };
     let item = |label: &'static str, enabled: bool, f: fn(&mut ResultGrid, &mut Context<ResultGrid>)| {
         let grid = grid.clone();
         PopupMenuItem::new(label).disabled(!enabled).on_click(move |_, _, cx| {
-            grid.update(cx, |g, cx| f(g, cx));
+            grid.update(cx, f);
         })
     };
     let mut menu = menu
@@ -891,12 +982,16 @@ fn body_menu(menu: PopupMenu, grid: &gpui_kit::Entity<ResultGrid>, _: &mut Windo
         }));
     }
     if is_geom {
-        menu = menu
-            .item(item("Show on Map", true, |g, cx| g.show_on_map(false, cx)))
-            .item(item("Show Column on Map", true, |g, cx| g.show_on_map(true, cx)));
+        menu = menu.item(item("Show on Map", true, |g, cx| g.show_on_map(false, cx))).item(item(
+            "Show Column on Map",
+            true,
+            |g, cx| g.show_on_map(true, cx),
+        ));
     }
     menu = menu.item(item("Inspect Value", has_sel, |g, cx| {
-        g.inspector_open = true;
+        if !g.inspector_open {
+            g.toggle_inspector(cx);
+        }
         g.inspector_dirty = true;
         cx.notify();
     }));
@@ -940,6 +1035,3 @@ fn header_menu(menu: PopupMenu, grid: &gpui_kit::Entity<ResultGrid>, col: usize)
             }
         }))
 }
-
-#[allow(dead_code)]
-fn _unused(_: &Value) {}

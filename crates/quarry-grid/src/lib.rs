@@ -9,23 +9,24 @@
 
 mod actions;
 pub mod compare;
+pub mod contrast;
 pub mod copy;
+mod editing;
 pub mod filter;
 pub mod format;
+mod grid;
+mod input;
+pub mod inspect;
+mod inspector;
 pub mod layout;
 pub mod parse;
 pub mod pending;
-pub mod inspect;
-pub mod selection;
-pub mod summary;
-pub mod view;
-mod editing;
-mod grid;
-mod input;
-mod inspector;
 mod render;
 mod scroll;
+pub mod selection;
+pub mod summary;
 mod types;
+pub mod view;
 
 pub use grid::ResultGrid;
 pub use types::*;

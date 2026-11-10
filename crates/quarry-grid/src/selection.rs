@@ -121,11 +121,7 @@ impl Selection {
     /// to the new cell; with it the anchor stays and the rectangle grows.
     pub fn moved(&self, motion: Motion, extend: bool, nrows: usize, ncols: usize) -> Selection {
         let cursor = apply_motion(self.cursor, motion, nrows, ncols);
-        if extend {
-            Selection { cursor, ..*self }
-        } else {
-            Selection::single(cursor)
-        }
+        if extend { Selection { cursor, ..*self } } else { Selection::single(cursor) }
     }
 
     /// Shift-click / drag: keep the anchor, move the cursor to `cell`.

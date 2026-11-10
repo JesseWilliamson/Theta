@@ -4,7 +4,7 @@
 
 use gpui_kit::{App, KeyBinding, actions};
 
-actions!(quarry_grid, [EditNext, EditPrev, EditCancel, FilterClose]);
+actions!(quarry_grid, [EditNext, EditPrev, EditCancel, FilterClose, NextCell, PrevCell]);
 
 struct Bound;
 impl gpui_kit::Global for Bound {}
@@ -20,5 +20,9 @@ pub(crate) fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-tab", EditPrev, Some("GridCellEditor > Input")),
         KeyBinding::new("escape", EditCancel, Some("GridCellEditor > Input")),
         KeyBinding::new("escape", FilterClose, Some("GridFilter > Input")),
+        // gpui-kit's Root binds Tab to focus traversal; inside the grid it
+        // must move the cell cursor instead.
+        KeyBinding::new("tab", NextCell, Some("ResultGrid")),
+        KeyBinding::new("shift-tab", PrevCell, Some("ResultGrid")),
     ]);
 }

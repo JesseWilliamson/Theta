@@ -59,7 +59,8 @@ mod tests {
 
     #[test]
     fn multi_cell_tsv() {
-        let rows = vec![vec![Value::Int(1), t("x"), Value::Null], vec![Value::Int(2), t("y z"), Value::Bool(true)]];
+        let rows =
+            vec![vec![Value::Int(1), t("x"), Value::Null], vec![Value::Int(2), t("y z"), Value::Bool(true)]];
         assert_eq!(build_tsv(None, &rows), "1\tx\t\n2\ty z\ttrue");
     }
 

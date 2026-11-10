@@ -24,7 +24,8 @@ mod tests {
     use quarry_core::{Column, TypeKind, Value};
 
     fn rs() -> ResultSet {
-        let col = |n: &str| Column { name: n.into(), type_name: "t".into(), kind: TypeKind::Text, origin: None };
+        let col =
+            |n: &str| Column { name: n.into(), type_name: "t".into(), kind: TypeKind::Text, origin: None };
         ResultSet {
             columns: vec![col("n"), col("s")],
             rows: vec![
@@ -40,6 +41,45 @@ mod tests {
     #[test]
     fn identity_without_filter_or_sort() {
         assert_eq!(build_view(&rs(), None, &[]), vec![0, 1, 2, 3]);
+    }
+
+    /// Not a benchmark (the bound is generous so a loaded CI box passes), but
+    /// the printed numbers are what the README quotes: `cargo test -- --nocapture`.
+    #[test]
+    fn sorting_and_filtering_100k_rows() {
+        let col = |n: &str, k| Column { name: n.into(), type_name: "t".into(), kind: k, origin: None };
+        let mut x = 12345u64;
+        let mut next = || {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            x >> 33
+        };
+        let rows: Vec<Vec<Value>> = (0..100_000)
+            .map(|i| {
+                vec![
+                    Value::Int((next() % 1_000_000) as i64),
+                    Value::Text(format!("name-{}-{}", next() % 5000, i)),
+                    Value::Decimal(format!("{}.{:02}", next() % 100_000, next() % 100)),
+                ]
+            })
+            .collect();
+        let rs = ResultSet {
+            columns: vec![col("n", TypeKind::Integer), col("s", TypeKind::Text), col("d", TypeKind::Decimal)],
+            rows,
+            truncated: false,
+        };
+        for (name, c) in [("int", 0usize), ("text", 1), ("decimal", 2)] {
+            let t = std::time::Instant::now();
+            let v = build_view(&rs, None, &[SortKey { column: c, descending: false }]);
+            let ms = t.elapsed().as_millis();
+            println!("sort 100k rows by {name}: {ms} ms");
+            assert_eq!(v.len(), 100_000);
+            assert!(ms < 5_000);
+        }
+        let q = FilterQuery::parse("name-42", &rs.columns).unwrap();
+        let t = std::time::Instant::now();
+        let v = build_view(&rs, Some(&q), &[]);
+        println!("filter 100k x 3 cells for 'name-42': {} ms, {} hits", t.elapsed().as_millis(), v.len());
+        assert!(t.elapsed().as_millis() < 5_000);
     }
 
     #[test]

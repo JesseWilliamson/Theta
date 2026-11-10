@@ -43,7 +43,11 @@ fn col(name: &str, type_name: &str, kind: TypeKind, table: &str) -> Column {
         name: name.into(),
         type_name: type_name.into(),
         kind,
-        origin: Some(ColumnOrigin { schema: Some("public".into()), table: table.into(), column: name.into() }),
+        origin: Some(ColumnOrigin {
+            schema: Some("public".into()),
+            table: table.into(),
+            column: name.into(),
+        }),
     }
 }
 
@@ -73,8 +77,24 @@ fn orders_dataset() -> (ResultSet, EditTarget) {
         col("units", "bigint unsigned", Integer, "orders"),
         col("client_ip", "inet", Other, "orders"),
     ];
-    let first = ["Ada", "Grace", "Linus", "Margaret", "Dennis", "Barbara", "Ken", "Frances", "Alan", "Radia", "Tim", "Hedy"];
-    let last = ["Lovelace", "Hopper", "Torvalds", "Hamilton", "Ritchie", "Liskov", "Thompson", "Allen", "Turing", "Perlman", "Berners-Lee", "Lamarr"];
+    let first = [
+        "Ada", "Grace", "Linus", "Margaret", "Dennis", "Barbara", "Ken", "Frances", "Alan", "Radia", "Tim",
+        "Hedy",
+    ];
+    let last = [
+        "Lovelace",
+        "Hopper",
+        "Torvalds",
+        "Hamilton",
+        "Ritchie",
+        "Liskov",
+        "Thompson",
+        "Allen",
+        "Turing",
+        "Perlman",
+        "Berners-Lee",
+        "Lamarr",
+    ];
     let statuses = ["pending", "paid", "shipped", "delivered", "cancelled", "refunded"];
     let notes = [
         "Leave at the front desk",
@@ -83,18 +103,30 @@ fn orders_dataset() -> (ResultSet, EditTarget) {
         "",
         "ASAP",
     ];
-    let cities = [(151.2093, -33.8688), (-0.1276, 51.5072), (2.3522, 48.8566), (-74.006, 40.7128), (139.6917, 35.6895), (18.4241, -33.9249)];
+    let cities = [
+        (151.2093, -33.8688),
+        (-0.1276, 51.5072),
+        (2.3522, 48.8566),
+        (-74.006, 40.7128),
+        (139.6917, 35.6895),
+        (18.4241, -33.9249),
+    ];
     let mut rng = Rng(42);
     let mut rows = Vec::new();
     for i in 0..200usize {
         let cid = 1000 + (rng.next() % 40) as i64;
         let (f, l) = (first[cid as usize % first.len()], last[(cid as usize / 3) % last.len()]);
-        let cents = (rng.next() % 2_500_00) as i64;
+        let cents = (rng.next() % 250_000) as i64;
         let day = 1 + (i % 28);
         let month = 1 + (i / 28) % 12;
         let (lon, lat) = *rng.pick(&cities);
         let jitter = |r: &mut Rng| (r.next() % 1000) as f64 / 10_000.0;
-        let point = quarry_geo::parse_wkt(&format!("SRID=4326;POINT({} {})", lon + jitter(&mut rng), lat + jitter(&mut rng))).expect("wkt");
+        let point = quarry_geo::parse_wkt(&format!(
+            "SRID=4326;POINT({} {})",
+            lon + jitter(&mut rng),
+            lat + jitter(&mut rng)
+        ))
+        .expect("wkt");
         let geom = if i % 17 == 5 {
             Value::Null
         } else if i % 41 == 3 {
@@ -160,7 +192,10 @@ fn orders_dataset() -> (ResultSet, EditTarget) {
         .filter(|(i, c)| *i != 0 && c.origin.as_ref().is_some_and(|o| o.table == "orders"))
         .map(|(i, _)| i)
         .collect();
-    (ResultSet { columns, rows, truncated: false }, EditTarget::new(Some("public".into()), "orders", vec![0], editable))
+    (
+        ResultSet { columns, rows, truncated: false },
+        EditTarget::new(Some("public".into()), "orders", vec![0], editable),
+    )
 }
 
 /// Synthetic `rows x cols` data with a realistic mix of types.
@@ -188,15 +223,17 @@ fn stress_dataset(rows: usize, cols: usize) -> ResultSet {
         let mut row = Vec::with_capacity(cols);
         for c in 0..cols {
             let x = rng.next();
-            row.push(if x % 23 == 0 {
+            row.push(if x.is_multiple_of(23) {
                 Value::Null
             } else {
                 match kinds[c % kinds.len()] {
                     Integer => Value::Int((r * 31 + c) as i64 + (x % 1000) as i64),
                     Text => Value::Text(format!("row {r} / col {c} · {}", x % 100_000)),
                     Float => Value::Float((x % 1_000_000) as f64 / 100.0),
-                    Bool => Value::Bool(x % 2 == 0),
-                    Timestamp => Value::Timestamp(format!("2024-{:02}-{:02} 12:00:00", 1 + x % 12, 1 + x % 28)),
+                    Bool => Value::Bool(x.is_multiple_of(2)),
+                    Timestamp => {
+                        Value::Timestamp(format!("2024-{:02}-{:02} 12:00:00", 1 + x % 12, 1 + x % 28))
+                    }
                     Decimal => Value::Decimal(format!("{}.{:02}", x % 10_000, x % 100)),
                     _ => Value::Null,
                 }
@@ -207,8 +244,20 @@ fn stress_dataset(rows: usize, cols: usize) -> ResultSet {
     ResultSet { columns, rows: data, truncated: false }
 }
 
+/// utime + stime of this process in seconds (Linux only; 0 elsewhere).
+fn cpu_seconds() -> f64 {
+    let Ok(stat) = std::fs::read_to_string("/proc/self/stat") else { return 0.0 };
+    // fields after the ")" that closes the command name; utime/stime are the 12th/13th
+    let rest = stat.rsplit_once(')').map_or("", |(_, r)| r);
+    let f: Vec<&str> = rest.split_whitespace().collect();
+    let ticks = |i: usize| f.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+    (ticks(11) + ticks(12)) / 100.0
+}
+
 fn main() {
-    let (mut theme, mut editable, mut rows, mut cols, mut empty, mut fail, mut autoscroll) = (None, false, None, 60usize, false, false, false);
+    let (mut theme, mut editable, mut rows, mut cols, mut empty, mut fail, mut autoscroll) =
+        (None, false, None, 60usize, false, false, false);
+    let mut take: Option<usize> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -217,6 +266,7 @@ fn main() {
             "--rows" => rows = args.next().and_then(|v| v.parse::<usize>().ok()),
             "--cols" => cols = args.next().and_then(|v| v.parse().ok()).unwrap_or(60),
             "--empty" => empty = true,
+            "--take" => take = args.next().and_then(|v| v.parse().ok()),
             "--fail" => fail = true,
             "--autoscroll" => autoscroll = true,
             _ => {}
@@ -249,7 +299,9 @@ fn main() {
                     ),
                     _ => {
                         let (mut rs, target) = orders_dataset();
-                        rs.truncated = false;
+                        if let Some(n) = take {
+                            rs.rows.truncate(n);
+                        }
                         let mut meta = GridMeta::new()
                             .with_elapsed(Duration::from_millis(42))
                             .with_reference_columns(vec![1])
@@ -300,6 +352,7 @@ fn main() {
                 cx.background_executor().timer(Duration::from_millis(1500)).await;
                 // Scripted diagonal scroll: one step per frame for 300 frames.
                 let start = Instant::now();
+                let cpu0 = cpu_seconds();
                 for step in 0..300 {
                     grid.update(cx, |g, cx| g.scroll_by(60.0, 1100.0, cx));
                     // yield to the frame loop
@@ -307,7 +360,11 @@ fn main() {
                     cx.update(|cx| cx.refresh_windows());
                     let _ = step;
                 }
-                eprintln!("autoscroll: 300 steps in {:.2} s", start.elapsed().as_secs_f64());
+                eprintln!(
+                    "autoscroll: 300 steps in {:.2} s wall, {:.2} s CPU",
+                    start.elapsed().as_secs_f64(),
+                    cpu_seconds() - cpu0
+                );
             })
             .detach();
         }

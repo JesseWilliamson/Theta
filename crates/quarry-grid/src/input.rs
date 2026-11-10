@@ -4,7 +4,10 @@ use crate::editing::After;
 use crate::grid::{Drag, ROW_H, Resize, ResultGrid};
 use crate::selection::{Cell, Extent, Motion, Selection};
 use crate::types::GridEvent;
-use gpui_kit::{Context, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollEvent, Window, px};
+use gpui_kit::{
+    Context, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+    ScrollEvent, Window, px,
+};
 use quarry_ui::{KeymapMode, Settings};
 
 impl ResultGrid {
@@ -132,7 +135,11 @@ impl ResultGrid {
             "x" if helix => {
                 if let Some(s) = self.sel {
                     let nc = self.n_cols();
-                    self.set_selection(Some(Selection::row(s.cursor.row, s.cursor.col.min(nc.saturating_sub(1)))), false, cx);
+                    self.set_selection(
+                        Some(Selection::row(s.cursor.row, s.cursor.col.min(nc.saturating_sub(1)))),
+                        false,
+                        cx,
+                    );
                 }
                 true
             }
@@ -207,7 +214,9 @@ impl ResultGrid {
             }
         }
         if from_enter || !self.inspector_open {
-            self.inspector_open = true;
+            if !self.inspector_open {
+                self.toggle_inspector(cx);
+            }
             self.inspector_dirty = true;
             cx.notify();
         }
@@ -215,7 +224,12 @@ impl ResultGrid {
 
     // ------------------------------------------------------------------ pointer
 
-    pub(crate) fn on_body_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn on_body_mouse_down(
+        &mut self,
+        ev: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         window.focus(&self.focus, cx);
         if self.editor.is_some() && !self.commit_edit(After::Stay, window, cx) {
             return;
@@ -244,16 +258,19 @@ impl ResultGrid {
                     self.activate_cursor(false, window, cx);
                 }
             }
-            MouseButton::Right => {
-                if !self.current_range().is_some_and(|r| r.contains(cell)) {
-                    self.set_selection(Some(Selection::single(cell)), false, cx);
-                }
+            MouseButton::Right if !self.current_range().is_some_and(|r| r.contains(cell)) => {
+                self.set_selection(Some(Selection::single(cell)), false, cx);
             }
             _ => {}
         }
     }
 
-    pub(crate) fn on_gutter_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn on_gutter_mouse_down(
+        &mut self,
+        ev: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if ev.button != MouseButton::Left {
             return;
         }
@@ -261,7 +278,10 @@ impl ResultGrid {
         if self.editor.is_some() && !self.commit_edit(After::Stay, window, cx) {
             return;
         }
-        let Some(cell) = self.body_cell_at(Point { x: self.body_bounds.get().origin.x, y: ev.position.y }) else { return };
+        let Some(cell) = self.body_cell_at(Point { x: self.body_bounds.get().origin.x, y: ev.position.y })
+        else {
+            return;
+        };
         let (nr, nc) = (self.n_rows(), self.n_cols());
         let next = match self.sel {
             Some(s) if ev.modifiers.shift => {
@@ -274,7 +294,13 @@ impl ResultGrid {
         self.drag = Some(Drag::Rows);
     }
 
-    pub(crate) fn on_header_mouse_down(&mut self, col: usize, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn on_header_mouse_down(
+        &mut self,
+        col: usize,
+        ev: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if ev.button != MouseButton::Left || self.n_rows() == 0 {
             return;
         }

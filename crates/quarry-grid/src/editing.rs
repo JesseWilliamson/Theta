@@ -33,7 +33,12 @@ impl ResultGrid {
 
     /// Open the inline editor on the current cell. `initial` replaces the
     /// prefill (type-to-edit); otherwise the value's text form is selected.
-    pub(crate) fn start_edit(&mut self, initial: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn start_edit(
+        &mut self,
+        initial: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.can_edit_cursor() {
             return;
         }
@@ -115,7 +120,9 @@ impl ResultGrid {
 
     /// Stage NULL for every editable cell in the selection.
     pub(crate) fn set_null(&mut self, cx: &mut Context<Self>) {
-        let (Some(range), Some(p), Some(rs)) = (self.current_range(), self.pending.as_mut(), self.result.as_ref()) else {
+        let (Some(range), Some(p), Some(rs)) =
+            (self.current_range(), self.pending.as_mut(), self.result.as_ref())
+        else {
             return;
         };
         let nv = self.view.as_ref().map_or(rs.rows.len(), Vec::len);

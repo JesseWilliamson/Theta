@@ -10,8 +10,8 @@ use gpui_kit::component::input::Textarea;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, ClipboardItem, Context, FontWeight, HighlightStyle, InteractiveElement as _, IntoElement, ParentElement as _,
-    SharedString, StatefulInteractiveElement as _, Styled as _, StyledText, div, px,
+    AnyElement, ClipboardItem, Context, FontWeight, HighlightStyle, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, StyledText, div, px,
 };
 use quarry_core::TypeKind;
 use quarry_ui::{CHROME_TEXT_SIZE, PanelHeader, Settings, SyntaxColors, tool_button};
@@ -28,16 +28,19 @@ impl ResultGrid {
         let sel = self.sel;
 
         let header = PanelHeader::new("Inspector")
-            .action(
-                tool_button("inspector-copy", IconName::Copy, "Copy value").on_click(cx.listener(|this, _, _, cx| {
+            .action(tool_button("inspector-copy", IconName::Copy, "Copy value").on_click(cx.listener(
+                |this, _, _, cx| {
                     if let Some(v) = this.cursor_value() {
                         let text = raw_text(v);
                         cx.write_to_clipboard(ClipboardItem::new_string(text));
                         cx.emit(crate::GridEvent::Copied { cells: 1 });
                     }
-                })),
-            )
-            .action(tool_button("inspector-close", IconName::X, "Close inspector").on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))));
+                },
+            )))
+            .action(
+                tool_button("inspector-close", IconName::X, "Close inspector")
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))),
+            );
 
         let mut content = v_flex().flex_1().min_h_0().gap_2().px_3().pb_3();
         match (rs, sel, &self.inspector) {
@@ -54,7 +57,9 @@ impl ResultGrid {
                                 .text_color(p.muted)
                                 .child(div().font_family(mono.clone()).child(col.type_name.clone()))
                                 .child(div().child(format!("row {}", s.cursor.row + 1)))
-                                .when(!info.stats.is_empty(), |d| d.child(div().child(format!("· {}", info.stats)))),
+                                .when(!info.stats.is_empty(), |d| {
+                                    d.child(div().child(format!("· {}", info.stats)))
+                                }),
                         ),
                 );
                 let body: AnyElement = match &info.body {
@@ -70,7 +75,9 @@ impl ResultGrid {
                         };
                         let highlights = spans
                             .iter()
-                            .map(|(r, t)| (r.clone(), HighlightStyle { color: Some(color(*t)), ..Default::default() }))
+                            .map(|(r, t)| {
+                                (r.clone(), HighlightStyle { color: Some(color(*t)), ..Default::default() })
+                            })
                             .collect::<Vec<_>>();
                         div()
                             .id("inspector-json")
@@ -97,17 +104,13 @@ impl ResultGrid {
                         .flex_1()
                         .min_h_0()
                         .gap_2()
-                        .child(
-                            v_flex().gap_1().children(facts.iter().map(|(k, v)| {
-                                h_flex()
-                                    .gap_2()
-                                    .items_start()
-                                    .child(div().w(px(64.)).flex_shrink_0().text_color(p.muted).child(*k))
-                                    .child(div().flex_1().min_w_0().child(v.clone()))
-                            })),
-                        )
-                        .child(div().text_size(px(11.)).text_color(p.muted).child("EWKT"))
-                        .child(text_area(self, &mono, fsize, p))
+                        .child(v_flex().gap_1().children(facts.iter().map(|(k, v)| {
+                            h_flex()
+                                .gap_2()
+                                .items_start()
+                                .child(div().w(px(64.)).flex_shrink_0().text_color(p.muted).child(*k))
+                                .child(div().flex_1().min_w_0().child(v.clone()))
+                        })))
                         .child(
                             Button::new("inspector-map")
                                 .small()
@@ -116,11 +119,14 @@ impl ResultGrid {
                                 .label("Show on Map")
                                 .on_click(cx.listener(|this, _, _, cx| this.show_on_map(false, cx))),
                         )
+                        .child(div().text_size(px(11.)).text_color(p.muted).child("EWKT"))
+                        .child(text_area(self, &mono, fsize, p))
                         .into_any_element(),
                 };
                 content = content.child(div().flex_1().min_h_0().flex().flex_col().child(body));
                 if let Some(note) = &info.note {
-                    content = content.child(div().text_size(px(11.)).text_color(p.warning).child(note.clone()));
+                    content =
+                        content.child(div().text_size(px(11.)).text_color(p.warning).child(note.clone()));
                 }
                 if col.kind == TypeKind::Geometry && !matches!(info.body, Body::Geometry { .. }) {
                     content = content.child(div().text_color(p.muted).child("Not a valid geometry value."));
@@ -128,7 +134,11 @@ impl ResultGrid {
             }
             _ => {
                 content = content.child(
-                    div().pt_4().text_color(p.muted).text_center().child("Select a cell to inspect its value."),
+                    div()
+                        .pt_4()
+                        .text_color(p.muted)
+                        .text_center()
+                        .child("Select a cell to inspect its value."),
                 );
             }
         }

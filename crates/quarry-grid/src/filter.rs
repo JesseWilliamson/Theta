@@ -120,7 +120,10 @@ mod tests {
     fn parse_variants() {
         let cols = [col("id"), col("Name"), col("note")];
         assert_eq!(FilterQuery::parse("  ", &cols), None);
-        assert_eq!(FilterQuery::parse("Bob", &cols), Some(FilterQuery { column: None, needle: "bob".into() }));
+        assert_eq!(
+            FilterQuery::parse("Bob", &cols),
+            Some(FilterQuery { column: None, needle: "bob".into() })
+        );
         assert_eq!(
             FilterQuery::parse("name: Bob ", &cols),
             Some(FilterQuery { column: Some(1), needle: "bob".into() })
