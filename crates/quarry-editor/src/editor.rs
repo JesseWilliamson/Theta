@@ -46,7 +46,9 @@ pub enum Effect {
     RunSelection(String),
     RunAll,
     CancelQuery,
-    ExplainStatement { analyze: bool },
+    ExplainStatement {
+        analyze: bool,
+    },
     RequestCompletion,
     DismissCompletion,
     FormatDocument,
@@ -233,7 +235,8 @@ impl Editor {
     }
 
     pub fn is_modified(&self) -> bool {
-        self.group.as_ref().is_some_and(|g| !g.forward.is_empty()) || self.history.current_id() != self.saved_id
+        self.group.as_ref().is_some_and(|g| !g.forward.is_empty())
+            || self.history.current_id() != self.saved_id
     }
 
     pub fn mark_saved(&mut self) {
@@ -293,14 +296,13 @@ impl Editor {
         let t = self.rope.slice(..);
         let len = t.len_chars();
         let helix = self.keymap == Keymap::Helix;
-        let v: Vec<Selection> = s
-            .v
-            .iter()
-            .map(|r| {
-                let r = Selection::new(r.anchor.min(len), r.head.min(len)).grapheme_aligned(t);
-                if helix { r.min_width_1(t) } else { r }
-            })
-            .collect();
+        let v: Vec<Selection> =
+            s.v.iter()
+                .map(|r| {
+                    let r = Selection::new(r.anchor.min(len), r.head.min(len)).grapheme_aligned(t);
+                    if helix { r.min_width_1(t) } else { r }
+                })
+                .collect();
         self.sels = Selections::new(v, s.primary);
     }
 
@@ -438,7 +440,10 @@ impl Editor {
             pre += 1;
         }
         let mut suf = 0;
-        while suf < old.len() - pre && suf < new.len() - pre && old[old.len() - 1 - suf] == new[new.len() - 1 - suf] {
+        while suf < old.len() - pre
+            && suf < new.len() - pre
+            && old[old.len() - 1 - suf] == new[new.len() - 1 - suf]
+        {
             suf += 1;
         }
         if pre + suf == old.len() && old.len() == new.len() {

@@ -60,11 +60,7 @@ impl Selection {
     }
 
     pub fn with_direction(&self, forward: bool) -> Self {
-        if self.is_empty() || self.is_forward() == forward {
-            *self
-        } else {
-            self.flip()
-        }
+        if self.is_empty() || self.is_forward() == forward { *self } else { self.flip() }
     }
 
     // ---- Helix block-cursor semantics ------------------------------------------------------
@@ -112,7 +108,11 @@ impl Selection {
         } else {
             self.anchor
         };
-        if anchor <= pos { Selection::new(anchor, text::next_grapheme(t, pos)) } else { Selection::new(anchor, pos) }
+        if anchor <= pos {
+            Selection::new(anchor, text::next_grapheme(t, pos))
+        } else {
+            Selection::new(anchor, pos)
+        }
     }
 
     /// First and last line touched by the selection (the end is exclusive-aware).
@@ -164,10 +164,12 @@ impl Selections {
             if let Some(last) = out.last_mut() {
                 // Touching empties at the same spot and true overlaps merge; merely adjacent
                 // non-empty selections stay separate (they select different text).
-                let overlap = cur.from() < last.to() || (cur.from() == last.to() && (cur.is_empty() || last.is_empty()));
+                let overlap = cur.from() < last.to()
+                    || (cur.from() == last.to() && (cur.is_empty() || last.is_empty()));
                 if overlap {
                     let (from, to) = (last.from(), last.to().max(cur.to()));
-                    *last = if cur.is_forward() { Selection::new(from, to) } else { Selection::new(to, from) };
+                    *last =
+                        if cur.is_forward() { Selection::new(from, to) } else { Selection::new(to, from) };
                     if i == self.primary {
                         primary = out.len() - 1;
                     }
@@ -185,5 +187,73 @@ impl Selections {
 
     pub fn len(&self) -> usize {
         self.v.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ropey::Rope;
+
+    fn sel(a: usize, h: usize) -> Selection {
+        Selection::new(a, h)
+    }
+
+    #[test]
+    fn normalize_sorts_merges_and_tracks_primary() {
+        let s = Selections::new(vec![sel(10, 12), sel(0, 3), sel(2, 5)], 2);
+        assert_eq!(s.v, vec![sel(0, 5), sel(10, 12)]);
+        assert_eq!(s.primary, 0, "primary followed its merged selection");
+        let s = Selections::new(vec![sel(0, 2), sel(2, 4)], 0);
+        assert_eq!(s.v.len(), 2, "adjacent non-empty selections stay separate");
+        let s = Selections::new(vec![sel(3, 3), sel(3, 3)], 1);
+        assert_eq!(s.v.len(), 1);
+    }
+
+    #[test]
+    fn put_cursor_extend_keeps_one_grapheme_semantics() {
+        let rope = Rope::from_str("abcdef");
+        let t = rope.slice(..);
+        let s = sel(2, 3);
+        assert_eq!(s.put_cursor(t, 4, true), sel(2, 5));
+        assert_eq!(s.put_cursor(t, 0, true), sel(3, 0));
+        assert_eq!(sel(3, 0).put_cursor(t, 4, true), sel(2, 5));
+        assert_eq!(s.put_cursor(t, 4, false), Selection::point(4));
+    }
+
+    #[test]
+    fn block_cursor_and_min_width() {
+        let rope = Rope::from_str("e\u{301}x");
+        let t = rope.slice(..);
+        assert_eq!(sel(0, 2).block_cursor(t), 0);
+        assert_eq!(sel(2, 0).block_cursor(t), 0);
+        assert_eq!(Selection::point(0).min_width_1(t), sel(0, 2));
+        assert_eq!(Selection::point(3).min_width_1(t), Selection::point(3));
+    }
+
+    #[test]
+    fn grapheme_alignment_rounds_the_right_way() {
+        let rope = Rope::from_str("ae\u{301}b");
+        let t = rope.slice(..);
+        assert_eq!(sel(2, 3).grapheme_aligned(t), sel(1, 3));
+        assert_eq!(sel(0, 2).grapheme_aligned(t), sel(0, 3));
+        assert_eq!(sel(3, 2).grapheme_aligned(t), sel(3, 1));
+    }
+
+    #[test]
+    fn line_range_is_exclusive_of_a_trailing_newline() {
+        let rope = Rope::from_str("a\nb\nc");
+        let t = rope.slice(..);
+        assert_eq!(sel(0, 2).line_range(t), (0, 0));
+        assert_eq!(sel(0, 3).line_range(t), (0, 1));
+        assert_eq!(Selection::point(2).line_range(t), (1, 1));
+    }
+
+    #[test]
+    fn direction_helpers() {
+        assert_eq!(sel(1, 4).with_direction(false), sel(4, 1));
+        assert_eq!(sel(4, 1).with_direction(true), sel(1, 4));
+        assert_eq!(Selection::point(2).with_direction(false), Selection::point(2));
+        assert_eq!(sel(1, 4).flip(), sel(4, 1));
     }
 }

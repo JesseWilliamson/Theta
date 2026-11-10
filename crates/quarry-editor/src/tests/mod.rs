@@ -7,12 +7,12 @@ mod cases;
 mod core;
 mod fuzz;
 mod harness;
-mod perf;
 mod helix_edit;
 mod helix_insert;
 mod helix_motion;
 mod helix_objects;
 mod helix_prompt;
+mod perf;
 mod standard;
 mod syntax;
 

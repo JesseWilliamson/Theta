@@ -39,9 +39,51 @@ fn helix_pool() -> Vec<KeyInput> {
         v.push(KeyInput::ch(c));
     }
     for name in [
-        "esc", "ret", "tab", "backspace", "del", "left", "right", "up", "down", "home", "end", "pageup", "pagedown", "A-;", "A-:", "A-,",
-        "A-.", "A-s", "A-x", "A-d", "A-c", "A-J", "A-K", "A-C", "A-minus", "A-_", "A-(", "A-)", "A-`", "A-*", "C-a", "C-x", "C-c", "C-d",
-        "C-u", "C-f", "C-b", "C-o", "C-i", "C-s", "C-w", "C-h", "C-k", "C-space", "C-ret",
+        "esc",
+        "ret",
+        "tab",
+        "backspace",
+        "del",
+        "left",
+        "right",
+        "up",
+        "down",
+        "home",
+        "end",
+        "pageup",
+        "pagedown",
+        "A-;",
+        "A-:",
+        "A-,",
+        "A-.",
+        "A-s",
+        "A-x",
+        "A-d",
+        "A-c",
+        "A-J",
+        "A-K",
+        "A-C",
+        "A-minus",
+        "A-_",
+        "A-(",
+        "A-)",
+        "A-`",
+        "A-*",
+        "C-a",
+        "C-x",
+        "C-c",
+        "C-d",
+        "C-u",
+        "C-f",
+        "C-b",
+        "C-o",
+        "C-i",
+        "C-s",
+        "C-w",
+        "C-h",
+        "C-k",
+        "C-space",
+        "C-ret",
     ] {
         v.push(KeyInput::parse(name).unwrap());
     }
@@ -55,13 +97,57 @@ fn standard_pool() -> Vec<KeyInput> {
     }
     for l in "acxvzydlkfgwnbjpeist/".chars() {
         v.push(KeyInput { key: Key::Char(l), modifiers: Modifiers { ctrl: true, ..Default::default() } });
-        v.push(KeyInput { key: Key::Char(l.to_ascii_uppercase()), modifiers: Modifiers { ctrl: true, ..Default::default() } });
+        v.push(KeyInput {
+            key: Key::Char(l.to_ascii_uppercase()),
+            modifiers: Modifiers { ctrl: true, ..Default::default() },
+        });
     }
     for name in [
-        "esc", "ret", "tab", "S-tab", "backspace", "del", "left", "right", "up", "down", "home", "end", "pageup", "pagedown", "S-left",
-        "S-right", "S-up", "S-down", "S-home", "S-end", "C-left", "C-right", "C-S-left", "C-S-right", "C-home", "C-end", "C-backspace",
-        "C-del", "A-up", "A-down", "A-S-up", "A-S-down", "C-A-up", "C-A-down", "F3", "S-F3", "C-ret", "C-tab", "cmd-left", "cmd-backspace",
-        "A-left", "A-right", "C-A-l", "F1", "F5",
+        "esc",
+        "ret",
+        "tab",
+        "S-tab",
+        "backspace",
+        "del",
+        "left",
+        "right",
+        "up",
+        "down",
+        "home",
+        "end",
+        "pageup",
+        "pagedown",
+        "S-left",
+        "S-right",
+        "S-up",
+        "S-down",
+        "S-home",
+        "S-end",
+        "C-left",
+        "C-right",
+        "C-S-left",
+        "C-S-right",
+        "C-home",
+        "C-end",
+        "C-backspace",
+        "C-del",
+        "A-up",
+        "A-down",
+        "A-S-up",
+        "A-S-down",
+        "C-A-up",
+        "C-A-down",
+        "F3",
+        "S-F3",
+        "C-ret",
+        "C-tab",
+        "cmd-left",
+        "cmd-backspace",
+        "A-left",
+        "A-right",
+        "C-A-l",
+        "F1",
+        "F5",
     ] {
         v.push(KeyInput::parse(name).unwrap());
     }
@@ -181,7 +267,12 @@ fn run_fuzz(keymap: Keymap, seed: u64, iterations: usize, keys_per_run: usize) {
             guard += 1;
             assert!(guard < 100_000, "undo does not terminate");
         }
-        assert_eq!(e.text(), doc, "{keymap:?} iter {iter}: undo-all must restore the original text; keys [{}]", log.join(" "));
+        assert_eq!(
+            e.text(),
+            doc,
+            "{keymap:?} iter {iter}: undo-all must restore the original text; keys [{}]",
+            log.join(" ")
+        );
         // and redo-all then undo-all is stable
         let mut n = 0;
         while e.redo() {

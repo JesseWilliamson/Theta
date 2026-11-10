@@ -229,7 +229,14 @@ fn pending_keys_for_status_bar() {
 #[test]
 fn which_key_hints_for_sub_menus() {
     let mut e = editor_from(Keymap::Helix, "#[a|]#");
-    for (key, title) in [("g", "Goto"), ("<space>", "Space"), ("z", "View"), ("[", "Left bracket"), ("]", "Right bracket"), ("m", "Match")] {
+    for (key, title) in [
+        ("g", "Goto"),
+        ("<space>", "Space"),
+        ("z", "View"),
+        ("[", "Left bracket"),
+        ("]", "Right bracket"),
+        ("m", "Match"),
+    ] {
         feed(&mut e, key);
         let (t, hints) = e.key_hints().unwrap_or_else(|| panic!("hints for {key}"));
         assert_eq!(t, title);

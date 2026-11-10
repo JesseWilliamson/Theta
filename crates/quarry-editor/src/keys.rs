@@ -109,7 +109,9 @@ impl KeyInput {
     /// Typed text produced by this key (no ctrl/alt/platform), if any.
     pub fn text_char(&self) -> Option<char> {
         match self.key {
-            Key::Char(c) if !self.modifiers.ctrl && !self.modifiers.alt && !self.modifiers.platform => Some(c),
+            Key::Char(c) if !self.modifiers.ctrl && !self.modifiers.alt && !self.modifiers.platform => {
+                Some(c)
+            }
             _ => None,
         }
     }

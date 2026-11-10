@@ -36,10 +36,68 @@ fn empty_document_never_panics() {
         assert_eq!(e.line_count(), 1);
         assert_eq!(e.line(0), "");
         for keys in [
-            "h", "l", "j", "k", "w", "b", "e", "x", "d", "c<esc>", "p", "P", "y", "%", "gg", "ge", "G", "J", "u", "U", "o<esc>",
-            "O<esc>", "<C-a>", "<C-x>", "~", "r1", ">", "<lt>", "mm", "ms(", "mi(", "n", "N", "*", ";", "<A-;>", "C", "<A-s>", "_", "&",
-            "<left>", "<right>", "<up>", "<down>", "<home>", "<end>", "<backspace>", "<del>", "<C-a>", "<C-c>", "<C-x>", "<C-v>",
-            "<C-z>", "<C-d>", "<C-l>", "<A-up>", "<A-down>", "<C-S-d>", "<C-S-k>", "<tab>", "<S-tab>", "<C-/>",
+            "h",
+            "l",
+            "j",
+            "k",
+            "w",
+            "b",
+            "e",
+            "x",
+            "d",
+            "c<esc>",
+            "p",
+            "P",
+            "y",
+            "%",
+            "gg",
+            "ge",
+            "G",
+            "J",
+            "u",
+            "U",
+            "o<esc>",
+            "O<esc>",
+            "<C-a>",
+            "<C-x>",
+            "~",
+            "r1",
+            ">",
+            "<lt>",
+            "mm",
+            "ms(",
+            "mi(",
+            "n",
+            "N",
+            "*",
+            ";",
+            "<A-;>",
+            "C",
+            "<A-s>",
+            "_",
+            "&",
+            "<left>",
+            "<right>",
+            "<up>",
+            "<down>",
+            "<home>",
+            "<end>",
+            "<backspace>",
+            "<del>",
+            "<C-a>",
+            "<C-c>",
+            "<C-x>",
+            "<C-v>",
+            "<C-z>",
+            "<C-d>",
+            "<C-l>",
+            "<A-up>",
+            "<A-down>",
+            "<C-S-d>",
+            "<C-S-k>",
+            "<tab>",
+            "<S-tab>",
+            "<C-/>",
         ] {
             feed(&mut e, keys);
             let len = e.len_chars();
@@ -53,7 +111,9 @@ fn empty_document_never_panics() {
 
 #[test]
 fn missing_final_newline_everywhere() {
-    for keys in ["l", "j", "w", "e", "b", "x", "d", "gl", "ge", "G", "A", "a", "o<esc>", "O<esc>", "J", "p", "%", "mm"] {
+    for keys in [
+        "l", "j", "w", "e", "b", "x", "d", "gl", "ge", "G", "A", "a", "o<esc>", "O<esc>", "J", "p", "%", "mm",
+    ] {
         let mut e = Editor::new("abc", Keymap::Helix);
         feed(&mut e, keys);
         let mut e = Editor::new("abc\ndef", Keymap::Helix);
@@ -179,7 +239,14 @@ fn selection_api_helpers() {
 #[test]
 fn set_selections_normalizes() {
     let mut e = Editor::new("hello world", Keymap::Helix);
-    e.set_selections(vec![Selection { anchor: 6, head: 8 }, Selection { anchor: 0, head: 3 }, Selection { anchor: 2, head: 4 }], 0);
+    e.set_selections(
+        vec![
+            Selection { anchor: 6, head: 8 },
+            Selection { anchor: 0, head: 3 },
+            Selection { anchor: 2, head: 4 },
+        ],
+        0,
+    );
     assert_eq!(e.selections().len(), 2);
     assert_eq!(e.selections()[0].range(), 0..4);
     assert_eq!(e.selections()[1].range(), 6..8);
@@ -337,14 +404,16 @@ fn key_parse() {
     assert!(KeyInput::parse("nonsense-key").is_none());
     assert!(KeyInput::parse("").is_none());
     // the Shift flag on a character is folded into the character itself
-    let a = KeyInput { key: Key::Char('a'), modifiers: crate::Modifiers { shift: true, ..Default::default() } };
+    let a =
+        KeyInput { key: Key::Char('a'), modifiers: crate::Modifiers { shift: true, ..Default::default() } };
     assert_eq!(a.canon().key, Key::Char('A'));
 }
 
 #[test]
 fn host_can_send_shifted_chars_with_shift_flag() {
     let mut e = Editor::new("a", Keymap::Helix);
-    let k = KeyInput { key: Key::Char('A'), modifiers: crate::Modifiers { shift: true, ..Default::default() } };
+    let k =
+        KeyInput { key: Key::Char('A'), modifiers: crate::Modifiers { shift: true, ..Default::default() } };
     e.handle_key(&k);
     assert_eq!(e.mode(), Mode::Insert, "A appends at line end");
 }

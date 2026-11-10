@@ -245,3 +245,60 @@ pub fn matching_bracket_at(t: Text, pos: usize) -> Option<usize> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ropey::Rope;
+
+    #[test]
+    fn matching_brackets_nest_and_fail_gracefully() {
+        let rope = Rope::from_str("f(a, (b), [c)");
+        let t = rope.slice(..);
+        assert_eq!(matching_bracket_at(t, 1), Some(12));
+        assert_eq!(matching_bracket_at(t, 12), Some(1));
+        assert_eq!(matching_bracket_at(t, 5), Some(7));
+        assert_eq!(matching_bracket_at(t, 10), None, "unclosed [");
+        assert_eq!(matching_bracket_at(t, 0), None);
+        assert_eq!(matching_bracket_at(t, 99), None);
+    }
+
+    #[test]
+    fn find_char_counts_and_directions() {
+        let rope = Rope::from_str("a,b,c,d");
+        let t = rope.slice(..);
+        assert_eq!(find_char(t, 0, ',', 1, true), Some(1));
+        assert_eq!(find_char(t, 0, ',', 3, true), Some(5));
+        assert_eq!(find_char(t, 0, ',', 4, true), None);
+        assert_eq!(find_char(t, 6, ',', 1, false), Some(5));
+        assert_eq!(find_char(t, 6, ',', 3, false), Some(1));
+        assert_eq!(find_char(t, 0, ',', 1, false), None);
+    }
+
+    #[test]
+    fn word_move_lands_on_word_boundaries() {
+        let rope = Rope::from_str("foo bar");
+        let t = rope.slice(..);
+        let s = word_move(t, Selection::new(0, 1), 1, WordKind::NextStart, false);
+        assert_eq!((s.anchor, s.head), (0, 4));
+        let s = word_move(t, Selection::new(0, 1), 1, WordKind::NextEnd, false);
+        assert_eq!((s.anchor, s.head), (0, 3));
+        let s = word_move(t, Selection::new(6, 7), 1, WordKind::PrevStart, false);
+        assert_eq!((s.anchor, s.head), (7, 4));
+        // at the edges the selection is unchanged
+        let s = word_move(t, Selection::new(6, 7), 1, WordKind::NextStart, false);
+        assert_eq!((s.anchor, s.head), (6, 7));
+    }
+
+    #[test]
+    fn paragraph_lines() {
+        let rope = Rope::from_str("a\nb\n\nc\n\nd");
+        let t = rope.slice(..);
+        assert_eq!(next_paragraph_line(t, 0, 1), 3);
+        assert_eq!(next_paragraph_line(t, 0, 2), 5);
+        assert_eq!(next_paragraph_line(t, 5, 1), 5);
+        assert_eq!(prev_paragraph_line(t, 5, 1), 3);
+        assert_eq!(prev_paragraph_line(t, 3, 1), 0);
+        assert_eq!(prev_paragraph_line(t, 1, 1), 0);
+    }
+}

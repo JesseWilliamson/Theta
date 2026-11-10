@@ -140,7 +140,9 @@ pub fn classify(c: char) -> CharClass {
         CharClass::Space
     } else if is_word_char(c) {
         CharClass::Word
-    } else if c.is_ascii_punctuation() || (!c.is_alphanumeric() && !c.is_control() && (c as u32) < 0x3000 && !is_emoji(c)) {
+    } else if c.is_ascii_punctuation()
+        || (!c.is_alphanumeric() && !c.is_control() && (c as u32) < 0x3000 && !is_emoji(c))
+    {
         CharClass::Punct
     } else {
         CharClass::Other
@@ -219,4 +221,84 @@ pub fn detect_line_ending(rope: &Rope) -> &'static str {
 
 pub fn is_blank_line(text: Text, line: usize) -> bool {
     first_non_blank(text, line).is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn r(s: &str) -> Rope {
+        Rope::from_str(s)
+    }
+
+    #[test]
+    fn graphemes_ascii_combining_crlf_and_emoji() {
+        let rope = r("ae\u{301}b\r\n🙂x");
+        let t = rope.slice(..);
+        assert_eq!(next_grapheme(t, 0), 1);
+        assert_eq!(next_grapheme(t, 1), 3, "e + combining acute");
+        assert_eq!(prev_grapheme(t, 3), 1);
+        assert_eq!(next_grapheme(t, 4), 6, "CRLF is one grapheme");
+        assert_eq!(prev_grapheme(t, 6), 4);
+        assert_eq!(next_grapheme(t, 6), 7);
+        assert_eq!(next_grapheme(t, 99), t.len_chars());
+        assert_eq!(prev_grapheme(t, 0), 0);
+        assert_eq!(floor_grapheme(t, 2), 1);
+        assert_eq!(floor_grapheme(t, 5), 4);
+    }
+
+    #[test]
+    fn zwj_sequences_are_single_graphemes() {
+        let rope = r("👨\u{200d}👩\u{200d}👧!");
+        let t = rope.slice(..);
+        assert_eq!(next_grapheme(t, 0), 5);
+        assert_eq!(prev_grapheme(t, 5), 0);
+    }
+
+    #[test]
+    fn line_geometry_with_and_without_final_newline() {
+        let rope = r("ab\r\ncd\n\nef");
+        let t = rope.slice(..);
+        assert_eq!(eol_len(t, 0), 2);
+        assert_eq!(eol_len(t, 1), 1);
+        assert_eq!(eol_len(t, 3), 0);
+        assert_eq!(line_end(t, 0), 2);
+        assert_eq!(line_end(t, 2), 7);
+        assert_eq!(line_end(t, 3), 10);
+        assert_eq!(last_content_line(t), 3);
+        let with_nl = r("a\n");
+        assert_eq!(last_content_line(with_nl.slice(..)), 0);
+        assert_eq!(last_content_line(r("").slice(..)), 0);
+        assert_eq!(detect_line_ending(&rope), "\r\n");
+        assert_eq!(detect_line_ending(&r("a\nb\r\n")), "\n");
+    }
+
+    #[test]
+    fn lone_cr_is_not_a_line_break() {
+        let rope = r("a\rb");
+        assert_eq!(rope.len_lines(), 1);
+    }
+
+    #[test]
+    fn char_classes() {
+        assert_eq!(classify('a'), CharClass::Word);
+        assert_eq!(classify('_'), CharClass::Word);
+        assert_eq!(classify('日'), CharClass::Word);
+        assert_eq!(classify(' '), CharClass::Space);
+        assert_eq!(classify('\n'), CharClass::Eol);
+        assert_eq!(classify('.'), CharClass::Punct);
+        assert_eq!(classify('🙂'), CharClass::Other);
+    }
+
+    #[test]
+    fn first_non_blank_and_indent() {
+        let rope = r("  \tab\n   \nx");
+        let t = rope.slice(..);
+        assert_eq!(first_non_blank(t, 0), Some(3));
+        assert_eq!(first_non_blank(t, 1), None);
+        assert_eq!(leading_whitespace(t, 0), "  \t");
+        assert!(is_blank_line(t, 1));
+        assert_eq!(line_content(t, 2), "x");
+        assert_eq!(line_content(t, 9), "");
+    }
 }

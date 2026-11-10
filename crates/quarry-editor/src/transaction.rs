@@ -102,3 +102,65 @@ impl Transaction {
         Some((self.changes.first()?.from, self.changes.last()?.to))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ch(from: usize, to: usize, text: &str) -> Change {
+        Change { from, to, text: text.to_string() }
+    }
+
+    #[test]
+    fn apply_and_invert_roundtrip() {
+        let mut rope = Rope::from_str("hello world");
+        let tx = Transaction::new(vec![ch(0, 5, "HEY"), ch(6, 11, ""), ch(11, 11, "!")]);
+        let inv = tx.apply(&mut rope);
+        assert_eq!(rope.to_string(), "HEY !");
+        inv.apply(&mut rope);
+        assert_eq!(rope.to_string(), "hello world");
+    }
+
+    #[test]
+    fn overlapping_changes_are_dropped_not_applied() {
+        let tx = Transaction::new(vec![ch(2, 6, "x"), ch(4, 8, "y")]);
+        assert_eq!(tx.changes.len(), 1);
+        assert_eq!(tx.changes[0].text, "x");
+    }
+
+    #[test]
+    fn two_inserts_at_one_position_keep_their_order() {
+        let mut rope = Rope::from_str("ab");
+        Transaction::new(vec![ch(1, 1, "X"), ch(1, 1, "Y")]).apply(&mut rope);
+        assert_eq!(rope.to_string(), "aXYb");
+    }
+
+    #[test]
+    fn map_pos_insert_association() {
+        let tx = Transaction::new(vec![ch(3, 3, "xx")]);
+        assert_eq!(tx.map_pos(3, Assoc::Before), 3);
+        assert_eq!(tx.map_pos(3, Assoc::After), 5);
+        assert_eq!(tx.map_pos(2, Assoc::After), 2);
+        assert_eq!(tx.map_pos(4, Assoc::Before), 6);
+    }
+
+    #[test]
+    fn map_pos_through_deletion_and_replacement() {
+        let del = Transaction::new(vec![ch(2, 6, "")]);
+        assert_eq!(del.map_pos(4, Assoc::Before), 2);
+        assert_eq!(del.map_pos(4, Assoc::After), 2);
+        assert_eq!(del.map_pos(8, Assoc::After), 4);
+        let rep = Transaction::new(vec![ch(2, 6, "abc")]);
+        assert_eq!(rep.map_pos(2, Assoc::After), 2, "replacement start stays put");
+        assert_eq!(rep.map_pos(6, Assoc::Before), 5);
+        assert_eq!(rep.map_pos(4, Assoc::Before), 2);
+        assert_eq!(rep.map_pos(4, Assoc::After), 5);
+    }
+
+    #[test]
+    fn unicode_chars_not_bytes() {
+        let mut rope = Rope::from_str("héllo");
+        Transaction::new(vec![ch(1, 2, "e")]).apply(&mut rope);
+        assert_eq!(rope.to_string(), "hello");
+    }
+}

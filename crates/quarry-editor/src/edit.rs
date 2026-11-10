@@ -88,7 +88,10 @@ impl Editor {
                         }
                         None => {
                             let s = self.sels.v[i];
-                            v.push(Selection::new((s.anchor as isize + shift) as usize, (s.head as isize + shift) as usize));
+                            v.push(Selection::new(
+                                (s.anchor as isize + shift) as usize,
+                                (s.head as isize + shift) as usize,
+                            ));
                         }
                     }
                 }
@@ -100,10 +103,14 @@ impl Editor {
 
     fn specs_for(&self, f: impl Fn(Text, usize, usize) -> Option<EditSpec>) -> Vec<Option<EditSpec>> {
         let t = self.t();
-        self.sels.v.iter().map(|s| {
-            let (from, to) = self.edit_range(s);
-            f(t, from, to)
-        }).collect()
+        self.sels
+            .v
+            .iter()
+            .map(|s| {
+                let (from, to) = self.edit_range(s);
+                f(t, from, to)
+            })
+            .collect()
     }
 
     pub(crate) fn type_char(&mut self, c: char) {
@@ -153,7 +160,8 @@ impl Editor {
     }
 
     pub(crate) fn insert_plain(&mut self, text: &str) {
-        let specs = self.specs_for(|_, from, to| Some(EditSpec { from, to, text: text.to_string(), back: 0 }));
+        let specs =
+            self.specs_for(|_, from, to| Some(EditSpec { from, to, text: text.to_string(), back: 0 }));
         self.apply_specs(specs);
     }
 
@@ -180,7 +188,10 @@ impl Editor {
             let opens = before.trim_end().ends_with(['(', '[', '{']);
             let prev = if from > 0 { Some(t.char(from - 1)) } else { None };
             let next = if to < t.len_chars() { Some(t.char(to)) } else { None };
-            let between = matches!((prev, next), (Some('('), Some(')')) | (Some('['), Some(']')) | (Some('{'), Some('}')));
+            let between = matches!(
+                (prev, next),
+                (Some('('), Some(')')) | (Some('['), Some(']')) | (Some('{'), Some('}'))
+            );
             let inner = if opens { format!("{indent}{INDENT}") } else { indent.clone() };
             if between {
                 let text = format!("{le}{inner}{le}{indent}");
@@ -199,110 +210,144 @@ impl Editor {
 
     pub(crate) fn backspace(&mut self) {
         let std = self.keymap == Keymap::Standard;
-        let specs = self.sels.v.iter().map(|s| {
-            let t = self.rope.slice(..);
-            let (from, to) = self.edit_range(s);
-            if std && from < to {
-                return Some(EditSpec { from, to, text: String::new(), back: 0 });
-            }
-            if from == 0 {
-                return None;
-            }
-            let prev = t.char(from - 1);
-            let next = if from < t.len_chars() { Some(t.char(from)) } else { None };
-            if closer_of(prev).is_some_and(|c| Some(c) == next) {
-                return Some(EditSpec { from: from - 1, to: from + 1, text: String::new(), back: 0 });
-            }
-            let line = t.char_to_line(from);
-            let ls = t.line_to_char(line);
-            let col = from - ls;
-            if col > 0 && (ls..from).all(|i| t.char(i) == ' ') {
-                let n = if col.is_multiple_of(4) { 4 } else { col % 4 };
-                return Some(EditSpec { from: from - n, to: from, text: String::new(), back: 0 });
-            }
-            Some(EditSpec { from: text::prev_grapheme(t, from), to: from, text: String::new(), back: 0 })
-        }).collect();
+        let specs = self
+            .sels
+            .v
+            .iter()
+            .map(|s| {
+                let t = self.rope.slice(..);
+                let (from, to) = self.edit_range(s);
+                if std && from < to {
+                    return Some(EditSpec { from, to, text: String::new(), back: 0 });
+                }
+                if from == 0 {
+                    return None;
+                }
+                let prev = t.char(from - 1);
+                let next = if from < t.len_chars() { Some(t.char(from)) } else { None };
+                if closer_of(prev).is_some_and(|c| Some(c) == next) {
+                    return Some(EditSpec { from: from - 1, to: from + 1, text: String::new(), back: 0 });
+                }
+                let line = t.char_to_line(from);
+                let ls = t.line_to_char(line);
+                let col = from - ls;
+                if col > 0 && (ls..from).all(|i| t.char(i) == ' ') {
+                    let n = if col.is_multiple_of(4) { 4 } else { col % 4 };
+                    return Some(EditSpec { from: from - n, to: from, text: String::new(), back: 0 });
+                }
+                Some(EditSpec { from: text::prev_grapheme(t, from), to: from, text: String::new(), back: 0 })
+            })
+            .collect();
         self.apply_specs(specs);
     }
 
     pub(crate) fn delete_forward(&mut self) {
         let std = self.keymap == Keymap::Standard;
-        let specs = self.sels.v.iter().map(|s| {
-            let t = self.rope.slice(..);
-            let (from, to) = self.edit_range(s);
-            if std && from < to {
-                return Some(EditSpec { from, to, text: String::new(), back: 0 });
-            }
-            if from >= t.len_chars() {
-                return None;
-            }
-            Some(EditSpec { from, to: text::next_grapheme(t, from), text: String::new(), back: 0 })
-        }).collect();
+        let specs = self
+            .sels
+            .v
+            .iter()
+            .map(|s| {
+                let t = self.rope.slice(..);
+                let (from, to) = self.edit_range(s);
+                if std && from < to {
+                    return Some(EditSpec { from, to, text: String::new(), back: 0 });
+                }
+                if from >= t.len_chars() {
+                    return None;
+                }
+                Some(EditSpec { from, to: text::next_grapheme(t, from), text: String::new(), back: 0 })
+            })
+            .collect();
         self.apply_specs(specs);
     }
 
     pub(crate) fn delete_word_back(&mut self) {
         let std = self.keymap == Keymap::Standard;
-        let specs = self.sels.v.iter().map(|s| {
-            let t = self.rope.slice(..);
-            let (from, to) = self.edit_range(s);
-            if std && from < to {
-                return Some(EditSpec { from, to, text: String::new(), back: 0 });
-            }
-            if from == 0 {
-                return None;
-            }
-            let target = if std { std_word_left(t, from) } else {
-                motion::word_move(t, Selection::point(from), 1, WordKind::PrevStart, false).head
-            };
-            (target < from).then(|| EditSpec { from: target, to: from, text: String::new(), back: 0 })
-        }).collect();
+        let specs = self
+            .sels
+            .v
+            .iter()
+            .map(|s| {
+                let t = self.rope.slice(..);
+                let (from, to) = self.edit_range(s);
+                if std && from < to {
+                    return Some(EditSpec { from, to, text: String::new(), back: 0 });
+                }
+                if from == 0 {
+                    return None;
+                }
+                let target = if std {
+                    std_word_left(t, from)
+                } else {
+                    motion::word_move(t, Selection::point(from), 1, WordKind::PrevStart, false).head
+                };
+                (target < from).then(|| EditSpec { from: target, to: from, text: String::new(), back: 0 })
+            })
+            .collect();
         self.apply_specs(specs);
     }
 
     pub(crate) fn delete_word_forward(&mut self) {
         let std = self.keymap == Keymap::Standard;
-        let specs = self.sels.v.iter().map(|s| {
-            let t = self.rope.slice(..);
-            let (from, to) = self.edit_range(s);
-            if std && from < to {
-                return Some(EditSpec { from, to, text: String::new(), back: 0 });
-            }
-            if from >= t.len_chars() {
-                return None;
-            }
-            let target = if std { std_word_right(t, from) } else {
-                motion::word_move(t, Selection::point(from), 1, WordKind::NextStart, false).head
-            };
-            (target > from).then(|| EditSpec { from, to: target, text: String::new(), back: 0 })
-        }).collect();
+        let specs = self
+            .sels
+            .v
+            .iter()
+            .map(|s| {
+                let t = self.rope.slice(..);
+                let (from, to) = self.edit_range(s);
+                if std && from < to {
+                    return Some(EditSpec { from, to, text: String::new(), back: 0 });
+                }
+                if from >= t.len_chars() {
+                    return None;
+                }
+                let target = if std {
+                    std_word_right(t, from)
+                } else {
+                    motion::word_move(t, Selection::point(from), 1, WordKind::NextStart, false).head
+                };
+                (target > from).then(|| EditSpec { from, to: target, text: String::new(), back: 0 })
+            })
+            .collect();
         self.apply_specs(specs);
     }
 
     pub(crate) fn kill_to_line_start(&mut self) {
-        let specs = self.sels.v.iter().map(|s| {
-            let t = self.rope.slice(..);
-            let (from, _) = self.edit_range(s);
-            let ls = t.line_to_char(t.char_to_line(from));
-            (ls < from).then(|| EditSpec { from: ls, to: from, text: String::new(), back: 0 })
-        }).collect();
+        let specs = self
+            .sels
+            .v
+            .iter()
+            .map(|s| {
+                let t = self.rope.slice(..);
+                let (from, _) = self.edit_range(s);
+                let ls = t.line_to_char(t.char_to_line(from));
+                (ls < from).then(|| EditSpec { from: ls, to: from, text: String::new(), back: 0 })
+            })
+            .collect();
         self.apply_specs(specs);
     }
 
     pub(crate) fn kill_to_line_end(&mut self) {
-        let specs = self.sels.v.iter().map(|s| {
-            let t = self.rope.slice(..);
-            let (_, to) = self.edit_range(s);
-            let line = t.char_to_line(to);
-            let le = text::line_end(t, line);
-            if to < le {
-                Some(EditSpec { from: to, to: le, text: String::new(), back: 0 })
-            } else if to < t.len_chars() {
-                Some(EditSpec { from: to, to: to + text::eol_len(t, line), text: String::new(), back: 0 })
-            } else {
-                None
-            }
-        }).collect();
+        let specs = self
+            .sels
+            .v
+            .iter()
+            .map(|s| {
+                let t = self.rope.slice(..);
+                let (_, to) = self.edit_range(s);
+                let line = t.char_to_line(to);
+                let le = text::line_end(t, line);
+                if to < le {
+                    Some(EditSpec { from: to, to: le, text: String::new(), back: 0 })
+                } else if to < t.len_chars() {
+                    Some(EditSpec { from: to, to: to + text::eol_len(t, line), text: String::new(), back: 0 })
+                } else {
+                    None
+                }
+            })
+            .collect();
         self.apply_specs(specs);
     }
 
@@ -348,7 +393,13 @@ impl Editor {
 
     fn word_move_insert(&mut self, fwd: bool) {
         self.transform_sels(|t, s| {
-            let w = motion::word_move(t, *s, 1, if fwd { WordKind::NextStart } else { WordKind::PrevStart }, false);
+            let w = motion::word_move(
+                t,
+                *s,
+                1,
+                if fwd { WordKind::NextStart } else { WordKind::PrevStart },
+                false,
+            );
             Selection::point(w.block_cursor(t))
         });
     }

@@ -40,7 +40,8 @@ fn types_and_casts() {
 
 #[test]
 fn comments_line_and_nested_block() {
-    let mut e = ed("select 1 -- trailing\n/* a /* b */ still */ select 2\n/* open\nstill comment\n*/ select 3\n");
+    let mut e =
+        ed("select 1 -- trailing\n/* a /* b */ still */ select 2\n/* open\nstill comment\n*/ select 3\n");
     assert!(kinds(&mut e, 0).contains(&("-- trailing".into(), K::Comment)));
     let k1 = kinds(&mut e, 1);
     assert_eq!(k1[0], ("/* a /* b */ still */".into(), K::Comment));
@@ -167,5 +168,9 @@ fn highlighting_is_fast_on_a_big_buffer() {
     for l in 19_900..20_000 {
         e.highlights(l);
     }
-    assert!(t.elapsed().as_millis() < 100, "re-highlight after edit: {:?} (first pass {first:?})", t.elapsed());
+    assert!(
+        t.elapsed().as_millis() < 100,
+        "re-highlight after edit: {:?} (first pass {first:?})",
+        t.elapsed()
+    );
 }

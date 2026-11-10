@@ -54,7 +54,14 @@ fn enclosing_brackets(t: Text, from: usize, end: usize, open: char, close: char)
 }
 
 /// Quote pairs (nearest left, nearest right) around the range, `nth` levels out.
-fn enclosing_quotes(t: Text, from: usize, end: usize, q: char, nth: usize, same_line: bool) -> Option<(usize, usize)> {
+fn enclosing_quotes(
+    t: Text,
+    from: usize,
+    end: usize,
+    q: char,
+    nth: usize,
+    same_line: bool,
+) -> Option<(usize, usize)> {
     let len = t.len_chars();
     let (lo, hi) = if same_line {
         let l = t.char_to_line(from);
@@ -73,21 +80,55 @@ fn enclosing_quotes(t: Text, from: usize, end: usize, q: char, nth: usize, same_
         let (mut lefts, mut rights): (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
         if opens {
             lefts.push(from);
-            rights.extend(chars_fwd(t, from + 1).take_while(|&(i, _)| i < hi).filter(|&(_, c)| c == q).map(|(i, _)| i).take(n));
-            lefts.extend(chars_back(t, from.saturating_sub(1)).take_while(|&(i, _)| i >= lo && from > 0).filter(|&(_, c)| c == q).map(|(i, _)| i).take(n));
+            rights.extend(
+                chars_fwd(t, from + 1)
+                    .take_while(|&(i, _)| i < hi)
+                    .filter(|&(_, c)| c == q)
+                    .map(|(i, _)| i)
+                    .take(n),
+            );
+            lefts.extend(
+                chars_back(t, from.saturating_sub(1))
+                    .take_while(|&(i, _)| i >= lo && from > 0)
+                    .filter(|&(_, c)| c == q)
+                    .map(|(i, _)| i)
+                    .take(n),
+            );
         } else {
             rights.push(from);
-            lefts.extend(chars_back(t, from.saturating_sub(1)).take_while(|&(i, _)| i >= lo && from > 0).filter(|&(_, c)| c == q).map(|(i, _)| i).take(n));
-            rights.extend(chars_fwd(t, from + 1).take_while(|&(i, _)| i < hi).filter(|&(_, c)| c == q).map(|(i, _)| i).take(n));
+            lefts.extend(
+                chars_back(t, from.saturating_sub(1))
+                    .take_while(|&(i, _)| i >= lo && from > 0)
+                    .filter(|&(_, c)| c == q)
+                    .map(|(i, _)| i)
+                    .take(n),
+            );
+            rights.extend(
+                chars_fwd(t, from + 1)
+                    .take_while(|&(i, _)| i < hi)
+                    .filter(|&(_, c)| c == q)
+                    .map(|(i, _)| i)
+                    .take(n),
+            );
         }
         return Some((*lefts.get(n - 1)?, *rights.get(n - 1)?)).filter(|(o, c)| o < c);
     }
     let left = if from == 0 {
         None
     } else {
-        chars_back(t, from - 1).take(MAX_SCAN).take_while(|&(i, _)| i >= lo).filter(|&(_, c)| c == q).map(|(i, _)| i).nth(n - 1)
+        chars_back(t, from - 1)
+            .take(MAX_SCAN)
+            .take_while(|&(i, _)| i >= lo)
+            .filter(|&(_, c)| c == q)
+            .map(|(i, _)| i)
+            .nth(n - 1)
     };
-    let right = chars_fwd(t, end + 1).take(MAX_SCAN).take_while(|&(i, _)| i < hi).filter(|&(_, c)| c == q).map(|(i, _)| i).nth(n - 1);
+    let right = chars_fwd(t, end + 1)
+        .take(MAX_SCAN)
+        .take_while(|&(i, _)| i < hi)
+        .filter(|&(_, c)| c == q)
+        .map(|(i, _)| i)
+        .nth(n - 1);
     Some((left?, right?)).filter(|(o, c)| o < c)
 }
 

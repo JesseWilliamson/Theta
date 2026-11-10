@@ -392,7 +392,6 @@ fn build_trie() -> Sub {
         s.bind("t", Cmd::Fx(FxKind::Theme), "theme picker");
         s.bind("c", Cmd::Fx(FxKind::CommentLines), "toggle line comments");
         s.bind("x", Cmd::Fx(FxKind::Cancel), "cancel running query");
-        s.bind("e", Cmd::Fx(FxKind::Explain), "explain");
         s.bind("/", Cmd::Fx(FxKind::TablePicker), "search tables");
         s.bind("g", Cmd::Fx(FxKind::FocusResults), "focus results");
         s.bind("d", Cmd::Fx(FxKind::FocusExplorer), "focus explorer");
@@ -472,7 +471,10 @@ impl Editor {
                 return Some((t.into(), OBJECT_HINTS.iter().map(|(k, d)| hint(k, d)).collect()));
             }
             Some(Await::SurroundAdd) => {
-                return Some(("Surround with".into(), OBJECT_HINTS.iter().skip(3).take(7).map(|(k, d)| hint(k, d)).collect()));
+                return Some((
+                    "Surround with".into(),
+                    OBJECT_HINTS.iter().skip(3).take(7).map(|(k, d)| hint(k, d)).collect(),
+                ));
             }
             _ => {}
         }
@@ -507,7 +509,11 @@ impl Editor {
 
     /// Called at the end of every Helix key: finalises dot-repeat bookkeeping.
     pub(crate) fn hx_finish_command(&mut self) {
-        if self.mode == Mode::Insert || self.hx.await_.is_some() || !self.hx.pending.is_empty() || self.prompt.is_some() {
+        if self.mode == Mode::Insert
+            || self.hx.await_.is_some()
+            || !self.hx.pending.is_empty()
+            || self.prompt.is_some()
+        {
             return;
         }
         if self.hx.replaying == 0 {
@@ -858,7 +864,13 @@ impl Editor {
                 let mut changes = Vec::new();
                 for s in &self.sels.v {
                     let line = t.char_to_line(s.block_cursor(t));
-                    let pos = if below { t.line_to_char((line + 1).min(t.len_lines() - 1)).max(if line + 1 < t.len_lines() { 0 } else { t.len_chars() }) } else { t.line_to_char(line) };
+                    let pos =
+                        if below {
+                            t.line_to_char((line + 1).min(t.len_lines() - 1))
+                                .max(if line + 1 < t.len_lines() { 0 } else { t.len_chars() })
+                        } else {
+                            t.line_to_char(line)
+                        };
                     changes.push(Change { from: pos, to: pos, text: le.repeat(cnt) });
                 }
                 self.apply(Transaction::new(changes));
@@ -916,7 +928,11 @@ impl Editor {
             }
             RotateBack | RotateFwd => {
                 let len = self.sels.len();
-                let p = if cmd == RotateFwd { (self.sels.primary + cnt) % len } else { (self.sels.primary + len - cnt % len) % len };
+                let p = if cmd == RotateFwd {
+                    (self.sels.primary + cnt) % len
+                } else {
+                    (self.sels.primary + len - cnt % len) % len
+                };
                 self.sels.primary = p;
             }
             RotateContentsBack | RotateContentsFwd => self.rotate_contents(cmd == RotateContentsFwd, cnt),
@@ -930,7 +946,8 @@ impl Editor {
             Trim => self.trim_selections(),
             Align => self.align_selections(),
             MergeSelections => {
-                let (a, b) = (self.sels.v.first().map_or(0, |s| s.from()), self.sels.v.last().map_or(0, |s| s.to()));
+                let (a, b) =
+                    (self.sels.v.first().map_or(0, |s| s.from()), self.sels.v.last().map_or(0, |s| s.to()));
                 self.set_primary_only(Selection::new(a, b));
             }
             MergeConsecutive => {
@@ -1199,7 +1216,11 @@ impl Editor {
     pub(crate) fn move_horizontal(&mut self, right: bool, cnt: usize, extend: bool) {
         self.transform_sels(|t, s| {
             let pos = s.block_cursor(t);
-            let new = if right { text::nth_next_grapheme(t, pos, cnt) } else { text::nth_prev_grapheme(t, pos, cnt) };
+            let new = if right {
+                text::nth_next_grapheme(t, pos, cnt)
+            } else {
+                text::nth_prev_grapheme(t, pos, cnt)
+            };
             s.put_cursor(t, new, extend)
         });
     }
@@ -1341,8 +1362,13 @@ impl Editor {
         } else {
             frags.rotate_left(k);
         }
-        let changes: Vec<Change> =
-            self.sels.v.iter().zip(frags).map(|(s, f)| Change { from: s.from(), to: s.to(), text: f }).collect();
+        let changes: Vec<Change> = self
+            .sels
+            .v
+            .iter()
+            .zip(frags)
+            .map(|(s, f)| Change { from: s.from(), to: s.to(), text: f })
+            .collect();
         self.apply(Transaction::new(changes));
     }
 
@@ -1417,7 +1443,8 @@ impl Editor {
             let mut cols = Vec::new();
             for (line, v) in &rows {
                 if let Some(&i) = v.get(k) {
-                    let col = self.sels.v[i].head - t.line_to_char(*line) + v[..k].iter().map(|&j| pad[j]).sum::<usize>();
+                    let col = self.sels.v[i].head - t.line_to_char(*line)
+                        + v[..k].iter().map(|&j| pad[j]).sum::<usize>();
                     target = target.max(col);
                     cols.push((i, col));
                 }
@@ -1452,7 +1479,8 @@ impl Editor {
     fn enter_append(&mut self) {
         let t = self.rope.slice(..);
         let len = t.len_chars();
-        let at_eof = self.sels.v.iter().any(|s| !s.is_empty() && s.to() == len) || self.sels.v.iter().any(|s| s.to() >= len);
+        let at_eof = self.sels.v.iter().any(|s| !s.is_empty() && s.to() == len)
+            || self.sels.v.iter().any(|s| s.to() >= len);
         self.hx.restore_cursor = true;
         self.transform_sels(|t, s| {
             if s.to() >= t.len_chars() {
@@ -1499,7 +1527,11 @@ impl Editor {
         let mut points = Vec::new();
         let mut offs = 0usize;
         for s in &self.sels.v {
-            let cur_line = if below { t.char_to_line(text::prev_grapheme(t, s.to()).max(s.from())) } else { t.char_to_line(s.from()) };
+            let cur_line = if below {
+                t.char_to_line(text::prev_grapheme(t, s.to()).max(s.from()))
+            } else {
+                t.char_to_line(s.from())
+            };
             let indent = self.indent_for_new_line(cur_line);
             let unit = format!("{le}{indent}");
             let body = unit.repeat(cnt);
@@ -1612,7 +1644,12 @@ impl Editor {
             // pasting linewise after the last line without a final newline needs one first
             let mut ins = value;
             let mut extra = 0;
-            if linewise && after && pos == t.len_chars() && t.len_chars() > 0 && !matches!(t.char(t.len_chars() - 1), '\n') {
+            if linewise
+                && after
+                && pos == t.len_chars()
+                && t.len_chars() > 0
+                && !matches!(t.char(t.len_chars() - 1), '\n')
+            {
                 ins = format!("{le}{ins}");
                 extra = le.chars().count();
             }
@@ -1791,7 +1828,11 @@ impl Editor {
                 changes.push(Change { from: p, to: e, text: String::new() });
             }
         } else {
-            let col = non_blank.iter().map(|&l| text::first_non_blank(t, l).unwrap() - t.line_to_char(l)).min().unwrap_or(0);
+            let col = non_blank
+                .iter()
+                .map(|&l| text::first_non_blank(t, l).unwrap() - t.line_to_char(l))
+                .min()
+                .unwrap_or(0);
             for &l in &non_blank {
                 let p = t.line_to_char(l) + col;
                 changes.push(Change { from: p, to: p, text: "-- ".to_string() });
@@ -1816,13 +1857,19 @@ impl Editor {
             let found = find_number(t, lo, hi, s.len() <= 1 || text::next_grapheme(t, s.from()) >= s.to());
             match found {
                 Some((a, b, val, radix, width_neg)) => {
-                    let new = format_number(val + delta as i128, radix, b - a, width_neg);
+                    let padded = radix == 10
+                        && b - a - usize::from(width_neg) > 1
+                        && t.char(a + usize::from(width_neg)) == '0';
+                    let new = format_number(val + delta as i128, radix, b - a, width_neg, padded);
                     let n = new.chars().count();
                     changes.push(Change { from: a, to: b, text: new });
                     sels.push(Selection::new((a as isize + offs) as usize, (a as isize + offs) as usize + n));
                     offs += n as isize - (b - a) as isize;
                 }
-                None => sels.push(Selection::new((s.anchor as isize + offs) as usize, (s.head as isize + offs) as usize)),
+                None => sels.push(Selection::new(
+                    (s.anchor as isize + offs) as usize,
+                    (s.head as isize + offs) as usize,
+                )),
             }
         }
         if changes.is_empty() {
@@ -1906,7 +1953,8 @@ impl Editor {
     fn surround_add(&mut self, c: char) {
         let (o, cl) = if c == '\n' { ('\n', '\n') } else { objects::surround_pair(c) };
         let le = self.line_ending;
-        let (os, cs) = if c == '\n' { (le.to_string(), le.to_string()) } else { (o.to_string(), cl.to_string()) };
+        let (os, cs) =
+            if c == '\n' { (le.to_string(), le.to_string()) } else { (o.to_string(), cl.to_string()) };
         let (ol, cl_len) = (os.chars().count(), cs.chars().count());
         let mut changes = Vec::new();
         let mut ranges = Vec::new();
@@ -1914,7 +1962,9 @@ impl Editor {
         for s in &self.sels.v {
             changes.push(Change { from: s.from(), to: s.from(), text: os.clone() });
             changes.push(Change { from: s.to(), to: s.to(), text: cs.clone() });
-            ranges.push(Selection::new(offs + s.from(), offs + s.to() + ol + cl_len).with_direction(s.is_forward()));
+            ranges.push(
+                Selection::new(offs + s.from(), offs + s.to() + ol + cl_len).with_direction(s.is_forward()),
+            );
             offs += ol + cl_len;
         }
         let sels = Selections::new(ranges, self.sels.primary);
@@ -1955,7 +2005,13 @@ impl Editor {
 }
 
 fn switch_char(c: char) -> Vec<char> {
-    if c.is_lowercase() { c.to_uppercase().collect() } else if c.is_uppercase() { c.to_lowercase().collect() } else { vec![c] }
+    if c.is_lowercase() {
+        c.to_uppercase().collect()
+    } else if c.is_uppercase() {
+        c.to_lowercase().collect()
+    } else {
+        vec![c]
+    }
 }
 
 /// Find a number in `lo..hi`. With `at_cursor` the number containing `lo` wins, else the first
@@ -1971,7 +2027,9 @@ fn find_number(t: Text, lo: usize, hi: usize, at_cursor: bool) -> Option<(usize,
     // walk back if the cursor is inside a number
     let mut i = lo;
     if at_cursor && (is_digit(i) || (is_hex(i) && hex_prefix_before(t, i))) {
-        while i > 0 && (is_hex(i - 1) || (i >= 2 && matches!(t.char(i - 1), 'x' | 'X') && t.char(i - 2) == '0')) {
+        while i > 0
+            && (is_hex(i - 1) || (i >= 2 && matches!(t.char(i - 1), 'x' | 'X') && t.char(i - 2) == '0'))
+        {
             if !is_digit(i - 1) && !hex_prefix_before(t, i - 1) && !(matches!(t.char(i - 1), 'x' | 'X')) {
                 break;
             }
@@ -1986,7 +2044,8 @@ fn find_number(t: Text, lo: usize, hi: usize, at_cursor: bool) -> Option<(usize,
         }
     }
     let start = i;
-    if start + 1 < len && t.char(start) == '0' && matches!(t.char(start + 1), 'x' | 'X') && is_hex(start + 2) {
+    if start + 1 < len && t.char(start) == '0' && matches!(t.char(start + 1), 'x' | 'X') && is_hex(start + 2)
+    {
         let mut e = start + 2;
         while is_hex(e) {
             e += 1;
@@ -2005,7 +2064,8 @@ fn find_number(t: Text, lo: usize, hi: usize, at_cursor: bool) -> Option<(usize,
     }
     let mut a = s0;
     let mut neg = false;
-    if a > 0 && t.char(a - 1) == '-' && (a < 2 || !(t.char(a - 2).is_alphanumeric() || t.char(a - 2) == '_')) {
+    if a > 0 && t.char(a - 1) == '-' && (a < 2 || !(t.char(a - 2).is_alphanumeric() || t.char(a - 2) == '_'))
+    {
         a -= 1;
         neg = true;
     }
@@ -2022,15 +2082,14 @@ fn hex_prefix_before(t: Text, i: usize) -> bool {
     j >= 2 && matches!(t.char(j - 1), 'x' | 'X') && t.char(j - 2) == '0'
 }
 
-fn format_number(v: i128, radix: u32, old_len: usize, _neg: bool) -> String {
+fn format_number(v: i128, radix: u32, old_len: usize, was_neg: bool, padded: bool) -> String {
     if radix == 16 {
         let w = old_len.saturating_sub(2);
-        format!("0x{:0w$x}", v.max(0), w = w)
-    } else {
-        let digits = v.unsigned_abs().to_string();
-        // keep leading zeros of the original width ("007" -> "008")
-        let w = old_len.saturating_sub(usize::from(false));
-        let _ = w;
-        if v < 0 { format!("-{digits}") } else { digits }
+        return format!("0x{:0w$x}", v.max(0), w = w);
     }
+    let digits = v.unsigned_abs().to_string();
+    // Keep the width of zero-padded numbers: "007" + 1 = "008".
+    let old_digits = old_len - usize::from(was_neg);
+    let digits = if padded && digits.len() < old_digits { format!("{digits:0>old_digits$}") } else { digits };
+    if v < 0 { format!("-{digits}") } else { digits }
 }

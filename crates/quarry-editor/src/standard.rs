@@ -62,7 +62,11 @@ impl Editor {
                 }
                 // Past the first/last line the cursor goes to the document edge, like most editors.
                 None => {
-                    if down { t.len_chars() } else { 0 }
+                    if down {
+                        t.len_chars()
+                    } else {
+                        0
+                    }
                 }
             };
             v.push(if extend { Selection::new(s.anchor, h) } else { Selection::point(h) });
@@ -149,7 +153,11 @@ impl Editor {
                         .iter()
                         .map(|s| {
                             if s.is_empty() {
-                                let h = if right { text::next_grapheme(t, s.head) } else { text::prev_grapheme(t, s.head) };
+                                let h = if right {
+                                    text::next_grapheme(t, s.head)
+                                } else {
+                                    text::prev_grapheme(t, s.head)
+                                };
                                 Selection::point(h)
                             } else {
                                 Selection::point(if right { s.to() } else { s.from() })
@@ -205,7 +213,11 @@ impl Editor {
                 let lines = self.lines_viewport();
                 self.std_vertical(key == Key::PageDown, lines, shift);
                 let l = lines as i32;
-                self.effects.push(Effect::Scroll(ScrollRequest::Lines(if key == Key::PageDown { l } else { -l })));
+                self.effects.push(Effect::Scroll(ScrollRequest::Lines(if key == Key::PageDown {
+                    l
+                } else {
+                    -l
+                })));
             }
             Key::Enter => self.insert_newline(),
             Key::Backspace => {
@@ -259,12 +271,10 @@ impl Editor {
             }
             ('c', false) => self.std_copy(false),
             ('x', false) => self.std_copy(true),
-            ('v', false) => {
-                match self.clipboard.clone() {
-                    Some(t) => self.std_paste(&t, true),
-                    None => self.status("clipboard is empty"),
-                }
-            }
+            ('v', false) => match self.clipboard.clone() {
+                Some(t) => self.std_paste(&t, true),
+                None => self.status("clipboard is empty"),
+            },
             ('z', false) => {
                 if !self.undo() {
                     self.status("nothing to undo");
@@ -303,9 +313,8 @@ impl Editor {
 
     /// Typing a character: replaces selections, auto-pairs, and groups runs for undo.
     fn std_type(&mut self, c: char) {
-        let boundary = self.std.was_run
-            && self.std.last_typed.is_some_and(|p| p.is_whitespace())
-            && !c.is_whitespace();
+        let boundary =
+            self.std.was_run && self.std.last_typed.is_some_and(|p| p.is_whitespace()) && !c.is_whitespace();
         if boundary {
             self.commit_group();
             self.group_base = self.sels.clone();
@@ -343,7 +352,12 @@ impl Editor {
                     let ls = t.line_to_char(line);
                     let body = conv(&text);
                     let body = if body.ends_with('\n') { body } else { format!("{body}{le}") };
-                    return Some(EditSpec { from: ls, to: ls, text: body, back: ls as isize - s.head as isize });
+                    return Some(EditSpec {
+                        from: ls,
+                        to: ls,
+                        text: body,
+                        back: ls as isize - s.head as isize,
+                    });
                 }
                 let body = if distribute { parts[i].to_string() } else { text.clone() };
                 Some(EditSpec { from: s.from(), to: s.to(), text: conv(&body), back: 0 })
@@ -410,7 +424,9 @@ impl Editor {
         let mut used_to: Option<usize> = None;
         for (l0, l1) in self.line_blocks() {
             let (lo, hi) = if down {
-                if l1 + 1 >= nlines || (l1 + 1 == nlines - 1 && t.line(l1 + 1).len_chars() == 0 && nlines > 1 && false) {
+                if l1 + 1 >= nlines
+                    || (l1 + 1 == nlines - 1 && t.line(l1 + 1).len_chars() == 0 && nlines > 1 && false)
+                {
                     continue;
                 }
                 (l0, l1 + 1)
@@ -657,5 +673,4 @@ impl Editor {
         self.set_sels(Selections::new(out, primary));
         self.status(format!("{n} selections"));
     }
-
 }

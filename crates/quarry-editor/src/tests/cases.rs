@@ -3,6 +3,13 @@
 use super::*;
 
 hx_cases! {
+    increment_keeps_zero_padding: "#[0|]#07\n", "<C-a>" => "#[008|]#\n";
+    increment_zero_padded_carries: "#[0|]#09\n", "<C-a>" => "#[010|]#\n";
+    decrement_crosses_zero: "#[1|]#\n", "2<C-x>" => "#[-1|]#\n";
+    increment_negative_to_positive: "#[-|]#1\n", "2<C-a>" => "#[1|]#\n";
+    replace_with_yanked_register: "#[ab|]# cd\n", "y/cd<ret>R" => "ab #[ab|]#\n";
+    replace_with_yanked_count_repeats: "#[a|]# b\n", "y/b<ret>2R" => "a #[aa|]#\n";
+    keep_primary_then_delete: "#[a|]# #(b|)#\n", ",d" => "#[ |]#b\n";
     l_moves_onto_the_newline: "ab#[c|]#\ncd\n", "l" => "abc#[\n|]#cd\n";
     l_again_wraps_to_next_line: "ab#[c|]#\ncd\n", "ll" => "abc\n#[c|]#d\n";
     h_crosses_back_over_newline: "abc\n#[d|]#ef\n", "h" => "abc#[\n|]#def\n";

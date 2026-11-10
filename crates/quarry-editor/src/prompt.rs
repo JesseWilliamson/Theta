@@ -46,8 +46,27 @@ pub(crate) struct SearchState {
 }
 
 const COMMANDS: &[&str] = &[
-    "write", "quit", "quit-all", "write-quit", "run", "run-all", "explain", "analyze", "format", "theme",
-    "connect", "goto", "sort", "new", "cancel", "w", "q", "qa", "wq", "r", "fmt",
+    "write",
+    "quit",
+    "quit-all",
+    "write-quit",
+    "run",
+    "run-all",
+    "explain",
+    "analyze",
+    "format",
+    "theme",
+    "connect",
+    "goto",
+    "sort",
+    "new",
+    "cancel",
+    "w",
+    "q",
+    "qa",
+    "wq",
+    "r",
+    "fmt",
 ];
 
 /// Compile `pattern` with smart-case: a pattern without any uppercase literal is case-insensitive.
@@ -225,7 +244,8 @@ impl Editor {
 
     fn prompt_history(&mut self, older: bool) {
         let Some(p) = &mut self.prompt else { return };
-        let hist = if p.kind == PromptKind::Command { &self.search.cmd_history } else { &self.search.history };
+        let hist =
+            if p.kind == PromptKind::Command { &self.search.cmd_history } else { &self.search.history };
         if hist.is_empty() {
             return;
         }
@@ -256,7 +276,8 @@ impl Editor {
             Some((b, i)) => (b.clone(), i + 1),
             None => (p.text.clone(), 0),
         };
-        let cands: Vec<&str> = COMMANDS.iter().copied().filter(|c| c.starts_with(&base) && c.len() > 1).collect();
+        let cands: Vec<&str> =
+            COMMANDS.iter().copied().filter(|c| c.starts_with(&base) && c.len() > 1).collect();
         if cands.is_empty() {
             return;
         }
@@ -429,7 +450,13 @@ impl Editor {
 
     /// Move to the `count`-th next/previous match. Normal mode replaces the primary selection,
     /// Select mode (`extend`) adds a selection (Helix semantics).
-    pub(crate) fn search_step(&mut self, re: &Regex, backwards: bool, count: usize, extend: bool) -> Option<()> {
+    pub(crate) fn search_step(
+        &mut self,
+        re: &Regex,
+        backwards: bool,
+        count: usize,
+        extend: bool,
+    ) -> Option<()> {
         let mut found = None;
         let mut pos_sel = self.sels.primary();
         for _ in 0..count.max(1) {
