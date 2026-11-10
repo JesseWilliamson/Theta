@@ -455,6 +455,65 @@ pub fn suggest_joins(catalog: &Catalog, in_scope: &[TableRef], kind: DatabaseKin
     out
 }
 
+pub(crate) struct JoinCondition {
+    pub condition: String,
+    pub via: String,
+    pub inferred: bool,
+}
+
+/// Join conditions linking `refs[newest]` (the table just joined) with each other
+/// table in scope, declared foreign keys first. Used to complete after `ON`.
+pub(crate) fn join_conditions(catalog: &Catalog, refs: &[TableRef], newest: usize, kind: DatabaseKind) -> Vec<JoinCondition> {
+    let Some(a_ref) = refs.get(newest) else { return Vec::new() };
+    let Some(a) = catalog.find_table(a_ref.schema.as_deref(), &a_ref.table) else { return Vec::new() };
+    let a_name = quote_if_needed(a_ref.reference_name(), kind);
+    let inferred = infer_foreign_keys(catalog);
+    let mut real = Vec::new();
+    let mut guessed = Vec::new();
+    for (bi, b_ref) in refs.iter().enumerate() {
+        if bi == newest {
+            continue;
+        }
+        let Some(b) = catalog.find_table(b_ref.schema.as_deref(), &b_ref.table) else { continue };
+        let b_name = quote_if_needed(b_ref.reference_name(), kind);
+        let cond = |child: &str, ccols: &[String], parent: &str, pcols: &[String]| {
+            ccols
+                .iter()
+                .zip(pcols)
+                .map(|(c, p)| format!("{child}.{} = {parent}.{}", quote_if_needed(c, kind), quote_if_needed(p, kind)))
+                .collect::<Vec<_>>()
+                .join(" AND ")
+        };
+        for (child, parent, cn, pn) in [(a, b, &a_name, &b_name), (b, a, &b_name, &a_name)] {
+            for fk in &child.1.foreign_keys {
+                let target = resolve_ref(catalog, child.0, fk.referenced_schema.as_deref(), &fk.referenced_table);
+                if target.is_some_and(|t| std::ptr::eq(t.1, parent.1)) {
+                    real.push(JoinCondition {
+                        condition: cond(cn, &fk.columns, pn, &fk.referenced_columns),
+                        via: fk.name.clone(),
+                        inferred: false,
+                    });
+                }
+            }
+            for v in &inferred {
+                if v.table.eq_ignore_ascii_case(&child.1.name)
+                    && v.schema.eq_ignore_ascii_case(&child.0.name)
+                    && v.referenced_table.eq_ignore_ascii_case(&parent.1.name)
+                    && v.referenced_schema.eq_ignore_ascii_case(&parent.0.name)
+                {
+                    guessed.push(JoinCondition {
+                        condition: cond(cn, std::slice::from_ref(&v.column), pn, std::slice::from_ref(&v.referenced_column)),
+                        via: format!("inferred: {}.{} → {}.{}", v.table, v.column, v.referenced_table, v.referenced_column),
+                        inferred: true,
+                    });
+                }
+            }
+        }
+    }
+    real.extend(guessed);
+    real
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

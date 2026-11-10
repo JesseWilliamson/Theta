@@ -290,7 +290,9 @@ fn parse_factor(
         }
         let name = parts.pop().unwrap_or_default();
         let schema = if parts.is_empty() { None } else { parts.pop() };
-        if p.is_punct(i, "(") && i < to {
+        // After INTO/UPDATE/DELETE/ALTER TABLE/ON, `name (` opens a column list, not a call.
+        let call_ok = !matches!(clause, Clause::Into | Clause::IndexOn | Clause::AlterTable | Clause::Update | Clause::Delete);
+        if p.is_punct(i, "(") && i < to && call_ok {
             let c = p.closing(i).min(to);
             src = Source {
                 schema,
