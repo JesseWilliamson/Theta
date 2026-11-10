@@ -54,13 +54,13 @@ impl Rng {
 
 const FIRST: &[&str] = &[
     "Ada", "Brian", "Chloe", "Dmitri", "Elena", "Farid", "Grace", "Hiro", "Ines", "Jamal", "Katya", "Liam",
-    "Mei", "Noah", "Olga", "Priya", "Quentin", "Rosa", "Sven", "Tara", "Umar", "Vera", "Wen", "Ximena", "Yusuf",
-    "Zoe", "Amara", "Bruno", "Carla", "Dev",
+    "Mei", "Noah", "Olga", "Priya", "Quentin", "Rosa", "Sven", "Tara", "Umar", "Vera", "Wen", "Ximena",
+    "Yusuf", "Zoe", "Amara", "Bruno", "Carla", "Dev",
 ];
 const LAST: &[&str] = &[
-    "Almeida", "Bauer", "Chen", "Dubois", "Eriksen", "Fischer", "Garcia", "Haddad", "Ivanov", "Jensen", "Kim",
-    "Lopez", "Meyer", "Nakamura", "Okafor", "Patel", "Quinn", "Rossi", "Silva", "Tanaka", "Usman", "Vargas",
-    "Walker", "Xu", "Yilmaz", "Zhang", "Moreau", "Novak", "Larsen", "Costa",
+    "Almeida", "Bauer", "Chen", "Dubois", "Eriksen", "Fischer", "Garcia", "Haddad", "Ivanov", "Jensen",
+    "Kim", "Lopez", "Meyer", "Nakamura", "Okafor", "Patel", "Quinn", "Rossi", "Silva", "Tanaka", "Usman",
+    "Vargas", "Walker", "Xu", "Yilmaz", "Zhang", "Moreau", "Novak", "Larsen", "Costa",
 ];
 
 /// (city, country, longitude, latitude)
@@ -93,16 +93,83 @@ const CITIES: &[(&str, &str, f64, f64)] = &[
 ];
 
 const CATEGORIES: &[(&str, &[&str])] = &[
-    ("Coffee", &["Ethiopia Guji", "Colombia Huila", "Kenya AA", "Brazil Santos", "Sumatra Mandheling", "Guatemala Antigua", "Costa Rica Tarrazu", "Yemen Mocha"]),
-    ("Tea", &["Darjeeling First Flush", "Sencha Kirishima", "Oolong Tieguanyin", "Earl Grey Reserve", "Assam Breakfast", "Matcha Ceremonial", "Jasmine Pearls", "Pu-erh Aged"]),
-    ("Equipment", &["Burr Grinder", "Gooseneck Kettle", "Pour-over Dripper", "Espresso Tamper", "Digital Scale", "French Press", "Aeropress Kit", "Milk Frother"]),
-    ("Accessories", &["Ceramic Mug", "Travel Tumbler", "Paper Filters", "Tea Infuser", "Canister Set", "Knock Box", "Cleaning Brush", "Linen Apron"]),
-    ("Snacks", &["Almond Biscotti", "Dark Chocolate Bar", "Oat Cookies", "Salted Caramels", "Dried Mango", "Pistachio Baklava", "Shortbread Tin", "Granola Clusters"]),
+    (
+        "Coffee",
+        &[
+            "Ethiopia Guji",
+            "Colombia Huila",
+            "Kenya AA",
+            "Brazil Santos",
+            "Sumatra Mandheling",
+            "Guatemala Antigua",
+            "Costa Rica Tarrazu",
+            "Yemen Mocha",
+        ],
+    ),
+    (
+        "Tea",
+        &[
+            "Darjeeling First Flush",
+            "Sencha Kirishima",
+            "Oolong Tieguanyin",
+            "Earl Grey Reserve",
+            "Assam Breakfast",
+            "Matcha Ceremonial",
+            "Jasmine Pearls",
+            "Pu-erh Aged",
+        ],
+    ),
+    (
+        "Equipment",
+        &[
+            "Burr Grinder",
+            "Gooseneck Kettle",
+            "Pour-over Dripper",
+            "Espresso Tamper",
+            "Digital Scale",
+            "French Press",
+            "Aeropress Kit",
+            "Milk Frother",
+        ],
+    ),
+    (
+        "Accessories",
+        &[
+            "Ceramic Mug",
+            "Travel Tumbler",
+            "Paper Filters",
+            "Tea Infuser",
+            "Canister Set",
+            "Knock Box",
+            "Cleaning Brush",
+            "Linen Apron",
+        ],
+    ),
+    (
+        "Snacks",
+        &[
+            "Almond Biscotti",
+            "Dark Chocolate Bar",
+            "Oat Cookies",
+            "Salted Caramels",
+            "Dried Mango",
+            "Pistachio Baklava",
+            "Shortbread Tin",
+            "Granola Clusters",
+        ],
+    ),
 ];
-const ORIGINS: &[&str] = &["Ethiopia", "Colombia", "Kenya", "Brazil", "India", "Japan", "China", "Italy", "Portugal", "Germany"];
+const ORIGINS: &[&str] =
+    &["Ethiopia", "Colombia", "Kenya", "Brazil", "India", "Japan", "China", "Italy", "Portugal", "Germany"];
 const TAGS: &[&str] = &["gift", "bestseller", "limited", "fair-trade", "new", "seasonal", "bulk"];
-const STATUSES: &[(&str, u64)] =
-    &[("delivered", 55), ("shipped", 15), ("processing", 10), ("pending", 8), ("cancelled", 8), ("refunded", 4)];
+const STATUSES: &[(&str, u64)] = &[
+    ("delivered", 55),
+    ("shipped", 15),
+    ("processing", 10),
+    ("pending", 8),
+    ("cancelled", 8),
+    ("refunded", 4),
+];
 const NOTES: &[&str] = &[
     "Please leave at the door",
     "Gift wrap, no invoice",
@@ -363,19 +430,22 @@ impl Dialect {
                 let schema = scalar(conn, "SELECT current_schema()").await?.ok_or_else(|| {
                     Error::other("the connection has no current schema (empty search_path)")
                 })?;
-                let mut postgis = scalar(conn, "SELECT 1 FROM pg_extension WHERE extname = 'postgis'").await?.is_some();
+                let mut postgis =
+                    scalar(conn, "SELECT 1 FROM pg_extension WHERE extname = 'postgis'").await?.is_some();
                 if !postgis {
                     // Needs a privileged role; without it the spatial tables are skipped.
                     if conn.execute("CREATE EXTENSION IF NOT EXISTS postgis", &opts()).await.is_ok() {
-                        postgis = scalar(conn, "SELECT 1 FROM pg_extension WHERE extname = 'postgis'").await?.is_some();
+                        postgis = scalar(conn, "SELECT 1 FROM pg_extension WHERE extname = 'postgis'")
+                            .await?
+                            .is_some();
                     }
                 }
                 Ok(Dialect::Postgres { schema, postgis })
             }
             DatabaseKind::MySql => {
-                let database = scalar(conn, "SELECT DATABASE()")
-                    .await?
-                    .ok_or_else(|| Error::other("no database selected: connect with a database name (or run USE)"))?;
+                let database = scalar(conn, "SELECT DATABASE()").await?.ok_or_else(|| {
+                    Error::other("no database selected: connect with a database name (or run USE)")
+                })?;
                 let mariadb = conn.server_info().await?.version.starts_with("MariaDB");
                 Ok(Dialect::MySql { database, mariadb })
             }
@@ -434,12 +504,14 @@ fn opts() -> ExecOptions {
 
 async fn scalar(conn: &dyn Connection, sql: &str) -> Result<Option<String>> {
     let out = conn.execute(sql, &ExecOptions { row_limit: Some(1) }).await?;
-    Ok(out.result.and_then(|r| r.rows.into_iter().next()).and_then(|mut r| (!r.is_empty()).then(|| r.remove(0))).and_then(
-        |v| match v {
+    Ok(out
+        .result
+        .and_then(|r| r.rows.into_iter().next())
+        .and_then(|mut r| (!r.is_empty()).then(|| r.remove(0)))
+        .and_then(|v| match v {
             Value::Null => None,
             other => Some(other.display()),
-        },
-    ))
+        }))
 }
 
 struct Runner<'a> {
@@ -468,10 +540,16 @@ fn wkt_point((lon, lat): (f64, f64)) -> String {
     format!("POINT({lon:.6} {lat:.6})")
 }
 fn wkt_ring(ring: &[(f64, f64)]) -> String {
-    format!("POLYGON(({}))", ring.iter().map(|(x, y)| format!("{x:.6} {y:.6}")).collect::<Vec<_>>().join(", "))
+    format!(
+        "POLYGON(({}))",
+        ring.iter().map(|(x, y)| format!("{x:.6} {y:.6}")).collect::<Vec<_>>().join(", ")
+    )
 }
 fn wkt_line(path: &[(f64, f64)]) -> String {
-    format!("LINESTRING({})", path.iter().map(|(x, y)| format!("{x:.6} {y:.6}")).collect::<Vec<_>>().join(", "))
+    format!(
+        "LINESTRING({})",
+        path.iter().map(|(x, y)| format!("{x:.6} {y:.6}")).collect::<Vec<_>>().join(", ")
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -481,7 +559,8 @@ fn wkt_line(path: &[(f64, f64)]) -> String {
 async fn seed_server(run: &mut Runner<'_>, data: &Data, d: &Dialect) -> Result<()> {
     let pg = matches!(d, Dialect::Postgres { .. });
     let spatial = d.has_spatial();
-    let (customers, products, orders, items) = (d.t("customers"), d.t("products"), d.t("orders"), d.t("order_items"));
+    let (customers, products, orders, items) =
+        (d.t("customers"), d.t("products"), d.t("orders"), d.t("order_items"));
     let (stores, zones, routes) = (d.t("stores"), d.t("delivery_zones"), d.t("routes"));
     let summary = d.t("customer_order_summary");
 
@@ -648,7 +727,9 @@ async fn seed_server(run: &mut Runner<'_>, data: &Data, d: &Dialect) -> Result<(
             Dialect::Postgres { .. } => format!("ST_GeomFromText('{wkt}', 4326)"),
             // MySQL 8 follows the EPSG axis order (lat, lon) for SRID 4326 unless
             // told otherwise; MariaDB always reads x y as written.
-            Dialect::MySql { mariadb: false, .. } => format!("ST_GeomFromText('{wkt}', 4326, 'axis-order=long-lat')"),
+            Dialect::MySql { mariadb: false, .. } => {
+                format!("ST_GeomFromText('{wkt}', 4326, 'axis-order=long-lat')")
+            }
             _ => format!("ST_GeomFromText('{wkt}', 4326)"),
         }
     };
@@ -713,7 +794,16 @@ async fn seed_server(run: &mut Runner<'_>, data: &Data, d: &Dialect) -> Result<(
         &format!("INSERT INTO {items} (order_id, line_no, product_id, quantity, unit_price)"),
         data.items
             .iter()
-            .map(|i| format!("({}, {}, {}, {}, {})", i.order_id, i.line_no, i.product_id, i.quantity, money(i.unit_cents)))
+            .map(|i| {
+                format!(
+                    "({}, {}, {}, {}, {})",
+                    i.order_id,
+                    i.line_no,
+                    i.product_id,
+                    i.quantity,
+                    money(i.unit_cents)
+                )
+            })
             .collect(),
     )
     .await?;
@@ -737,7 +827,10 @@ async fn seed_server(run: &mut Runner<'_>, data: &Data, d: &Dialect) -> Result<(
         .await?;
         run.insert(
             &format!("INSERT INTO {zones} (store_id, name, area)"),
-            data.zones.iter().map(|z| format!("({}, {}, {})", z.store_id, d.lit(&z.name), geom(wkt_ring(&z.ring)))).collect(),
+            data.zones
+                .iter()
+                .map(|z| format!("({}, {}, {})", z.store_id, d.lit(&z.name), geom(wkt_ring(&z.ring))))
+                .collect(),
         )
         .await?;
         run.insert(
@@ -788,10 +881,17 @@ LANGUAGE sql STABLE AS $$ SELECT COALESCE(SUM(quantity * unit_price), 0) FROM {i
                 format!("COMMENT ON TABLE {products} IS 'Sellable catalogue items'"),
                 format!("COMMENT ON COLUMN {products}.price IS 'Shelf price in EUR'"),
                 format!("COMMENT ON TABLE {orders} IS 'Customer orders'"),
-                format!("COMMENT ON COLUMN {orders}.total IS 'Sum of quantity * unit_price over the order''s items'"),
+                format!(
+                    "COMMENT ON COLUMN {orders}.total IS 'Sum of quantity * unit_price over the order''s items'"
+                ),
                 format!("COMMENT ON TABLE {items} IS 'Order lines; the primary key is composite'"),
-                format!("COMMENT ON VIEW {summary} IS 'Order count and spend per customer, ignoring cancelled and refunded orders'"),
-                format!("COMMENT ON FUNCTION {}.order_total(integer) IS 'Recomputes an order total from its items'", d.q(schema)),
+                format!(
+                    "COMMENT ON VIEW {summary} IS 'Order count and spend per customer, ignoring cancelled and refunded orders'"
+                ),
+                format!(
+                    "COMMENT ON FUNCTION {}.order_total(integer) IS 'Recomputes an order total from its items'",
+                    d.q(schema)
+                ),
             ];
             for sql in comments {
                 run.run(sql).await?;
@@ -970,7 +1070,16 @@ async fn seed_sqlite(run: &mut Runner<'_>, data: &Data) -> Result<()> {
         "INSERT INTO order_items (order_id, line_no, product_id, quantity, unit_price)",
         data.items
             .iter()
-            .map(|i| format!("({}, {}, {}, {}, {})", i.order_id, i.line_no, i.product_id, i.quantity, money(i.unit_cents)))
+            .map(|i| {
+                format!(
+                    "({}, {}, {}, {}, {})",
+                    i.order_id,
+                    i.line_no,
+                    i.product_id,
+                    i.quantity,
+                    money(i.unit_cents)
+                )
+            })
             .collect(),
     )
     .await?;
@@ -995,14 +1104,25 @@ async fn seed_sqlite(run: &mut Runner<'_>, data: &Data) -> Result<()> {
     .await?;
     run.insert(
         "INSERT INTO delivery_zones (store_id, name, area_wkt)",
-        data.zones.iter().map(|z| format!("({}, {}, {})", z.store_id, d.lit(&z.name), d.lit(&wkt_ring(&z.ring)))).collect(),
+        data.zones
+            .iter()
+            .map(|z| format!("({}, {}, {})", z.store_id, d.lit(&z.name), d.lit(&wkt_ring(&z.ring))))
+            .collect(),
     )
     .await?;
     run.insert(
         "INSERT INTO routes (store_id, name, distance_km, path_wkt)",
         data.routes
             .iter()
-            .map(|r| format!("({}, {}, {:.2}, {})", r.store_id, d.lit(&r.name), r.distance_km, d.lit(&wkt_line(&r.path))))
+            .map(|r| {
+                format!(
+                    "({}, {}, {:.2}, {})",
+                    r.store_id,
+                    d.lit(&r.name),
+                    r.distance_km,
+                    d.lit(&wkt_line(&r.path))
+                )
+            })
             .collect(),
     )
     .await?;
@@ -1039,8 +1159,12 @@ mod tests {
         assert_eq!(a.customers[5].email, b.customers[5].email);
         // Every order total equals the sum of its items.
         for (i, o) in a.orders.iter().enumerate() {
-            let sum: i64 =
-                a.items.iter().filter(|it| it.order_id == i as i64 + 1).map(|it| it.quantity * it.unit_cents).sum();
+            let sum: i64 = a
+                .items
+                .iter()
+                .filter(|it| it.order_id == i as i64 + 1)
+                .map(|it| it.quantity * it.unit_cents)
+                .sum();
             assert_eq!(sum, o.total_cents);
         }
         // Emails are unique.

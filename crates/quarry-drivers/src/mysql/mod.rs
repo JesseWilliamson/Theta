@@ -77,7 +77,8 @@ pub(crate) fn syntax_error_offset(message: &str, sql: &str) -> Option<usize> {
         return None;
     }
     let near = &message[start..end];
-    let line: usize = message[end + "' at line ".len()..].split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()?;
+    let line: usize =
+        message[end + "' at line ".len()..].split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()?;
     let mut line_start = 0;
     for _ in 1..line {
         line_start += sql[line_start..].find('\n')? + 1;
@@ -111,7 +112,13 @@ fn is_interrupted(e: &Error) -> bool {
 
 fn build_opts(config: &ConnectionConfig, via: Option<&LocalEndpoint>, ssl: SslChoice) -> Opts {
     let mut b = OptsBuilder::default()
-        .ip_or_hostname(if via.is_some() { "127.0.0.1" } else if config.host.is_empty() { "localhost" } else { &config.host })
+        .ip_or_hostname(if via.is_some() {
+            "127.0.0.1"
+        } else if config.host.is_empty() {
+            "localhost"
+        } else {
+            &config.host
+        })
         .tcp_port(via.map(|v| v.port).unwrap_or(if config.port == 0 { 3306 } else { config.port }))
         .user(Some(config.user.clone()).filter(|u| !u.is_empty()))
         .pass(config.password.clone())
@@ -121,7 +128,9 @@ fn build_opts(config: &ConnectionConfig, via: Option<&LocalEndpoint>, ssl: SslCh
     b = match ssl {
         SslChoice::Off => b.ssl_opts(None::<SslOpts>),
         SslChoice::NoVerify => b.ssl_opts(Some(
-            SslOpts::default().with_danger_accept_invalid_certs(true).with_danger_skip_domain_validation(true),
+            SslOpts::default()
+                .with_danger_accept_invalid_certs(true)
+                .with_danger_skip_domain_validation(true),
         )),
         SslChoice::Verify => {
             let mut o = SslOpts::default();
@@ -218,8 +227,15 @@ impl MysqlConnection {
         }
     }
 
-    async fn execute_inner(&self, conn: &mut Conn, sql: &str, limit: Option<usize>) -> Result<StatementOutcome> {
-        if has_multiple_statements(sql) && !matches!(crate::util::leading_keyword(sql).as_str(), "CREATE" | "ALTER") {
+    async fn execute_inner(
+        &self,
+        conn: &mut Conn,
+        sql: &str,
+        limit: Option<usize>,
+    ) -> Result<StatementOutcome> {
+        if has_multiple_statements(sql)
+            && !matches!(crate::util::leading_keyword(sql).as_str(), "CREATE" | "ALTER")
+        {
             return Err(Error::query("only one SQL statement can be executed at a time"));
         }
         let started = Instant::now();
@@ -290,10 +306,11 @@ impl MysqlConnection {
         }
         let elapsed = started.elapsed();
         let mut notices = Vec::new();
-        if warnings > 0 && !truncated {
-            if let Ok(rows) = conn.query::<(String, u32, String), _>("SHOW WARNINGS").await {
-                notices = rows.into_iter().map(|(level, code, msg)| format!("{level} ({code}): {msg}")).collect();
-            }
+        if warnings > 0
+            && !truncated
+            && let Ok(rows) = conn.query::<(String, u32, String), _>("SHOW WARNINGS").await
+        {
+            notices = rows.into_iter().map(|(level, code, msg)| format!("{level} ({code}): {msg}")).collect();
         }
         Ok(StatementOutcome {
             result: has_rows.then_some(ResultSet { columns, rows, truncated }),
@@ -322,7 +339,8 @@ impl Connection for MysqlConnection {
     }
 
     async fn execute(&self, sql: &str, options: &ExecOptions) -> Result<StatementOutcome> {
-        let outcome = self.run_guarded(async |conn| self.execute_inner(conn, sql, options.row_limit).await).await?;
+        let outcome =
+            self.run_guarded(async |conn| self.execute_inner(conn, sql, options.row_limit).await).await?;
         // SLEEP() interrupted by KILL QUERY returns 1 instead of raising an error.
         // A row-returning statement that finishes while a cancel is in flight is
         // therefore reported as cancelled; its rows are of no interest to a user

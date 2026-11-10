@@ -27,7 +27,10 @@ impl client::Handler for Handler {
     /// Trust-on-first-use against `~/.ssh/known_hosts`: a host we have never seen
     /// is accepted (and remembered), but a host whose key *changed* is refused,
     /// which is the case that signals a man-in-the-middle.
-    async fn check_server_key(&mut self, key: &PublicKeyOrCertificate) -> std::result::Result<bool, Self::Error> {
+    async fn check_server_key(
+        &mut self,
+        key: &PublicKeyOrCertificate,
+    ) -> std::result::Result<bool, Self::Error> {
         let pk: &ssh_key::PublicKey = match key {
             PublicKeyOrCertificate::PublicKey { key, .. } => key,
             // Certificates are validated against a CA we do not manage here.
@@ -61,12 +64,13 @@ fn tunnel_err(e: impl std::fmt::Display) -> Error {
 async fn authenticate(session: &mut Handle<Handler>, ssh: &SshConfig) -> Result<()> {
     let user = ssh.user.clone();
     let result = match &ssh.auth {
-        SshAuth::Password { password } => session.authenticate_password(user, password.clone()).await.map_err(tunnel_err)?,
+        SshAuth::Password { password } => {
+            session.authenticate_password(user, password.clone()).await.map_err(tunnel_err)?
+        }
         SshAuth::KeyFile { path, passphrase } => {
             let expanded = expand_home(path);
-            let key = russh::keys::load_secret_key(&expanded, passphrase.as_deref()).map_err(|e| {
-                Error::Auth(format!("cannot load SSH key {path}: {e}"))
-            })?;
+            let key = russh::keys::load_secret_key(&expanded, passphrase.as_deref())
+                .map_err(|e| Error::Auth(format!("cannot load SSH key {path}: {e}")))?;
             let hash = session.best_supported_rsa_hash().await.map_err(tunnel_err)?.flatten();
             session
                 .authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), hash))
@@ -123,10 +127,11 @@ impl Tunnel {
         });
         let handler = Handler { host: ssh.host.clone(), port: ssh.port };
         let addr = (ssh.host.as_str(), if ssh.port == 0 { 22 } else { ssh.port });
-        let mut session = tokio::time::timeout(Duration::from_secs(15), client::connect(config, addr, handler))
-            .await
-            .map_err(|_| Error::Tunnel(format!("timed out connecting to {}:{}", ssh.host, ssh.port)))?
-            .map_err(|e| Error::Tunnel(format!("cannot connect to {}:{}: {e}", ssh.host, ssh.port)))?;
+        let mut session =
+            tokio::time::timeout(Duration::from_secs(15), client::connect(config, addr, handler))
+                .await
+                .map_err(|_| Error::Tunnel(format!("timed out connecting to {}:{}", ssh.host, ssh.port)))?
+                .map_err(|e| Error::Tunnel(format!("cannot connect to {}:{}: {e}", ssh.host, ssh.port)))?;
         authenticate(&mut session, ssh).await?;
 
         // Prove the remote endpoint is reachable now, so a wrong host/port is
@@ -134,7 +139,9 @@ impl Tunnel {
         let probe = session
             .channel_open_direct_tcpip(remote_host.to_string(), remote_port as u32, "127.0.0.1", 0)
             .await
-            .map_err(|e| Error::Tunnel(format!("SSH server cannot reach {remote_host}:{remote_port}: {e}")))?;
+            .map_err(|e| {
+                Error::Tunnel(format!("SSH server cannot reach {remote_host}:{remote_port}: {e}"))
+            })?;
         drop(probe);
 
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.map_err(tunnel_err)?;
@@ -180,8 +187,9 @@ async fn forward(
     port: u16,
 ) -> std::result::Result<(), russh::Error> {
     let _ = stream.set_nodelay(true);
-    let mut channel =
-        session.channel_open_direct_tcpip(host.to_string(), port as u32, peer.ip().to_string(), peer.port() as u32).await?;
+    let mut channel = session
+        .channel_open_direct_tcpip(host.to_string(), port as u32, peer.ip().to_string(), peer.port() as u32)
+        .await?;
     let (mut rd, mut wr) = stream.split();
     let mut buf = vec![0u8; 32 * 1024];
     let mut local_open = true;

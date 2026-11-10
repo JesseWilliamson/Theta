@@ -51,18 +51,18 @@ fn kind_of_formatted(formatted: &str) -> TypeKind {
     let head_end = formatted.find('(').unwrap_or(formatted.len());
     let head = &formatted[..head_end];
     let unqualified = match head.rfind('.') {
-        Some(i) if !head[..i].contains(' ') => format!("{}{}", head[i + 1..].trim_matches('"'), &formatted[head_end..]),
+        Some(i) if !head[..i].contains(' ') => {
+            format!("{}{}", head[i + 1..].trim_matches('"'), &formatted[head_end..])
+        }
         _ => formatted.to_string(),
     };
     kind_from_type_name(&unqualified)
 }
 
 pub async fn introspect(client: &Client) -> Result<Catalog> {
-    let schema_rows = q(
-        client,
-        &format!("SELECT n.nspname::text FROM pg_namespace n WHERE {SYSTEM_SCHEMAS} ORDER BY 1"),
-    )
-    .await?;
+    let schema_rows =
+        q(client, &format!("SELECT n.nspname::text FROM pg_namespace n WHERE {SYSTEM_SCHEMAS} ORDER BY 1"))
+            .await?;
     let mut schemas: Vec<Schema> =
         schema_rows.iter().map(|r| Schema { name: r.get(0), ..Default::default() }).collect();
     let schema_index: HashMap<String, usize> =
@@ -265,7 +265,8 @@ pub async fn introspect(client: &Client) -> Result<Catalog> {
     }
 
     // `current_schemas(false)` lists only schemas that exist, in search order.
-    let default_schema = q(client, "SELECT (current_schemas(false))[1]::text").await?.first().and_then(|r| r.get(0));
+    let default_schema =
+        q(client, "SELECT (current_schemas(false))[1]::text").await?.first().and_then(|r| r.get(0));
     Ok(Catalog { schemas, default_schema })
 }
 

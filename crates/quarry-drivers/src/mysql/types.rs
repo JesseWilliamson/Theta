@@ -40,8 +40,13 @@ pub fn type_kind(col: &MyColumn) -> TypeKind {
         }
         MYSQL_TYPE_GEOMETRY => TypeKind::Geometry,
         MYSQL_TYPE_ENUM | MYSQL_TYPE_SET => TypeKind::Text,
-        MYSQL_TYPE_TINY_BLOB | MYSQL_TYPE_MEDIUM_BLOB | MYSQL_TYPE_LONG_BLOB | MYSQL_TYPE_BLOB
-        | MYSQL_TYPE_VARCHAR | MYSQL_TYPE_VAR_STRING | MYSQL_TYPE_STRING => {
+        MYSQL_TYPE_TINY_BLOB
+        | MYSQL_TYPE_MEDIUM_BLOB
+        | MYSQL_TYPE_LONG_BLOB
+        | MYSQL_TYPE_BLOB
+        | MYSQL_TYPE_VARCHAR
+        | MYSQL_TYPE_VAR_STRING
+        | MYSQL_TYPE_STRING => {
             if flags.contains(ColumnFlags::ENUM_FLAG) || flags.contains(ColumnFlags::SET_FLAG) {
                 TypeKind::Text
             } else if is_binary(col) {
@@ -137,9 +142,17 @@ pub fn cell(col: &MyColumn, raw: Option<&[u8]>) -> Value {
         MYSQL_TYPE_GEOMETRY => Value::Geometry(mysql_geometry_to_ewkb(raw)),
         MYSQL_TYPE_NULL => Value::Null,
         MYSQL_TYPE_ENUM | MYSQL_TYPE_SET => Value::Text(text()),
-        MYSQL_TYPE_TINY_BLOB | MYSQL_TYPE_MEDIUM_BLOB | MYSQL_TYPE_LONG_BLOB | MYSQL_TYPE_BLOB
-        | MYSQL_TYPE_VARCHAR | MYSQL_TYPE_VAR_STRING | MYSQL_TYPE_STRING => {
-            if is_binary(col) && !flags.contains(ColumnFlags::ENUM_FLAG) && !flags.contains(ColumnFlags::SET_FLAG) {
+        MYSQL_TYPE_TINY_BLOB
+        | MYSQL_TYPE_MEDIUM_BLOB
+        | MYSQL_TYPE_LONG_BLOB
+        | MYSQL_TYPE_BLOB
+        | MYSQL_TYPE_VARCHAR
+        | MYSQL_TYPE_VAR_STRING
+        | MYSQL_TYPE_STRING => {
+            if is_binary(col)
+                && !flags.contains(ColumnFlags::ENUM_FLAG)
+                && !flags.contains(ColumnFlags::SET_FLAG)
+            {
                 Value::Bytes(raw.to_vec())
             } else {
                 Value::Text(text())
@@ -173,7 +186,11 @@ pub fn mysql_geometry_to_ewkb(raw: &[u8]) -> Vec<u8> {
     } else {
         u32::from_be_bytes(wkb[1..5].try_into().unwrap())
     };
-    let (ty, srid) = if little { ((ty | 0x2000_0000).to_le_bytes(), srid.to_le_bytes()) } else { ((ty | 0x2000_0000).to_be_bytes(), srid.to_be_bytes()) };
+    let (ty, srid) = if little {
+        ((ty | 0x2000_0000).to_le_bytes(), srid.to_le_bytes())
+    } else {
+        ((ty | 0x2000_0000).to_be_bytes(), srid.to_be_bytes())
+    };
     let mut out = Vec::with_capacity(wkb.len() + 4);
     out.push(wkb[0]);
     out.extend_from_slice(&ty);

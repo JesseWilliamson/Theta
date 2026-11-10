@@ -38,7 +38,9 @@ async fn main() {
     };
     let config = match kind_arg.as_str() {
         "postgres" => parse_url(
-            args.get(1).map(String::as_str).unwrap_or("postgres://postgres:postgres@127.0.0.1:5432/quarry_demo"),
+            args.get(1)
+                .map(String::as_str)
+                .unwrap_or("postgres://postgres:postgres@127.0.0.1:5432/quarry_demo"),
             DatabaseKind::Postgres,
         ),
         "mysql" => parse_url(
@@ -68,7 +70,10 @@ async fn main() {
             .await?;
         if let Some(rs) = counts.result {
             let row: Vec<String> = rs.rows[0].iter().map(|v| v.display()).collect();
-            println!("seeded: {} customers, {} products, {} orders, {} order items", row[0], row[1], row[2], row[3]);
+            println!(
+                "seeded: {} customers, {} products, {} orders, {} order items",
+                row[0], row[1], row[2], row[3]
+            );
         }
         conn.close().await
     }

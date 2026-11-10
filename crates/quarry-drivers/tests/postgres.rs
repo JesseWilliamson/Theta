@@ -151,7 +151,8 @@ async fn row_limit_and_truncation() {
     let rs = out.result.unwrap();
     assert_eq!((rs.rows.len(), rs.truncated), (100, true));
     assert_eq!(rs.rows[99][0], Value::Int(100));
-    let rs = c.execute("SELECT g FROM generate_series(1, 5000) g", &limited(5000)).await.unwrap().result.unwrap();
+    let rs =
+        c.execute("SELECT g FROM generate_series(1, 5000) g", &limited(5000)).await.unwrap().result.unwrap();
     assert_eq!((rs.rows.len(), rs.truncated), (5000, false));
     let rs = c.execute("SELECT g FROM generate_series(1, 5000) g", &all()).await.unwrap().result.unwrap();
     assert_eq!((rs.rows.len(), rs.truncated), (5000, false));
@@ -162,7 +163,12 @@ async fn row_limit_and_truncation() {
     // The server must stop producing rows once the limit is hit: this would not
     // finish in a lifetime if the whole result were fetched.
     let started = Instant::now();
-    let rs = c.execute("SELECT g FROM (SELECT generate_series(1, 2000000000) AS g) s", &limited(10)).await.unwrap().result.unwrap();
+    let rs = c
+        .execute("SELECT g FROM (SELECT generate_series(1, 2000000000) AS g) s", &limited(10))
+        .await
+        .unwrap()
+        .result
+        .unwrap();
     assert!(rs.truncated && rs.rows.len() == 10);
     assert!(started.elapsed() < Duration::from_secs(5));
 
@@ -170,7 +176,8 @@ async fn row_limit_and_truncation() {
     assert!(!c.in_transaction().await);
     // ...nor disturb a user's transaction.
     run(c, "BEGIN").await;
-    let rs = c.execute("SELECT g FROM generate_series(1, 500) g", &limited(10)).await.unwrap().result.unwrap();
+    let rs =
+        c.execute("SELECT g FROM generate_series(1, 500) g", &limited(10)).await.unwrap().result.unwrap();
     assert!(rs.truncated);
     assert!(c.in_transaction().await);
     run(c, "CREATE TABLE keep (a int)").await;
@@ -191,7 +198,10 @@ async fn rows_affected_and_returning() {
     assert_eq!((ins.result.is_none(), ins.rows_affected), (true, Some(3)));
     let upd = run(c, "UPDATE t SET v = v + 1 WHERE v >= 2").await;
     assert_eq!(upd.rows_affected, Some(2));
-    let ret = c.execute("INSERT INTO t (v) VALUES (10),(11) RETURNING id, v", &ExecOptions { row_limit: Some(1) }).await.unwrap();
+    let ret = c
+        .execute("INSERT INTO t (v) VALUES (10),(11) RETURNING id, v", &ExecOptions { row_limit: Some(1) })
+        .await
+        .unwrap();
     assert_eq!(ret.rows_affected, Some(2));
     let rs = ret.result.unwrap();
     assert_eq!(rs.rows.len(), 1);
@@ -207,7 +217,9 @@ async fn rows_affected_and_returning() {
 #[tokio::test]
 async fn notices_are_collected() {
     let fx = PgFx::new().await;
-    let out = run(fx.conn.as_ref(), "DO $$ BEGIN RAISE NOTICE 'hello %', 42; RAISE WARNING 'careful'; END $$").await;
+    let out =
+        run(fx.conn.as_ref(), "DO $$ BEGIN RAISE NOTICE 'hello %', 42; RAISE WARNING 'careful'; END $$")
+            .await;
     assert_eq!(out.notices, vec!["NOTICE: hello 42".to_string(), "WARNING: careful".to_string()]);
     let again = run(fx.conn.as_ref(), "SELECT 1").await;
     assert!(again.notices.is_empty());
@@ -274,6 +286,15 @@ async fn ssl_modes() {
     cfg.ssl_mode = SslMode::Require;
     let r = quarry_drivers::connect(&cfg).await;
     assert_eq!(r.is_ok(), ssl_on, "Require must connect iff the server offers TLS: {:?}", r.err());
+    // The test server's certificate is self-signed, so full verification must refuse it.
+    let mut strict = pg_config();
+    strict.ssl_mode = SslMode::VerifyFull;
+    let r2 = quarry_drivers::connect(&strict).await;
+    if ssl_on {
+        assert!(matches!(r2, Err(Error::Connect(_))), "VerifyFull must reject a self-signed certificate");
+    } else {
+        assert!(r2.is_err());
+    }
     if let Ok(conn) = r {
         let enc = scalar(conn.as_ref(), "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()").await;
         assert_eq!(enc, Value::Bool(true));
@@ -293,7 +314,8 @@ async fn cancel_returns_promptly() {
         let task = tokio::spawn(async move { c2.execute(sql, &ExecOptions::default()).await });
         tokio::time::sleep(Duration::from_millis(400)).await;
         conn.cancel().await.unwrap();
-        let r = tokio::time::timeout(Duration::from_secs(5), task).await.expect("cancel took too long").unwrap();
+        let r =
+            tokio::time::timeout(Duration::from_secs(5), task).await.expect("cancel took too long").unwrap();
         assert!(matches!(r, Err(Error::Cancelled)), "{sql}: {r:?}");
         assert!(started.elapsed() < Duration::from_secs(5));
         // Session is still usable.
@@ -357,7 +379,9 @@ async fn result_columns_know_their_origin() {
         .unwrap()
         .columns;
     let origin = |i: usize| cols[i].origin.clone();
-    let o = |table: &str, col: &str| Some(ColumnOrigin { schema: Some(fx.schema.clone()), table: table.into(), column: col.into() });
+    let o = |table: &str, col: &str| {
+        Some(ColumnOrigin { schema: Some(fx.schema.clone()), table: table.into(), column: col.into() })
+    };
     assert_eq!(origin(0), o("people", "id"));
     assert_eq!(origin(1), o("people", "name"));
     assert_eq!(origin(2), o("pets", "name"));
@@ -365,7 +389,8 @@ async fn result_columns_know_their_origin() {
     assert_eq!(origin(4), None);
     // Renamed columns are picked up (the cache is invalidated on DDL).
     run(c, "ALTER TABLE people RENAME COLUMN name TO full_name").await;
-    let cols = run(c, "SELECT name FROM pets UNION ALL SELECT full_name FROM people").await.result.unwrap().columns;
+    let cols =
+        run(c, "SELECT name FROM pets UNION ALL SELECT full_name FROM people").await.result.unwrap().columns;
     assert!(cols[0].origin.is_none(), "set operations have no single source column");
     let cols = run(c, "SELECT full_name FROM people").await.result.unwrap().columns;
     assert_eq!(cols[0].origin.as_ref().unwrap().column, "full_name");
@@ -421,7 +446,10 @@ async fn introspection_reads_the_whole_catalog() {
     let fk = &child.foreign_keys[0];
     assert_eq!(fk.columns, vec!["pa", "pb"]);
     assert_eq!(fk.referenced_columns, vec!["a", "b"]);
-    assert_eq!((fk.referenced_table.as_str(), fk.referenced_schema.as_deref()), ("parent", Some(fx.schema.as_str())));
+    assert_eq!(
+        (fk.referenced_table.as_str(), fk.referenced_schema.as_deref()),
+        ("parent", Some(fx.schema.as_str()))
+    );
     assert_eq!((fk.on_delete.as_deref(), fk.on_update.as_deref()), (Some("CASCADE"), Some("SET NULL")));
     let note = child.columns.iter().find(|c| c.name == "note").unwrap();
     assert_eq!(note.data_type, "character varying(40)");
@@ -429,7 +457,10 @@ async fn introspection_reads_the_whole_catalog() {
     let id = &child.columns[0];
     assert!(id.default.as_deref().unwrap().starts_with("nextval("));
     let pk = child.indexes.iter().find(|i| i.primary).unwrap();
-    assert_eq!((pk.columns.clone(), pk.unique, pk.method.as_deref()), (vec!["id".to_string()], true, Some("btree")));
+    assert_eq!(
+        (pk.columns.clone(), pk.unique, pk.method.as_deref()),
+        (vec!["id".to_string()], true, Some("btree"))
+    );
     let uq = child.indexes.iter().find(|i| i.name == "child_note_idx").unwrap();
     assert!(uq.unique && !uq.primary);
     assert_eq!(uq.columns, vec!["lower(note::text)"]);
@@ -441,9 +472,14 @@ async fn introspection_reads_the_whole_catalog() {
     assert_eq!(t("child_view").columns.len(), 2);
     assert_eq!(t("child_mv").kind, TableKind::MaterializedView);
     assert_eq!(t("parted").kind, TableKind::Table);
-    assert!(s.sequences.contains(&"extra_seq".to_string()) && s.sequences.contains(&"child_id_seq".to_string()));
+    assert!(
+        s.sequences.contains(&"extra_seq".to_string()) && s.sequences.contains(&"child_id_seq".to_string())
+    );
     let add = s.routines.iter().find(|r| r.name == "add_one").unwrap();
-    assert_eq!((add.kind, add.signature.as_str(), add.return_type.as_deref()), (RoutineKind::Function, "(x integer)", Some("integer")));
+    assert_eq!(
+        (add.kind, add.signature.as_str(), add.return_type.as_deref()),
+        (RoutineKind::Function, "(x integer)", Some("integer"))
+    );
     let proc_ = s.routines.iter().find(|r| r.name == "do_nothing").unwrap();
     assert_eq!(proc_.kind, RoutineKind::Procedure);
     assert!(!s.routines.iter().any(|r| r.name.starts_with("st_")), "extension routines are hidden");
@@ -451,9 +487,15 @@ async fn introspection_reads_the_whole_catalog() {
     let sp = t("spatial");
     let g = sp.columns.iter().find(|c| c.name == "g").unwrap();
     assert_eq!(g.kind, TypeKind::Geometry);
-    assert_eq!(g.geometry, Some(GeometryColumn { geometry_type: "POLYGON".into(), srid: Some(4326), geography: false }));
+    assert_eq!(
+        g.geometry,
+        Some(GeometryColumn { geometry_type: "POLYGON".into(), srid: Some(4326), geography: false })
+    );
     let any = sp.columns.iter().find(|c| c.name == "anyg").unwrap();
-    assert_eq!(any.geometry, Some(GeometryColumn { geometry_type: "GEOMETRY".into(), srid: None, geography: false }));
+    assert_eq!(
+        any.geometry,
+        Some(GeometryColumn { geometry_type: "GEOMETRY".into(), srid: None, geography: false })
+    );
     let geo = sp.columns.iter().find(|c| c.name == "geo").unwrap();
     assert!(geo.geometry.as_ref().unwrap().geography);
     fx.done().await;
@@ -529,14 +571,22 @@ async fn demo_seed_builds_a_consistent_dataset() {
     assert_eq!(count("routes").await, Value::Int(25));
     // Orders reference customers; totals match their items.
     assert_eq!(
-        scalar(c, "SELECT count(*) FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE c.id IS NULL").await,
+        scalar(
+            c,
+            "SELECT count(*) FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE c.id IS NULL"
+        )
+        .await,
         Value::Int(0)
     );
     assert_eq!(
         scalar(c, "SELECT count(*) FROM orders o WHERE o.total <> order_total(o.id)").await,
         Value::Int(0)
     );
-    assert_eq!(scalar(c, "SELECT count(*) FROM stores WHERE ST_SRID(location) = 4326 AND ST_IsValid(location)").await, Value::Int(25));
+    assert_eq!(
+        scalar(c, "SELECT count(*) FROM stores WHERE ST_SRID(location) = 4326 AND ST_IsValid(location)")
+            .await,
+        Value::Int(25)
+    );
     assert_eq!(scalar(c, "SELECT count(*) FROM delivery_zones WHERE ST_IsValid(area)").await, Value::Int(25));
     assert_eq!(scalar(c, "SELECT count(*) FROM stores s JOIN delivery_zones z ON z.store_id = s.id WHERE ST_Contains(z.area, s.location)").await, Value::Int(25));
     let cat = c.introspect().await.unwrap();
@@ -548,7 +598,14 @@ async fn demo_seed_builds_a_consistent_dataset() {
     assert!(s.tables.iter().find(|t| t.name == "orders").unwrap().comment.is_some());
     assert!(s.routines.iter().any(|r| r.name == "order_total"));
     // Seeding into this schema must not have touched anything in public.
-    assert_eq!(scalar(c, "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = 'customers_never'").await, Value::Int(0));
+    assert_eq!(
+        scalar(
+            c,
+            "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = 'customers_never'"
+        )
+        .await,
+        Value::Int(0)
+    );
     fx.done().await;
 }
 

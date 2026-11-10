@@ -24,14 +24,16 @@ const HANDLED: &[&str] = &[
 ];
 
 pub fn parse_plan(raw: &str, analyzed: bool) -> Result<Plan> {
-    let doc: J = serde_json::from_str(raw).map_err(|e| Error::other(format!("unparseable EXPLAIN output: {e}")))?;
+    let doc: J =
+        serde_json::from_str(raw).map_err(|e| Error::other(format!("unparseable EXPLAIN output: {e}")))?;
     let top = match &doc {
         J::Array(a) => a.first(),
         other => Some(other),
     }
     .and_then(J::as_object)
     .ok_or_else(|| Error::other("EXPLAIN output has no top-level object"))?;
-    let plan = top.get("Plan").and_then(J::as_object).ok_or_else(|| Error::other("EXPLAIN output has no Plan"))?;
+    let plan =
+        top.get("Plan").and_then(J::as_object).ok_or_else(|| Error::other("EXPLAIN output has no Plan"))?;
     let mut root = node(plan);
     for key in ["Triggers", "JIT", "Settings"] {
         if let Some(v) = top.get(key) {
@@ -83,19 +85,17 @@ fn node(o: &Map<String, J>) -> PlanNode {
         ..Default::default()
     };
     // PostgreSQL reports every write as `ModifyTable`; the operation says which.
-    if n.node_type == "ModifyTable" {
-        if let Some(op) = str_of(o, "Operation") {
-            n.node_type = op;
-        }
+    if n.node_type == "ModifyTable"
+        && let Some(op) = str_of(o, "Operation")
+    {
+        n.node_type = op;
     }
     let mut detail = Vec::new();
     if let Some(j) = str_of(o, "Join Type") {
         detail.push(format!("{j} join"));
     }
-    if let Some(d) = str_of(o, "Scan Direction") {
-        if d != "Forward" {
-            detail.push(d);
-        }
+    if let Some(d) = str_of(o, "Scan Direction").filter(|d| d != "Forward") {
+        detail.push(d);
     }
     for k in ["Strategy", "Partial Mode", "Subplan Name", "CTE Name"] {
         if let Some(v) = str_of(o, k) {

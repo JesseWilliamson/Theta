@@ -23,11 +23,7 @@ fn skip_trivia(mut s: &str) -> &str {
 
 /// First word of a statement, upper-cased (`"SELECT"`, `"INSERT"`, ...).
 pub fn leading_keyword(sql: &str) -> String {
-    skip_trivia(sql)
-        .chars()
-        .take_while(|c| c.is_ascii_alphabetic())
-        .collect::<String>()
-        .to_ascii_uppercase()
+    skip_trivia(sql).chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_ascii_uppercase()
 }
 
 /// Whether the statement is one whose "rows affected" count is meaningful.
@@ -98,13 +94,17 @@ pub fn kind_from_type_name(name: &str) -> TypeKind {
     let base = n.split(['(', ' ']).next().unwrap_or("");
     match base {
         "bool" | "boolean" => TypeKind::Bool,
-        "int" | "integer" | "int2" | "int4" | "int8" | "smallint" | "bigint" | "tinyint" | "mediumint" | "oid"
-        | "serial" | "bigserial" | "smallserial" | "year" => TypeKind::Integer,
+        "int" | "integer" | "int2" | "int4" | "int8" | "smallint" | "bigint" | "tinyint" | "mediumint"
+        | "oid" | "serial" | "bigserial" | "smallserial" | "year" => TypeKind::Integer,
         "float" | "float4" | "float8" | "real" | "double" => TypeKind::Float,
         "numeric" | "decimal" | "money" | "dec" | "fixed" => TypeKind::Decimal,
-        "text" | "varchar" | "char" | "character" | "bpchar" | "name" | "citext" | "clob" | "nvarchar" | "nchar"
-        | "tinytext" | "mediumtext" | "longtext" | "string" | "enum" | "set" | "xml" => TypeKind::Text,
-        "bytea" | "blob" | "binary" | "varbinary" | "tinyblob" | "mediumblob" | "longblob" | "bit" => TypeKind::Bytes,
+        "text" | "varchar" | "char" | "character" | "bpchar" | "name" | "citext" | "clob" | "nvarchar"
+        | "nchar" | "tinytext" | "mediumtext" | "longtext" | "string" | "enum" | "set" | "xml" => {
+            TypeKind::Text
+        }
+        "bytea" | "blob" | "binary" | "varbinary" | "tinyblob" | "mediumblob" | "longblob" | "bit" => {
+            TypeKind::Bytes
+        }
         "json" | "jsonb" => TypeKind::Json,
         "uuid" => TypeKind::Uuid,
         "date" => TypeKind::Date,

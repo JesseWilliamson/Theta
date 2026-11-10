@@ -38,12 +38,16 @@ pub async fn connect(config: &ConnectionConfig) -> Result<Box<dyn Connection>> {
     let tunnel = ssh::Tunnel::open(ssh_cfg, host, port).await?;
     let local = tunnel.local_port();
     let inner: Result<Box<dyn Connection>> = match config.kind {
-        DatabaseKind::Postgres => postgres::PgConnection::connect(config, Some(postgres::LocalEndpoint { port: local }))
-            .await
-            .map(|c| Box::new(c) as Box<dyn Connection>),
-        DatabaseKind::MySql => mysql::MysqlConnection::connect(config, Some(mysql::LocalEndpoint { port: local }))
-            .await
-            .map(|c| Box::new(c) as Box<dyn Connection>),
+        DatabaseKind::Postgres => {
+            postgres::PgConnection::connect(config, Some(postgres::LocalEndpoint { port: local }))
+                .await
+                .map(|c| Box::new(c) as Box<dyn Connection>)
+        }
+        DatabaseKind::MySql => {
+            mysql::MysqlConnection::connect(config, Some(mysql::LocalEndpoint { port: local }))
+                .await
+                .map(|c| Box::new(c) as Box<dyn Connection>)
+        }
         DatabaseKind::Sqlite => unreachable!("file-based databases never tunnel"),
     };
     match inner {

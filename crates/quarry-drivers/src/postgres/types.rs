@@ -33,7 +33,9 @@ impl<'a> FromSql<'a> for Cell {
 
 fn fallback(raw: &[u8]) -> Value {
     match std::str::from_utf8(raw) {
-        Ok(s) if !s.chars().any(|c| c.is_control() && c != '\n' && c != '\t') => Value::Unknown(s.to_string()),
+        Ok(s) if !s.chars().any(|c| c.is_control() && c != '\n' && c != '\t') => {
+            Value::Unknown(s.to_string())
+        }
         _ => Value::Unknown(format!("\\x{}", hex(raw))),
     }
 }
@@ -94,7 +96,9 @@ pub fn decode(ty: &Type, raw: &[u8]) -> Result<Value, DynErr> {
         Type::INT2 => Value::Int(i16::from_be_bytes(fixed(raw)?) as i64),
         Type::INT4 => Value::Int(i32::from_be_bytes(fixed(raw)?) as i64),
         Type::INT8 => Value::Int(i64::from_be_bytes(fixed(raw)?)),
-        Type::OID | Type::XID | Type::CID | Type::REGPROC => Value::Int(u32::from_be_bytes(fixed(raw)?) as i64),
+        Type::OID | Type::XID | Type::CID | Type::REGPROC => {
+            Value::Int(u32::from_be_bytes(fixed(raw)?) as i64)
+        }
         Type::XID8 => Value::UInt(u64::from_be_bytes(fixed(raw)?)),
         Type::FLOAT4 => {
             let f = f32::from_be_bytes(fixed(raw)?);
@@ -108,7 +112,12 @@ pub fn decode(ty: &Type, raw: &[u8]) -> Result<Value, DynErr> {
             let cents = i64::from_be_bytes(fixed(raw)?);
             // `lc_monetary` decides the symbol and scale on the server; the digits
             // are what matter, and the default scale is 2.
-            Value::Decimal(format!("{}{}.{:02}", if cents < 0 { "-" } else { "" }, cents.unsigned_abs() / 100, cents.unsigned_abs() % 100))
+            Value::Decimal(format!(
+                "{}{}.{:02}",
+                if cents < 0 { "-" } else { "" },
+                cents.unsigned_abs() / 100,
+                cents.unsigned_abs() % 100
+            ))
         }
         Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME | Type::UNKNOWN | Type::XML => {
             Value::Text(std::str::from_utf8(raw)?.to_string())
@@ -353,7 +362,11 @@ fn hstore(raw: &[u8]) -> Result<String, DynErr> {
         let kl = r.i32()? as usize;
         let k = std::str::from_utf8(r.take(kl)?)?.to_string();
         let vl = r.i32()?;
-        let v = if vl < 0 { "NULL".to_string() } else { format!("\"{}\"", std::str::from_utf8(r.take(vl as usize)?)?) };
+        let v = if vl < 0 {
+            "NULL".to_string()
+        } else {
+            format!("\"{}\"", std::str::from_utf8(r.take(vl as usize)?)?)
+        };
         items.push(format!("\"{k}\"=>{v}"));
     }
     Ok(items.join(", "))
@@ -395,7 +408,9 @@ fn decode_array(inner: &Type, raw: &[u8]) -> Result<Value, DynErr> {
 
 fn quote_if_needed(v: &Value) -> String {
     let s = v.display();
-    if s.is_empty() || s.chars().any(|c| c.is_whitespace() || matches!(c, ',' | '(' | ')' | '[' | ']' | '"' | '\\')) {
+    if s.is_empty()
+        || s.chars().any(|c| c.is_whitespace() || matches!(c, ',' | '(' | ')' | '[' | ']' | '"' | '\\'))
+    {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {
         s
@@ -457,7 +472,9 @@ pub fn type_kind(ty: &Type) -> TypeKind {
     }
     match *ty {
         Type::BOOL => TypeKind::Bool,
-        Type::INT2 | Type::INT4 | Type::INT8 | Type::OID | Type::XID | Type::XID8 | Type::CID => TypeKind::Integer,
+        Type::INT2 | Type::INT4 | Type::INT8 | Type::OID | Type::XID | Type::XID8 | Type::CID => {
+            TypeKind::Integer
+        }
         Type::FLOAT4 | Type::FLOAT8 => TypeKind::Float,
         Type::NUMERIC | Type::MONEY => TypeKind::Decimal,
         Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME | Type::CHAR | Type::XML => TypeKind::Text,
@@ -555,7 +572,8 @@ mod tests {
 
     #[test]
     fn uuid_formats() {
-        let b = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
+        let b =
+            [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
         assert_eq!(uuid(&b), "12345678-9abc-def0-1122-334455667788");
     }
 

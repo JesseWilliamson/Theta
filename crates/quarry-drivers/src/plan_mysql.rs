@@ -78,9 +78,13 @@ fn render(v: &J) -> String {
 }
 
 pub fn parse_json_plan(raw: &str, analyzed: bool) -> Result<Plan> {
-    let doc: J = serde_json::from_str(raw).map_err(|e| Error::other(format!("unparseable EXPLAIN output: {e}")))?;
+    let doc: J =
+        serde_json::from_str(raw).map_err(|e| Error::other(format!("unparseable EXPLAIN output: {e}")))?;
     let obj = doc.as_object().ok_or_else(|| Error::other("EXPLAIN output is not a JSON object"))?;
-    let qb = obj.get("query_block").and_then(J::as_object).ok_or_else(|| Error::other("EXPLAIN output has no query_block"))?;
+    let qb = obj
+        .get("query_block")
+        .and_then(J::as_object)
+        .ok_or_else(|| Error::other("EXPLAIN output has no query_block"))?;
     let root = block("Query Block", qb);
     let execution_time_ms = qb.get("r_total_time_ms").and_then(num);
     Ok(Plan { root, analyzed, planning_time_ms: None, execution_time_ms, raw: raw.to_string() })
@@ -112,7 +116,8 @@ fn apply_common(n: &mut PlanNode, o: &Map<String, J>) {
     if let Some(c) = o.get("cost").and_then(num) {
         n.total_cost = Some(c);
     }
-    if let Some(c) = o.get("cost_info").and_then(J::as_object).and_then(|c| c.get("query_cost")).and_then(num) {
+    if let Some(c) = o.get("cost_info").and_then(J::as_object).and_then(|c| c.get("query_cost")).and_then(num)
+    {
         n.total_cost = Some(c);
     }
     if let Some(l) = o.get("r_loops").and_then(num) {
@@ -167,16 +172,16 @@ fn collect_children(n: &mut PlanNode, o: &Map<String, J>) {
                 // Arrays such as `subqueries` / `query_specifications` hold wrappers
                 // like `{ "query_block": ... }` or `{ "expression_cache": ... }`.
                 for item in items {
-                    if let J::Object(io) = item {
-                        if io.keys().any(|k| STRUCTURAL.contains(&k.as_str())) {
-                            let mut wrapper = PlanNode { node_type: pretty(key), ..Default::default() };
-                            apply_common(&mut wrapper, io);
-                            collect_children(&mut wrapper, io);
-                            if wrapper.children.len() == 1 && wrapper.extra.is_empty() {
-                                n.children.push(wrapper.children.pop().unwrap());
-                            } else {
-                                n.children.push(wrapper);
-                            }
+                    if let J::Object(io) = item
+                        && io.keys().any(|k| STRUCTURAL.contains(&k.as_str()))
+                    {
+                        let mut wrapper = PlanNode { node_type: pretty(key), ..Default::default() };
+                        apply_common(&mut wrapper, io);
+                        collect_children(&mut wrapper, io);
+                        if wrapper.children.len() == 1 && wrapper.extra.is_empty() {
+                            n.children.push(wrapper.children.pop().unwrap());
+                        } else {
+                            n.children.push(wrapper);
                         }
                     }
                 }
@@ -201,7 +206,9 @@ fn table(t: &Map<String, J>) -> PlanNode {
         actual_rows: t.get("r_rows").and_then(num),
         ..Default::default()
     };
-    if let Some(pc) = t.get("cost_info").and_then(J::as_object).and_then(|c| c.get("prefix_cost")).and_then(num) {
+    if let Some(pc) =
+        t.get("cost_info").and_then(J::as_object).and_then(|c| c.get("prefix_cost")).and_then(num)
+    {
         n.total_cost = Some(pc);
     }
     // MariaDB reports table time and residual time separately.
@@ -216,14 +223,27 @@ fn table(t: &Map<String, J>) -> PlanNode {
         // The contract wants time summed over loops; MariaDB's r_*_time_ms
         // figures are already totals across all loops, so nothing to multiply.
     }
-    if let (Some(est), Some(r_filtered)) = (t.get("filtered").and_then(num), t.get("r_filtered").and_then(num)) {
+    if let (Some(est), Some(r_filtered)) =
+        (t.get("filtered").and_then(num), t.get("r_filtered").and_then(num))
+    {
         n.extra.insert("filtered".into(), format!("{est}% estimated, {r_filtered}% actual"));
     }
     for (k, v) in t {
         if matches!(
             k.as_str(),
-            "table_name" | "access_type" | "key" | "attached_condition" | "rows" | "rows_examined_per_scan" | "r_rows"
-                | "r_table_time_ms" | "r_other_time_ms" | "r_total_time_ms" | "r_loops" | "filtered" | "r_filtered"
+            "table_name"
+                | "access_type"
+                | "key"
+                | "attached_condition"
+                | "rows"
+                | "rows_examined_per_scan"
+                | "r_rows"
+                | "r_table_time_ms"
+                | "r_other_time_ms"
+                | "r_total_time_ms"
+                | "r_loops"
+                | "filtered"
+                | "r_filtered"
         ) || v.is_null()
         {
             continue;
@@ -330,7 +350,7 @@ mod tests {
     const MYSQL8: &str = include_str!("../tests/fixtures/mysql8_plain.json");
     const MYSQL8_ANALYZE: &str = include_str!("../tests/fixtures/mysql8_analyze.txt");
 
-    fn find<'a>(root: &'a PlanNode, f: impl Fn(&PlanNode) -> bool) -> &'a PlanNode {
+    fn find(root: &PlanNode, f: impl Fn(&PlanNode) -> bool) -> &PlanNode {
         let mut found = None;
         root.walk(&mut |n, _| {
             if found.is_none() && f(n) {

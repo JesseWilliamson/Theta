@@ -27,7 +27,9 @@ impl Driver for SqliteDriver {
 
     async fn connect(&self, config: &ConnectionConfig) -> Result<Box<dyn Connection>> {
         if config.path.trim().is_empty() {
-            return Err(Error::Connect("no SQLite database path given (use `:memory:` for a scratch database)".into()));
+            return Err(Error::Connect(
+                "no SQLite database path given (use `:memory:` for a scratch database)".into(),
+            ));
         }
         let path = config.path.clone();
         let (ready_tx, ready_rx) = oneshot::channel();
@@ -97,7 +99,8 @@ impl Connection for SqliteConnection {
 
     async fn server_info(&self) -> Result<ServerInfo> {
         self.call(|c| {
-            let version: String = c.query_row("SELECT sqlite_version()", [], |r| r.get(0)).unwrap_or_default();
+            let version: String =
+                c.query_row("SELECT sqlite_version()", [], |r| r.get(0)).unwrap_or_default();
             let file = c.path().map(|p| p.to_string()).filter(|p| !p.is_empty());
             ServerInfo {
                 version: format!("SQLite {version}"),
@@ -120,7 +123,7 @@ impl Connection for SqliteConnection {
     }
 
     async fn introspect(&self) -> Result<Catalog> {
-        self.call(|c| introspect(c)).await?
+        self.call(introspect).await?
     }
 
     async fn explain(&self, sql: &str, analyze: bool) -> Result<Plan> {
@@ -235,7 +238,11 @@ fn kind_of_value(v: &Value) -> TypeKind {
     }
 }
 
-fn run_statement(conn: &mut rusqlite::Connection, sql: &str, limit: Option<usize>) -> Result<StatementOutcome> {
+fn run_statement(
+    conn: &mut rusqlite::Connection,
+    sql: &str,
+    limit: Option<usize>,
+) -> Result<StatementOutcome> {
     let started = Instant::now();
     let mut stmt = conn.prepare(sql).map_err(map_err)?;
     let ncols = stmt.column_count();
@@ -289,10 +296,11 @@ fn run_statement(conn: &mut rusqlite::Connection, sql: &str, limit: Option<usize
     drop(stmt);
     // Expression columns have no declared type: fall back to the first non-NULL value.
     for (i, col) in columns.iter_mut().enumerate() {
-        if col.kind == TypeKind::Other && col.type_name.is_empty() {
-            if let Some(v) = rows.iter().map(|r| &r[i]).find(|v| !v.is_null()) {
-                col.kind = kind_of_value(v);
-            }
+        if col.kind == TypeKind::Other
+            && col.type_name.is_empty()
+            && let Some(v) = rows.iter().map(|r| &r[i]).find(|v| !v.is_null())
+        {
+            col.kind = kind_of_value(v);
         }
     }
     let rows_affected = reports_rows_affected(sql).then(|| conn.changes());
@@ -353,9 +361,13 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
     let mut index_sql: BTreeMap<String, String> = BTreeMap::new();
     {
         let mut stmt = conn
-            .prepare(&format!("SELECT name, sql FROM {}.sqlite_master WHERE type = 'index' AND sql IS NOT NULL", q(db)))
+            .prepare(&format!(
+                "SELECT name, sql FROM {}.sqlite_master WHERE type = 'index' AND sql IS NOT NULL",
+                q(db)
+            ))
             .map_err(map_err)?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).map_err(map_err)?;
+        let rows =
+            stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).map_err(map_err)?;
         for r in rows {
             let (n, s) = r.map_err(map_err)?;
             index_sql.insert(n, s);
@@ -364,12 +376,12 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
     let mut estimates: BTreeMap<String, u64> = BTreeMap::new();
     // sqlite_stat1 only exists after ANALYZE. Every row (table or index) starts
     // with the table's row count, so the first one seen per table is enough.
-    if let Ok(mut stmt) = conn.prepare(&format!("SELECT tbl, stat FROM {}.sqlite_stat1", q(db))) {
-        if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
-            for (t, s) in rows.flatten() {
-                if let Some(n) = s.split_whitespace().next().and_then(|n| n.parse().ok()) {
-                    estimates.entry(t).or_insert(n);
-                }
+    if let Ok(mut stmt) = conn.prepare(&format!("SELECT tbl, stat FROM {}.sqlite_stat1", q(db)))
+        && let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+    {
+        for (t, s) in rows.flatten() {
+            if let Some(n) = s.split_whitespace().next().and_then(|n| n.parse().ok()) {
+                estimates.entry(t).or_insert(n);
             }
         }
     }
@@ -494,7 +506,9 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
     // sqlite_sequence only exists once an AUTOINCREMENT table was created.
     let sequences = conn
         .prepare(&format!("SELECT name FROM {}.sqlite_sequence ORDER BY name", q(db)))
-        .and_then(|mut s| s.query_map([], |r| r.get::<_, String>(0))?.collect::<std::result::Result<Vec<_>, _>>())
+        .and_then(|mut s| {
+            s.query_map([], |r| r.get::<_, String>(0))?.collect::<std::result::Result<Vec<_>, _>>()
+        })
         .unwrap_or_default();
     Ok(Schema { name: db.to_string(), tables, routines: vec![], sequences })
 }
@@ -511,7 +525,8 @@ fn explain(conn: &mut rusqlite::Connection, sql: &str, analyze: bool) -> Result<
             .map_err(map_err)?;
         it.collect::<std::result::Result<_, _>>().map_err(map_err)?
     };
-    let raw = rows.iter().map(|(id, parent, d)| format!("{id}\t{parent}\t{d}")).collect::<Vec<_>>().join("\n");
+    let raw =
+        rows.iter().map(|(id, parent, d)| format!("{id}\t{parent}\t{d}")).collect::<Vec<_>>().join("\n");
     let mut root = plan_from_eqp(&rows);
     let mut execution_time_ms = None;
     if analyze {
@@ -628,7 +643,10 @@ mod tests {
         assert_eq!(plan.node_type, "QUERY PLAN");
         assert_eq!(plan.children.len(), 2);
         let s = &plan.children[0];
-        assert_eq!((s.node_type.as_str(), s.relation.as_deref(), s.index.as_deref()), ("SEARCH", Some("o"), Some("idx_o_c")));
+        assert_eq!(
+            (s.node_type.as_str(), s.relation.as_deref(), s.index.as_deref()),
+            ("SEARCH", Some("o"), Some("idx_o_c"))
+        );
         assert_eq!(s.extra["Index Cond"], "(customer_id=?)");
         let c = &plan.children[1];
         assert_eq!(c.alias.as_deref(), Some("cu"));

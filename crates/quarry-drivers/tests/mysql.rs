@@ -75,14 +75,32 @@ async fn type_round_trips() {
     assert_eq!(&g[17..25], &2f64.to_le_bytes());
     // The other row: all NULL except the geometry (SRID 0 yields plain WKB).
     let other = &rs.rows[1];
-    assert!(other.iter().enumerate().all(|(i, v)| i == col("g") || i == col("bo") && false || v.is_null() || i == col("bo")));
+    assert!(
+        other
+            .iter()
+            .enumerate()
+            .all(|(i, v)| i == col("g") || i == col("bo") && false || v.is_null() || i == col("bo"))
+    );
     let Value::Geometry(g0) = &other[col("g")] else { panic!() };
     assert_eq!(&g0[..5], &[1, 1, 0, 0, 0]);
 
     use TypeKind::*;
     let k = |n: &str| rs.columns[col(n)].kind;
     assert_eq!(
-        [k("ti"), k("d"), k("f"), k("dt"), k("tm"), k("dtm"), k("vc"), k("bl"), k("b1"), k("b8"), k("en"), k("g")],
+        [
+            k("ti"),
+            k("d"),
+            k("f"),
+            k("dt"),
+            k("tm"),
+            k("dtm"),
+            k("vc"),
+            k("bl"),
+            k("b1"),
+            k("b8"),
+            k("en"),
+            k("g")
+        ],
         [Integer, Decimal, Float, Date, Time, Timestamp, Text, Bytes, Bool, Integer, Text, Geometry]
     );
     let n = |name: &str| rs.columns[col(name)].type_name.clone();
@@ -140,14 +158,21 @@ async fn rows_affected_warnings_and_errors() {
     assert!(run(c, "SELECT 1").await.notices.is_empty());
 
     let sql = "SELECT 1\nFROM t WHERE ??? = 1";
-    let Error::Query { code, position, detail, .. } = c.execute(sql, &all()).await.unwrap_err() else { panic!() };
+    let Error::Query { code, position, detail, .. } = c.execute(sql, &all()).await.unwrap_err() else {
+        panic!()
+    };
     assert_eq!(code.as_deref(), Some("1064"));
     assert_eq!(detail.as_deref(), Some("SQLSTATE 42000"));
     assert_eq!(position.unwrap().offset, sql.find("???").unwrap());
     run(c, "INSERT INTO t (v) VALUES (7)").await;
-    let Error::Query { code, .. } = c.execute("INSERT INTO t (v) VALUES (7)", &all()).await.unwrap_err() else { panic!() };
+    let Error::Query { code, .. } = c.execute("INSERT INTO t (v) VALUES (7)", &all()).await.unwrap_err()
+    else {
+        panic!()
+    };
     assert_eq!(code.as_deref(), Some("1062"));
-    let Error::Query { code, .. } = c.execute("SELECT * FROM nope", &all()).await.unwrap_err() else { panic!() };
+    let Error::Query { code, .. } = c.execute("SELECT * FROM nope", &all()).await.unwrap_err() else {
+        panic!()
+    };
     assert_eq!(code.as_deref(), Some("1146"));
     // Exactly one statement.
     assert!(matches!(c.execute("SELECT 1; SELECT 2", &all()).await, Err(Error::Query { .. })));
@@ -209,7 +234,8 @@ async fn cancel_returns_promptly() {
         let task = tokio::spawn(async move { c2.execute(sql, &ExecOptions::default()).await });
         tokio::time::sleep(Duration::from_millis(400)).await;
         conn.cancel().await.unwrap();
-        let r = tokio::time::timeout(Duration::from_secs(5), task).await.expect("cancel took too long").unwrap();
+        let r =
+            tokio::time::timeout(Duration::from_secs(5), task).await.expect("cancel took too long").unwrap();
         assert!(matches!(r, Err(Error::Cancelled)), "{sql}: {r:?}");
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(scalar(conn.as_ref(), "SELECT 7").await, Value::Int(7));
@@ -271,7 +297,9 @@ async fn result_columns_know_their_origin() {
         .result
         .unwrap()
         .columns;
-    let o = |table: &str, col: &str| Some(ColumnOrigin { schema: Some(fx.db.clone()), table: table.into(), column: col.into() });
+    let o = |table: &str, col: &str| {
+        Some(ColumnOrigin { schema: Some(fx.db.clone()), table: table.into(), column: col.into() })
+    };
     assert_eq!(cols[0].origin, o("people", "id"));
     assert_eq!(cols[1].origin, o("people", "name"));
     assert_eq!(cols[2].origin, o("pets", "name"));
@@ -312,19 +340,32 @@ async fn introspection_reads_the_whole_catalog() {
     assert_eq!(parent.primary_key, vec!["a", "b"]);
     assert_eq!(parent.comment.as_deref(), Some("The parent table"));
     let label = parent.columns.iter().find(|c| c.name == "label").unwrap();
-    assert_eq!((label.data_type.as_str(), label.nullable, label.kind), ("varchar(20)", false, TypeKind::Text));
+    assert_eq!(
+        (label.data_type.as_str(), label.nullable, label.kind),
+        ("varchar(20)", false, TypeKind::Text)
+    );
     assert_eq!(label.default.as_deref(), Some("'x'"));
     assert_eq!(label.comment.as_deref(), Some("A label"));
     let child = t("child");
     assert_eq!(child.primary_key, vec!["id"]);
     assert_eq!(child.columns[0].default.as_deref(), Some("AUTO_INCREMENT"));
     assert_eq!(child.columns.iter().find(|c| c.name == "amount").unwrap().kind, TypeKind::Decimal);
-    assert_eq!(child.columns.iter().find(|c| c.name == "doc").unwrap().kind, TypeKind::Json, "MariaDB JSON alias detected via its CHECK");
+    assert_eq!(
+        child.columns.iter().find(|c| c.name == "doc").unwrap().kind,
+        TypeKind::Json,
+        "MariaDB JSON alias detected via its CHECK"
+    );
     assert_eq!(child.columns.iter().find(|c| c.name == "flag").unwrap().kind, TypeKind::Integer);
     let fk = &child.foreign_keys[0];
     assert_eq!(fk.name, "fk_child_parent");
-    assert_eq!((fk.columns.clone(), fk.referenced_columns.clone()), (vec!["pa".into(), "pb".into()], vec!["a".into(), "b".into()]));
-    assert_eq!((fk.referenced_table.as_str(), fk.referenced_schema.as_deref()), ("parent", Some(fx.db.as_str())));
+    assert_eq!(
+        (fk.columns.clone(), fk.referenced_columns.clone()),
+        (vec!["pa".into(), "pb".into()], vec!["a".into(), "b".into()])
+    );
+    assert_eq!(
+        (fk.referenced_table.as_str(), fk.referenced_schema.as_deref()),
+        ("parent", Some(fx.db.as_str()))
+    );
     assert_eq!((fk.on_delete.as_deref(), fk.on_update.as_deref()), (Some("CASCADE"), Some("SET NULL")));
     let pk = child.indexes.iter().find(|i| i.primary).unwrap();
     assert_eq!((pk.name.as_str(), pk.columns.clone(), pk.unique), ("PRIMARY", vec!["id".to_string()], true));
@@ -340,9 +381,15 @@ async fn introspection_reads_the_whole_catalog() {
     assert!(s.sequences.contains(&"extra_seq".to_string()));
     assert!(!s.tables.iter().any(|t| t.name == "extra_seq"));
     let add = s.routines.iter().find(|r| r.name == "add_one").unwrap();
-    assert_eq!((add.kind, add.signature.as_str(), add.return_type.as_deref()), (RoutineKind::Function, "(IN x int(11))", Some("int(11)")));
+    assert_eq!(
+        (add.kind, add.signature.as_str(), add.return_type.as_deref()),
+        (RoutineKind::Function, "(IN x int(11))", Some("int(11)"))
+    );
     let proc_ = s.routines.iter().find(|r| r.name == "do_nothing").unwrap();
-    assert_eq!((proc_.kind, proc_.signature.as_str(), proc_.return_type.clone()), (RoutineKind::Procedure, "(IN a int(11), OUT b text)", None));
+    assert_eq!(
+        (proc_.kind, proc_.signature.as_str(), proc_.return_type.clone()),
+        (RoutineKind::Procedure, "(IN a int(11), OUT b text)", None)
+    );
     let sp = t("places");
     let g = sp.columns.iter().find(|c| c.name == "g").unwrap();
     assert_eq!(g.kind, TypeKind::Geometry);

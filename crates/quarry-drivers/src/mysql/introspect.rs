@@ -39,11 +39,15 @@ fn normalise_default(raw: Option<String>, mariadb: bool, nullable: bool) -> Opti
 pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
     let schema_rows = rows(
         conn,
-        &format!("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN {SYSTEM} ORDER BY 1"),
+        &format!(
+            "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN {SYSTEM} ORDER BY 1"
+        ),
     )
     .await?;
-    let mut schemas: Vec<Schema> =
-        schema_rows.iter().map(|r| Schema { name: s(r, 0).unwrap_or_default(), ..Default::default() }).collect();
+    let mut schemas: Vec<Schema> = schema_rows
+        .iter()
+        .map(|r| Schema { name: s(r, 0).unwrap_or_default(), ..Default::default() })
+        .collect();
     let sidx: HashMap<String, usize> = schemas.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();
     let mut tidx: HashMap<(usize, String), usize> = HashMap::new();
 
@@ -81,8 +85,8 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
     // MariaDB implements JSON as LONGTEXT plus a CHECK (json_valid(col)) named
     // after the column; detect those so the column reads as JSON.
     let mut json_cols: std::collections::HashSet<(String, String, String)> = Default::default();
-    if mariadb {
-        if let Ok(rs) = rows(
+    if mariadb
+        && let Ok(rs) = rows(
             conn,
             &format!(
                 "SELECT CONSTRAINT_SCHEMA, TABLE_NAME, CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS \
@@ -90,17 +94,17 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
             ),
         )
         .await
-        {
-            for r in rs {
-                let clause = s(&r, 2).unwrap_or_default();
-                if let Some(col) = clause.strip_prefix("json_valid(`").and_then(|c| c.strip_suffix("`)")) {
-                    json_cols.insert((s(&r, 0).unwrap_or_default(), s(&r, 1).unwrap_or_default(), col.to_string()));
-                }
+    {
+        for r in rs {
+            let clause = s(&r, 2).unwrap_or_default();
+            if let Some(col) = clause.strip_prefix("json_valid(`").and_then(|c| c.strip_suffix("`)")) {
+                json_cols.insert((s(&r, 0).unwrap_or_default(), s(&r, 1).unwrap_or_default(), col.to_string()));
             }
         }
     }
     // Spatial column details, best effort: the view differs between servers.
-    let mut geo: HashMap<(String, String, String), (Option<i32>, Option<String>)> = HashMap::new();
+    type GeoInfo = (Option<i32>, Option<String>);
+    let mut geo: HashMap<(String, String, String), GeoInfo> = HashMap::new();
     let geo_sql = if mariadb {
         "SELECT F_TABLE_SCHEMA, F_TABLE_NAME, F_GEOMETRY_COLUMN, SRID, GEOMETRY_TYPE FROM information_schema.GEOMETRY_COLUMNS"
     } else {
@@ -151,7 +155,10 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
             let g = geo.get(&(schema.clone(), table.clone(), name.clone()));
             let declared = base.to_ascii_uppercase();
             Some(GeometryColumn {
-                geometry_type: match g.and_then(|g| g.1.clone()).filter(|t| !t.is_empty() && !t.eq_ignore_ascii_case("geometry")) {
+                geometry_type: match g
+                    .and_then(|g| g.1.clone())
+                    .filter(|t| !t.is_empty() && !t.eq_ignore_ascii_case("geometry"))
+                {
                     Some(t) => t.to_ascii_uppercase(),
                     None => declared,
                 },
@@ -218,7 +225,10 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
                         if i.unique { "UNIQUE " } else { "" },
                         q(&i.name),
                         q(&tname),
-                        i.method.as_deref().map(|m| format!(" USING {}", m.to_ascii_uppercase())).unwrap_or_default()
+                        i.method
+                            .as_deref()
+                            .map(|m| format!(" USING {}", m.to_ascii_uppercase()))
+                            .unwrap_or_default()
                     )
                 });
             }
@@ -288,12 +298,19 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
     for r in &routines {
         let schema = s(r, 0).unwrap_or_default();
         let Some(&si) = sidx.get(&schema) else { continue };
-        let kind = if s(r, 2).as_deref() == Some("PROCEDURE") { RoutineKind::Procedure } else { RoutineKind::Function };
+        let kind = if s(r, 2).as_deref() == Some("PROCEDURE") {
+            RoutineKind::Procedure
+        } else {
+            RoutineKind::Function
+        };
         let specific = s(r, 4).unwrap_or_default();
         schemas[si].routines.push(Routine {
             name: s(r, 1).unwrap_or_default(),
             kind,
-            signature: format!("({})", sigs.get(&(schema, specific)).map(|v| v.join(", ")).unwrap_or_default()),
+            signature: format!(
+                "({})",
+                sigs.get(&(schema, specific)).map(|v| v.join(", ")).unwrap_or_default()
+            ),
             return_type: if kind == RoutineKind::Function { s(r, 3) } else { None },
         });
     }

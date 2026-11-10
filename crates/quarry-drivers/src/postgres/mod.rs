@@ -91,7 +91,9 @@ fn error_chain(e: &(dyn std::error::Error + 'static)) -> String {
 fn connect_error(e: tokio_postgres::Error) -> Error {
     if let Some(db) = e.as_db_error() {
         let code = db.code();
-        return if *code == SqlState::INVALID_PASSWORD || *code == SqlState::INVALID_AUTHORIZATION_SPECIFICATION {
+        return if *code == SqlState::INVALID_PASSWORD
+            || *code == SqlState::INVALID_AUTHORIZATION_SPECIFICATION
+        {
             Error::Auth(db.message().to_string())
         } else {
             Error::Connect(db.message().to_string())
@@ -110,9 +112,9 @@ fn query_error(e: tokio_postgres::Error, sent: &str, skip: usize) -> Error {
         return Error::Other(error_chain(&e));
     };
     let position = match db.position() {
-        Some(tokio_postgres::error::ErrorPosition::Original(p)) => {
-            char_pos_to_byte_offset(sent, *p as usize).checked_sub(skip).map(|offset| ErrorPosition { offset })
-        }
+        Some(tokio_postgres::error::ErrorPosition::Original(p)) => char_pos_to_byte_offset(sent, *p as usize)
+            .checked_sub(skip)
+            .map(|offset| ErrorPosition { offset }),
         _ => None,
     };
     Error::Query {
@@ -142,11 +144,11 @@ impl PgConnection {
         } else {
             cfg.host(if config.host.is_empty() { "localhost" } else { &config.host });
         }
-        cfg.port(if config.port == 0 { 5432 } else { config.port });
-        if let Some(v) = &via {
+        // `Config::port` appends, and hosts/hostaddrs/ports must pair up one to one.
+        cfg.port(via.as_ref().map(|v| v.port).unwrap_or(if config.port == 0 { 5432 } else { config.port }));
+        if via.is_some() {
             // Dial the tunnel's local end but keep `host` for TLS name checks.
             cfg.hostaddr(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
-            cfg.port(v.port);
         }
         if !config.user.is_empty() {
             cfg.user(&config.user);
@@ -243,10 +245,7 @@ impl PgConnection {
     }
 
     /// Bookkeeping around one unit of work so `cancel` knows something is running.
-    async fn run_guarded<T>(
-        &self,
-        f: impl AsyncFnOnce(&mut Session) -> Result<T>,
-    ) -> Result<T> {
+    async fn run_guarded<T>(&self, f: impl AsyncFnOnce(&mut Session) -> Result<T>) -> Result<T> {
         let mut guard = self.session.lock().await;
         let sess = guard.as_mut().ok_or(Error::Closed)?;
         self.cancel_requested.store(false, Ordering::SeqCst);
@@ -261,7 +260,12 @@ impl PgConnection {
         }
     }
 
-    async fn execute_inner(&self, sess: &mut Session, sql: &str, limit: Option<usize>) -> Result<StatementOutcome> {
+    async fn execute_inner(
+        &self,
+        sess: &mut Session,
+        sql: &str,
+        limit: Option<usize>,
+    ) -> Result<StatementOutcome> {
         self.notices.lock().unwrap().clear();
         let started = Instant::now();
         let m = |e| query_error(e, sql, 0);
@@ -300,7 +304,9 @@ impl PgConnection {
                 };
                 let fetched: Result<(), tokio_postgres::Error> = async {
                     let portal = tx.bind(&stmt, &[]).await?;
-                    let stream = tx.query_portal_raw(&portal, (l.saturating_add(1)).min(i32::MAX as usize) as i32).await?;
+                    let stream = tx
+                        .query_portal_raw(&portal, (l.saturating_add(1)).min(i32::MAX as usize) as i32)
+                        .await?;
                     pin_mut!(stream);
                     while let Some(row) = stream.try_next().await? {
                         if rows.len() >= l {
@@ -414,9 +420,9 @@ async fn resolve_origins(sess: &mut Session, wanted: &[(u32, i16)], columns: &mu
 /// incoming message, independent of any earlier pipelined work.
 async fn query_in_transaction(client: &Client) -> bool {
     match client.simple_query("SELECT now() = statement_timestamp()").await {
-        Ok(msgs) => msgs.iter().any(|m| {
-            matches!(m, tokio_postgres::SimpleQueryMessage::Row(r) if r.get(0) == Some("f"))
-        }),
+        Ok(msgs) => msgs
+            .iter()
+            .any(|m| matches!(m, tokio_postgres::SimpleQueryMessage::Row(r) if r.get(0) == Some("f"))),
         // "current transaction is aborted" is itself proof of an open transaction.
         Err(e) => e.code() == Some(&SqlState::IN_FAILED_SQL_TRANSACTION),
     }
@@ -451,7 +457,8 @@ impl Connection for PgConnection {
     async fn explain(&self, sql: &str, analyze: bool) -> Result<Plan> {
         self.run_guarded(async |sess| {
             let client = &sess.client;
-            let prefix = if analyze { "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " } else { "EXPLAIN (FORMAT JSON) " };
+            let prefix =
+                if analyze { "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " } else { "EXPLAIN (FORMAT JSON) " };
             let sent = format!("{prefix}{sql}");
             let m = |e| query_error(e, &sent, prefix.len());
             // ANALYZE really runs the statement. Wrap it so writes vanish, and
@@ -500,6 +507,10 @@ impl Connection for PgConnection {
     }
 
     async fn close(&self) -> Result<()> {
+        // A running statement holds the lock; stop it rather than wait it out.
+        if self.running.load(Ordering::SeqCst) {
+            let _ = self.cancel().await;
+        }
         // Dropping the client sends Terminate and ends the connection task.
         self.session.lock().await.take();
         Ok(())
