@@ -729,8 +729,9 @@ fn mysql_checks(c: &mut Ctx, n: &PlanNode, path: &[usize]) {
             Severity::Warning,
             format!("Using filesort on {rel}"),
             format!(
-                "MySQL cannot return rows in ORDER BY order from an index, so it sorts them separately{}. An index whose columns match the ORDER BY (after any equality filters) removes the sort.",
-                rows.map(|r| format!(" ({} rows estimated)", fmt_int(r))).unwrap_or_default()
+                "MySQL cannot return rows in ORDER BY order from an index, so it sorts them separately{}{}. An index whose columns match the ORDER BY (after any equality filters) removes the sort.",
+                rows.map(|r| format!(" ({} rows estimated)", fmt_int(r))).unwrap_or_default(),
+                extra_get(n, "sort_key").map(|k| format!(" by `{k}`")).unwrap_or_default()
             ),
             path,
             None,
@@ -1356,10 +1357,12 @@ mod tests {
         let mut tmp = node("Temporary table");
         tmp.children = vec![table];
         let mut sort = node("Filesort");
+        sort.extra.insert("sort_key".into(), "p.category, c.country".into());
         sort.children = vec![tmp];
         let got = insights(sort, false, MySql);
         let sort_i = got.iter().find(|i| i.title.starts_with("Using filesort")).expect("filesort");
         assert_eq!(sort_i.title, "Using filesort on big");
+        assert!(sort_i.detail.contains("by `p.category, c.country`"), "{}", sort_i.detail);
         assert_eq!(sort_i.node_path, Vec::<usize>::new());
         let tmp_i = got.iter().find(|i| i.title.starts_with("Using temporary")).expect("temporary");
         assert_eq!(tmp_i.title, "Using temporary table on big");
