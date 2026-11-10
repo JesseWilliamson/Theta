@@ -295,9 +295,8 @@ mod tests {
         // A 4px-wide span cannot take a 10px radius: the curve control offsets stay within half the edge.
         let shapes = outline(&[Span { x0: 0.0, x1: 4.0 }], 0.0, 20.0, 10.0);
         for c in &shapes[0] {
-            if let PathCmd::Move(p) | PathCmd::Line(p) | PathCmd::Curve(p, _) = c {
-                assert!(p.x >= -0.001 && p.x <= 4.001 && p.y >= -0.001 && p.y <= 20.001);
-            }
+            let (PathCmd::Move(p) | PathCmd::Line(p) | PathCmd::Curve(p, _)) = c;
+            assert!(p.x >= -0.001 && p.x <= 4.001 && p.y >= -0.001 && p.y <= 20.001);
         }
     }
 

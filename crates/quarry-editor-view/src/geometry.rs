@@ -26,20 +26,6 @@ pub fn max_scroll_x(content_w: f32, viewport_w: f32, trailing: f32) -> f32 {
     (content_w + trailing - viewport_w).max(0.0)
 }
 
-pub fn clamp_scroll(
-    (x, y): (f32, f32),
-    line_count: usize,
-    line_height: f32,
-    content_w: f32,
-    viewport: (f32, f32),
-    trailing: f32,
-) -> (f32, f32) {
-    (
-        x.clamp(0.0, max_scroll_x(content_w, viewport.0, trailing)),
-        y.clamp(0.0, max_scroll_y(line_count, line_height, viewport.1)),
-    )
-}
-
 /// Lines intersecting the viewport (no overscan): `first..last_exclusive`.
 pub fn visible_lines(scroll_y: f32, line_height: f32, viewport_h: f32, line_count: usize) -> Range<usize> {
     if line_count == 0 || line_height <= 0.0 {

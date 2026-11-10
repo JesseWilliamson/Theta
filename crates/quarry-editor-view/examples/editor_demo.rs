@@ -8,8 +8,8 @@
 
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::{
-    AppContext as _, Bounds, Context, Entity, IntoElement, ParentElement as _,
-    Render, Styled as _, Subscription, Window, WindowBounds, WindowOptions, div, px, size,
+    AppContext as _, Bounds, Context, Entity, IntoElement, ParentElement as _, Render, Styled as _,
+    Subscription, Window, WindowBounds, WindowOptions, div, px, size,
 };
 use quarry_core::{Catalog, DatabaseKind};
 use quarry_editor_view::{CompletionProvider, EditorEvent, EditorView, StatementStatus};

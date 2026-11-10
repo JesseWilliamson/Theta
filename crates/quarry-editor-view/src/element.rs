@@ -23,8 +23,8 @@ use gpui_kit::{
     App, AvailableSpace, Bounds, ContentMask, Context, CursorStyle, DispatchPhase, Element, ElementId,
     ElementInputHandler, Entity, GlobalElementId, Hitbox, HitboxBehavior, Hsla, InspectorElementId,
     IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels,
-    Point, ScrollDelta, ScrollEvent, ShapedLine, SharedString, Style, TextAlign, TextRun,
-    UnderlineStyle, Window, fill, point, px, relative, size,
+    Point, ScrollDelta, ScrollEvent, ShapedLine, SharedString, Style, TextAlign, TextRun, UnderlineStyle,
+    Window, fill, point, px, relative, size,
 };
 use quarry_editor::{Keymap, Mode};
 use quarry_sql::Severity;
@@ -68,7 +68,6 @@ pub(crate) struct Palette {
     pub success: Hsla,
     pub danger: Hsla,
     pub thumb: Hsla,
-    pub muted: Hsla,
 }
 
 impl Palette {
@@ -83,7 +82,6 @@ impl Palette {
             success: theme.green,
             danger: theme.red,
             thumb: theme.scrollbar_thumb,
-            muted: theme.muted_foreground,
         }
     }
 
@@ -105,7 +103,7 @@ pub(crate) struct VLine {
 }
 
 pub(crate) enum CursorShape {
-    Block { glyph: Option<ShapedLine> },
+    Block { glyph: Option<Box<ShapedLine>> },
     Bar,
 }
 
@@ -155,7 +153,6 @@ pub(crate) struct Frame {
     pub colors: EditorColors,
     pub pal: Palette,
     pub line_h: f32,
-    pub cell_w: f32,
     pub gutter_w: f32,
     pub text_bounds: Bounds<Pixels>,
     /// Window x of text column 0 with the horizontal scroll applied.
@@ -206,8 +203,7 @@ impl Element for EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, ()) {
-        let mut style = Style::default();
-        style.position = gpui_kit::Position::Absolute;
+        let mut style = Style { position: gpui_kit::Position::Absolute, ..Style::default() };
         style.size.width = relative(1.).into();
         style.size.height = relative(1.).into();
         (window.request_layout(style, [], cx), ())
@@ -237,7 +233,11 @@ impl Element for EditorElement {
                 Some(popup::completion_popup(view.clone(), state, v.font_family.clone(), cx))
             });
             if let Some((mut element, dims)) = element {
-                element.layout_as_root(size(AvailableSpace::MinContent, AvailableSpace::MinContent), window, cx);
+                element.layout_as_root(
+                    size(AvailableSpace::MinContent, AvailableSpace::MinContent),
+                    window,
+                    cx,
+                );
                 let p =
                     geometry::place_popup((spec.anchor.0, spec.anchor.1, frame.line_h), dims, win, 2.0, 8.0);
                 window.defer_draw(element, point(px(p.x), px(p.y)), 2, None);
@@ -501,7 +501,7 @@ impl EditorView {
             }
             (Some(i), Some(h)) if h.diag == i => {}
             (Some(i), _) => {
-                self.hover = Some(Hover { diag: i, since: Instant::now(), shown: false });
+                self.hover = Some(Hover { diag: i, shown: false });
                 cx.spawn(async move |this, cx| {
                     cx.background_executor().timer(HOVER_DELAY).await;
                     this.update(cx, |v, cx| {
@@ -552,7 +552,7 @@ impl EditorView {
         let mut animating = false;
 
         // ---- drag auto-scroll: the pointer outside the text area keeps scrolling and extending
-        if self.drag == Some(Drag::Text) {
+        if self.drag == Some(Drag::Text) && self.drag_moved {
             let p = window.mouse_position();
             let (px_, py_) = (f32::from(p.x), f32::from(p.y));
             let dy = if py_ < oy {
@@ -605,7 +605,7 @@ impl EditorView {
             }
         }
         let (mx, my) = (
-            geometry::max_scroll_x(self.longest.1, viewport.0, cell_w * 2.0),
+            geometry::max_scroll_x(self.longest.1, viewport.0, cell_w * (geometry::REVEAL_COLUMNS + 1.0)),
             geometry::max_scroll_y(line_count, line_h, viewport.1),
         );
         self.scroll_y = self.scroll_y.clamp(0.0, my);
@@ -645,7 +645,8 @@ impl EditorView {
             lines.push(VLine { line, y: line as f32 * line_h - self.scroll_y, entry, number });
         }
         self.longest.1 = widest;
-        let (mx, _) = (geometry::max_scroll_x(widest, viewport.0, cell_w * 2.0), 0.0);
+        let (mx, _) =
+            (geometry::max_scroll_x(widest, viewport.0, cell_w * (geometry::REVEAL_COLUMNS + 1.0)), 0.0);
         self.scroll_x = self.scroll_x.clamp(0.0, mx);
 
         if self.last_viewport != (vis.start, geometry::full_lines_in_viewport(line_h, bh)) {
@@ -760,12 +761,12 @@ impl EditorView {
                             underline: None,
                             strikethrough: None,
                         };
-                        Some(self.text_system.shape_line(
+                        Some(Box::new(self.text_system.shape_line(
                             SharedString::from(text.to_string()),
                             px(self.font_size),
                             &[run],
                             None,
-                        ))
+                        )))
                     }
                 } else {
                     None
@@ -928,7 +929,10 @@ impl EditorView {
         };
 
         // ---- scrollbars
-        let (max_x, max_y) = (geometry::max_scroll_x(self.longest.1, viewport.0, cell_w * 2.0), my);
+        let (max_x, max_y) = (
+            geometry::max_scroll_x(self.longest.1, viewport.0, cell_w * (geometry::REVEAL_COLUMNS + 1.0)),
+            my,
+        );
         let hovering_edge = self.near_edge;
         let alpha = self.scrollbar_alpha(hovering_edge);
         if alpha > 0.0 && alpha < 1.0 {
@@ -984,7 +988,7 @@ impl EditorView {
         // ---- popups
         let completion = self.completion.as_ref().and_then(|c: &CompletionState| {
             let l = self.editor.char_to_line(c.replace.start);
-            let ent = if let Some(v) = by_line.get(&l) { v.entry.clone() } else { return None };
+            let ent = by_line.get(&l)?.entry.clone();
             let col = c.replace.start - self.editor.line_to_char(l);
             let x = text_left + f32::from(ent.x_of_col(col));
             let _ = MAX_VISIBLE_ROWS;
@@ -1008,7 +1012,6 @@ impl EditorView {
             colors,
             pal,
             line_h,
-            cell_w,
             gutter_w,
             text_bounds,
             text_origin_x: px(text_left),
@@ -1242,13 +1245,13 @@ fn paint_spinner(window: &mut Window, cx_: Pixels, cy: Pixels, color: Hsla) {
         let ang = i as f32 / 8.0 * std::f32::consts::TAU;
         let age = (t + 8 - i) % 8;
         let a = 1.0 - age as f32 / 8.0;
-        let r = 4.2;
+        let r = 4.6;
         let (x, y) = (cx_ + px(ang.cos() * r), cy + px(ang.sin() * r));
-        let d = 1.4 + 0.8 * a;
+        let d = 2.0 + 1.0 * a;
         window.paint_quad(
             fill(
                 Bounds::new(point(x - px(d / 2.0), y - px(d / 2.0)), size(px(d), px(d))),
-                color.opacity(0.25 + 0.75 * a),
+                color.opacity(0.3 + 0.7 * a),
             )
             .corner_radii(px(d / 2.0)),
         );

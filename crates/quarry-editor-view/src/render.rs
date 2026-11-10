@@ -3,7 +3,7 @@
 
 use crate::actions::*;
 use crate::element::EditorElement;
-use crate::view::{EditorView, HINT_DELAY, MESSAGE_TTL};
+use crate::view::{EditorView, HINT_DELAY};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
@@ -36,7 +36,12 @@ impl EditorView {
                             .h(px(22.))
                             .gap_2()
                             .items_center()
-                            .child(div().min_w(px(34.)).child(KeyHint::from_label(h.key.clone())))
+                            .child(
+                                h_flex()
+                                    .min_w(px(34.))
+                                    .justify_center()
+                                    .child(KeyHint::from_label(h.key.clone())),
+                            )
                             .child(
                                 div()
                                     .text_size(CHROME_TEXT_SIZE)
@@ -129,20 +134,35 @@ impl EditorView {
                 .into_any_element(),
             );
         }
-        let (msg, at) = self.message.as_ref()?;
-        if at.elapsed() >= MESSAGE_TTL {
+        None
+    }
+
+    /// Engine status text ("yanked 2 lines", command errors) for a few seconds. It floats over
+    /// the bottom edge instead of taking a row, so showing and hiding it never shifts the text.
+    fn message_bar(&self, cx: &Context<Self>) -> Option<AnyElement> {
+        if self.editor.prompt().is_some() {
             return None;
         }
+        let (msg, _) = self.message.as_ref()?;
+        let theme = cx.theme();
         Some(
-            base.child(
-                div()
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_size(CHROME_TEXT_SIZE)
-                    .text_color(theme.muted_foreground)
-                    .child(msg.clone()),
-            )
-            .into_any_element(),
+            h_flex()
+                .id("editor-message")
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .h(px(self.line_height_px() + 6.0))
+                .px_3()
+                .items_center()
+                .border_t_1()
+                .border_color(theme.border)
+                .bg(theme.sidebar)
+                .font_family(self.font_family.clone())
+                .text_size(px(self.font_size))
+                .text_color(theme.muted_foreground)
+                .child(div().whitespace_nowrap().overflow_hidden().child(msg.clone()))
+                .into_any_element(),
         )
     }
 }
@@ -162,6 +182,7 @@ impl Render for EditorView {
         let has_selection = self.editor.selected_text().is_some();
         let which_key = self.which_key(cx);
         let bottom = self.bottom_bar(cx);
+        let message = self.message_bar(cx);
 
         div()
             .id("quarry-editor")
@@ -216,6 +237,7 @@ impl Render for EditorView {
                     .flex_1()
                     .min_h_0()
                     .child(EditorElement::new(cx.entity()))
+                    .children(message)
                     .children(which_key),
             )
             .children(bottom)

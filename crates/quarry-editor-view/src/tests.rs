@@ -49,7 +49,7 @@ fn setup(cx: &mut TestAppContext, text: &'static str, keymap: Keymap) -> Fixture
     let ev = events.clone();
     let sub =
         cx.update(|cx| cx.subscribe(&view, move |_, e: &EditorEvent, _| ev.borrow_mut().push(e.clone())));
-    let f = Fixture { window: window.into(), view, events, _sub: sub };
+    let f = Fixture { window, view, events, _sub: sub };
     f.view.update(cx, |v, cx| {
         v.update_editor(cx, |e| {
             e.set_keymap(keymap);
@@ -491,3 +491,176 @@ fn mouse_click_places_the_cursor(cx: &mut TestAppContext) {
 }
 
 use std::sync::Arc;
+
+fn numbered_lines(n: usize) -> &'static str {
+    let text: String = (0..n).map(|i| format!("line {i}\n")).collect();
+    Box::leak(text.into_boxed_str())
+}
+
+#[gpui_kit::test]
+fn goto_line_reveals_with_a_three_line_margin_and_zz_centres(cx: &mut TestAppContext) {
+    let f = setup(cx, numbered_lines(200), Keymap::Helix);
+    f.render(cx);
+    let (lh, vh) = f.view.read_with(cx, |v, _| {
+        let l = v.layout.clone().expect("painted");
+        (l.line_h, f32::from(l.bounds.size.height))
+    });
+    f.keys(cx, "50G");
+    f.render(cx);
+    let sy = f.view.read_with(cx, |v, _| v.scroll_y);
+    // Cursor line 49: its bottom plus three lines of context sits on the viewport's bottom edge.
+    assert_eq!(sy, 50.0 * lh + 3.0 * lh - vh);
+    f.keys(cx, "zz");
+    f.render(cx);
+    let sy = f.view.read_with(cx, |v, _| v.scroll_y);
+    assert_eq!(sy, 49.0 * lh + lh / 2.0 - vh / 2.0);
+    // The engine is told which lines are visible (ctrl-d / page motions use it).
+    let first = f.view.read_with(cx, |v, _| v.last_viewport.0);
+    assert_eq!(first, (sy / lh).floor() as usize);
+    f.keys(cx, "zt");
+    f.render(cx);
+    assert_eq!(f.view.read_with(cx, |v, _| v.scroll_y), 49.0 * lh);
+}
+
+#[gpui_kit::test]
+fn overscroll_stops_half_a_viewport_past_the_end(cx: &mut TestAppContext) {
+    let f = setup(cx, numbered_lines(100), Keymap::Helix);
+    f.render(cx);
+    f.view.update(cx, |v, cx| v.on_scroll(0.0, -1e9, cx));
+    f.render(cx);
+    let (sy, lh, vh, n) = f.view.read_with(cx, |v, _| {
+        let l = v.layout.clone().unwrap();
+        (v.scroll_y, l.line_h, f32::from(l.bounds.size.height), v.editor().line_count())
+    });
+    assert_eq!(sy, n as f32 * lh - vh / 2.0);
+}
+
+#[gpui_kit::test]
+fn dragging_extends_the_selection(cx: &mut TestAppContext) {
+    use gpui_kit::MouseButton;
+    use gpui_kit::test::TestEventExt as _;
+    let f = setup(cx, "select name from users", Keymap::Standard);
+    f.render(cx);
+    let (at, cw) = f.view.read_with(cx, |v, _| {
+        let l = v.layout.clone().unwrap();
+        (Point::new(l.bounds.origin.x + px(l.gutter_w), l.bounds.origin.y + px(l.line_h / 2.0)), l.cell_w)
+    });
+    let col = |n: f32| Point::new(at.x + px(cw * n + cw * 0.1), at.y);
+    cx.update_window(f.window, |_, window, cx| {
+        window.pointer_down(col(2.0), MouseButton::Left, cx);
+        window.pointer_move(col(6.0), Some(MouseButton::Left), cx);
+        window.pointer_move(col(9.0), Some(MouseButton::Left), cx);
+        window.pointer_up(col(9.0), MouseButton::Left, cx);
+    })
+    .unwrap();
+    let st = f.view.read_with(cx, |v, _| v.status());
+    assert_eq!(st.selected_chars, 7, "columns 2..9");
+    // The selection also became the primary selection (X11 middle-click paste).
+}
+
+#[gpui_kit::test]
+fn double_and_triple_click_select_word_and_line(cx: &mut TestAppContext) {
+    use gpui_kit::{Modifiers, MouseButton};
+    let f = setup(cx, "select name\nfrom users", Keymap::Standard);
+    f.view.update(cx, |v, cx| v.on_mouse_down_text(8, MouseButton::Left, 2, Modifiers::default(), cx));
+    assert_eq!(f.view.read_with(cx, |v, _| v.editor().selected_text()).as_deref(), Some("name"));
+    f.view.update(cx, |v, cx| v.on_mouse_down_text(8, MouseButton::Left, 3, Modifiers::default(), cx));
+    assert_eq!(f.view.read_with(cx, |v, _| v.editor().selected_text()).as_deref(), Some("select name\n"));
+    // Shift-click extends; alt-click adds a cursor.
+    f.view.update(cx, |v, cx| v.on_mouse_down_text(14, MouseButton::Left, 1, Modifiers::default(), cx));
+    f.view.update(cx, |v, cx| {
+        v.on_mouse_down_text(18, MouseButton::Left, 1, Modifiers { alt: true, ..Default::default() }, cx)
+    });
+    assert_eq!(f.view.read_with(cx, |v, _| v.editor().selections().len()), 2);
+}
+
+#[gpui_kit::test]
+fn cursor_blinks_and_pauses_while_typing(cx: &mut TestAppContext) {
+    let f = setup(cx, "abc", Keymap::Standard);
+    f.view.update(cx, |v, cx| {
+        v.focused = true;
+        v.pause_blink(cx);
+    });
+    assert!(f.view.read_with(cx, |v, _| v.blink_visible));
+    cx.executor().advance_clock(Duration::from_millis(540));
+    cx.run_until_parked();
+    assert!(!f.view.read_with(cx, |v, _| v.blink_visible), "hidden after one half-period");
+    // A keystroke makes it solid again and restarts the timer.
+    f.keys(cx, "x");
+    assert!(f.view.read_with(cx, |v, _| v.blink_visible));
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    assert!(f.view.read_with(cx, |v, _| v.blink_visible), "still solid shortly after typing");
+}
+
+#[gpui_kit::test]
+fn which_key_appears_after_the_delay_but_space_is_immediate(cx: &mut TestAppContext) {
+    let f = setup(cx, "abc", Keymap::Helix);
+    f.keys(cx, "g");
+    let hints = f.view.read_with(cx, |v, _| v.editor().key_hints().map(|(t, h)| (t, h.len())));
+    assert!(hints.is_some_and(|(_, n)| n > 3), "g has a goto menu");
+    assert!(f.view.read_with(cx, |v, _| v.hints_since.is_some()));
+    f.keys(cx, "<esc>");
+    assert!(f.view.read_with(cx, |v, _| v.hints_since.is_none()));
+}
+
+#[gpui_kit::test]
+fn status_messages_expire(cx: &mut TestAppContext) {
+    let f = setup(cx, "abc", Keymap::Helix);
+    f.keys(cx, "x");
+    f.keys(cx, "y");
+    let msg = f.view.read_with(cx, |v, _| v.status().message);
+    assert!(msg.is_some(), "yank reports a status message");
+    cx.executor().advance_clock(Duration::from_secs(5));
+    cx.run_until_parked();
+    assert!(f.view.read_with(cx, |v, _| v.status().message).is_none());
+}
+
+#[gpui_kit::test]
+fn join_completion_footer_and_manual_request(cx: &mut TestAppContext) {
+    let f = setup(cx, "", Keymap::Standard);
+    f.view.update(cx, |v, _| {
+        v.set_completion_provider(Some(Rc::new(ShopProvider(quarry_sql::fixtures::shop()))));
+    });
+    f.keys(cx, "select * from orders o join <C-space>");
+    let (n, footer) = f.view.read_with(cx, |v, _| {
+        let c = v.completion.as_ref().expect("ctrl-space opens the popup even for an empty word");
+        (c.len(), c.footer().map(str::to_string))
+    });
+    assert!(n >= 3);
+    assert!(footer.is_some_and(|t| t.contains(" ON ")), "join suggestions show their ON clause");
+    f.keys(cx, "<tab>");
+    assert!(f.text(cx).contains(" ON "), "{}", f.text(cx));
+}
+
+#[gpui_kit::test]
+fn settings_changes_reach_open_editors(cx: &mut TestAppContext) {
+    // quarry-ui writes settings to its config dir: point it at a scratch directory first.
+    let dir = std::env::temp_dir().join(format!("quarry-editor-view-test-{}", std::process::id()));
+    // SAFETY: set before any other thread in this test reads it; only this test installs the store.
+    unsafe { std::env::set_var("QUARRY_CONFIG_DIR", &dir) };
+    cx.update(quarry_ui::init);
+    let (window, view) = cx.update(|cx| {
+        let bounds = Bounds { origin: Point::default(), size: size(px(600.), px(300.)) };
+        gpui_kit::open_window(
+            WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() },
+            cx,
+            |window, cx| cx.new(|cx| EditorView::new("abc", window, cx)),
+        )
+        .expect("window")
+    });
+    let _ = window;
+    assert_eq!(view.read_with(cx, |v, _| v.editor().keymap()), Keymap::Helix);
+    cx.update(|cx| {
+        quarry_ui::Settings::update(cx, |s| {
+            s.keymap = quarry_ui::KeymapMode::Standard;
+            s.buffer_font_size = 18.0;
+        })
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |v, _| {
+        assert_eq!(v.editor().keymap(), Keymap::Standard);
+        assert_eq!(v.font_size, 18.0);
+    });
+    std::fs::remove_dir_all(&dir).ok();
+}

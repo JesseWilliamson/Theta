@@ -58,6 +58,9 @@ pub trait CompletionProvider: 'static {
 /// Supplies diagnostics for squiggles, called ~300 ms after the last edit on a background thread.
 pub type DiagnosticsProvider = Arc<dyn Fn(&str) -> Vec<Diagnostic> + Send + Sync>;
 
+/// (revision, primary cursor char): what cursor-dependent caches are keyed by.
+pub(crate) type CacheKey = (u64, usize);
+
 #[derive(Clone, Debug)]
 pub(crate) struct Diag {
     /// Chars.
@@ -76,7 +79,6 @@ pub(crate) enum Drag {
 #[derive(Clone, Debug)]
 pub(crate) struct Hover {
     pub diag: usize,
-    pub since: Instant,
     pub shown: bool,
 }
 
@@ -126,10 +128,9 @@ pub struct EditorView {
     pub(crate) font_size: f32,
     pub(crate) line_height_mult: f32,
     pub(crate) stats: FrameStats,
-    pub(crate) epoch: Instant,
     pub(crate) numbers: std::collections::HashMap<(usize, bool), gpui_kit::ShapedLine>,
     pub(crate) numbers_epoch: u64,
-    pub(crate) bracket_cache: Option<((u64, usize), Option<(usize, usize)>)>,
+    pub(crate) bracket_cache: Option<(CacheKey, Option<(usize, usize)>)>,
     pub(crate) ime_anchor: Option<Bounds<Pixels>>,
     pub(crate) near_edge: bool,
     // text snapshot shared by completion/diagnostics/statement lookup
@@ -151,7 +152,7 @@ pub struct EditorView {
     pub(crate) hover: Option<Hover>,
     // statements
     pub(crate) statement_status: Option<(Range<usize>, StatementStatus)>,
-    stmt_cache: Option<((u64, usize), Option<(usize, usize)>)>,
+    stmt_cache: Option<(CacheKey, Option<(usize, usize)>)>,
     pub(crate) db_kind: DatabaseKind,
     pub(crate) placeholder: SharedString,
     pub(crate) read_only: bool,
@@ -162,7 +163,9 @@ pub struct EditorView {
     // ime
     pub(crate) marked: Option<Range<usize>>,
     // messages / hints
-    pub(crate) message: Option<(String, Instant)>,
+    /// Latest engine status text and a serial number so only its own timer clears it.
+    pub(crate) message: Option<(String, u64)>,
+    message_serial: u64,
     pub(crate) hints_since: Option<Instant>,
     _subscriptions: Vec<Subscription>,
 }
@@ -215,7 +218,6 @@ impl EditorView {
             font_size: settings.buffer_font_size,
             line_height_mult: settings.buffer_line_height,
             stats: FrameStats::default(),
-            epoch: Instant::now(),
             numbers: Default::default(),
             numbers_epoch: 0,
             bracket_cache: None,
@@ -244,6 +246,7 @@ impl EditorView {
             drag_moved: false,
             marked: None,
             message: None,
+            message_serial: 0,
             hints_since: None,
             _subscriptions: subscriptions,
         }
@@ -344,7 +347,7 @@ impl EditorView {
             column: cursor - self.editor.line_to_char(line) + 1,
             selection_count: self.editor.selections().len(),
             selected_chars,
-            message: self.message.as_ref().filter(|(_, t)| t.elapsed() < MESSAGE_TTL).map(|(m, _)| m.clone()),
+            message: self.message.as_ref().map(|(m, _)| m.clone()),
             modified: self.editor.is_modified(),
         }
     }
@@ -657,10 +660,18 @@ impl EditorView {
             Effect::RevealCursor => self.pending_reveal = true,
             Effect::Scroll(req) => self.pending_scroll = Some(req),
             Effect::Status(msg) => {
-                self.message = Some((msg, Instant::now()));
+                self.message_serial += 1;
+                let id = self.message_serial;
+                self.message = Some((msg, id));
                 cx.spawn(async move |this, cx| {
-                    cx.background_executor().timer(MESSAGE_TTL + Duration::from_millis(50)).await;
-                    this.update(cx, |_, cx| cx.notify()).ok();
+                    cx.background_executor().timer(MESSAGE_TTL).await;
+                    this.update(cx, |v, cx| {
+                        if v.message.as_ref().is_some_and(|m| m.1 == id) {
+                            v.message = None;
+                            cx.notify();
+                        }
+                    })
+                    .ok();
                 })
                 .detach();
             }
@@ -694,7 +705,9 @@ impl EditorView {
                 return None;
             }
         }
-        CompletionState::new(list, replace, prefix)
+        let mut state = CompletionState::new(list, replace, prefix)?;
+        state.manual = manual;
+        Some(state)
     }
 
     fn update_completion(
@@ -738,10 +751,9 @@ impl EditorView {
                 let inside = cursor >= open.replace.start && cursor <= open.replace.end;
                 if !inside {
                     self.completion = None;
-                } else if let Some(n) = self.query_completion(false) {
-                    self.completion = Some(n);
                 } else {
-                    self.completion = None;
+                    let manual = open.manual;
+                    self.completion = self.query_completion(manual);
                 }
             }
             (None, true) if is_trigger_char => {

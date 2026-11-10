@@ -226,12 +226,9 @@ impl LineCache {
         entry
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.map.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
     }
 }
 

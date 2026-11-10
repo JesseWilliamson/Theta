@@ -1,6 +1,6 @@
 //! Completion popup state: selection, scrolling and label highlighting. No GPUI.
 
-use quarry_sql::{CompletionItem, CompletionList};
+use quarry_sql::{CompletionItem, CompletionKind, CompletionList};
 use quarry_ui::fuzzy::fuzzy_match;
 use std::ops::Range;
 
@@ -18,6 +18,9 @@ pub struct CompletionState {
     pub replace: Range<usize>,
     /// The partial word, used to emphasise matched characters.
     pub prefix: String,
+    /// Opened by an explicit request (ctrl-space) rather than by typing: it may offer
+    /// suggestions for an empty word (`JOIN |`) and is not subject to the typing gate.
+    pub manual: bool,
 }
 
 impl CompletionState {
@@ -26,7 +29,7 @@ impl CompletionState {
         if list.items.is_empty() {
             return None;
         }
-        Some(CompletionState { items: list.items, selected: 0, top: 0, replace, prefix })
+        Some(CompletionState { items: list.items, selected: 0, top: 0, replace, prefix, manual: false })
     }
 
     pub fn len(&self) -> usize {
@@ -76,9 +79,14 @@ impl CompletionState {
         }
     }
 
-    /// The footer text for the selected item, when its detail is too long for the row.
+    /// The footer text for the selected item: the full `ON` clause of a join suggestion, or a
+    /// detail too long for its row.
     pub fn footer(&self) -> Option<&str> {
-        self.selected_item()?.detail.as_deref().filter(|d| d.chars().count() > LONG_DETAIL)
+        let item = self.selected_item()?;
+        if item.kind == CompletionKind::Join {
+            return Some(&item.insert_text);
+        }
+        item.detail.as_deref().filter(|d| d.chars().count() > LONG_DETAIL)
     }
 }
 
@@ -186,6 +194,20 @@ mod tests {
         assert_eq!(s.footer(), None);
         s.move_selection(1);
         assert!(s.footer().unwrap().starts_with("orders o ON"));
+    }
+
+    #[test]
+    fn join_items_always_show_their_full_clause() {
+        let join = CompletionItem {
+            label: "customers c".into(),
+            kind: CompletionKind::Join,
+            detail: Some("FK orders_customer_id_fkey".into()),
+            insert_text: "customers c ON o.customer_id = c.id".into(),
+            score: 0,
+        };
+        let list = CompletionList { replace_range: 0..0, items: vec![join] };
+        let s = CompletionState::new(list, 0..0, String::new()).unwrap();
+        assert_eq!(s.footer(), Some("customers c ON o.customer_id = c.id"));
     }
 
     #[test]

@@ -10,8 +10,7 @@ use gpui_kit::component::{ActiveTheme as _, Icon, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Entity, FontWeight, HighlightStyle, Hsla, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement as _, SharedString, Styled as _, StyledText,
-    div, px,
+    MouseButton, ParentElement as _, SharedString, Styled as _, StyledText, div, px,
 };
 use quarry_sql::{CompletionKind, Severity};
 use quarry_ui::SyntaxColors;
@@ -116,7 +115,7 @@ pub(crate) fn completion_popup(
                         .child(label),
                 )
                 .when_some(
-                    item.detail.clone().filter(|_| !selected || state.footer().is_none()),
+                    item.detail.clone().filter(|d| !(selected && state.footer() == Some(d.as_str()))),
                     |d, text| {
                         d.child(
                             div()
@@ -188,8 +187,8 @@ pub(crate) fn hover_popover(
 ) -> (AnyElement, (f32, f32)) {
     let theme = cx.theme();
     let chars = message.chars().count() as f32;
-    let w = (chars * 6.8 + 34.0).clamp(140.0, 440.0);
-    let lines = ((chars * 6.8) / (w - 34.0)).ceil().max(1.0);
+    let w = (chars * 6.3 + 38.0).clamp(140.0, 440.0);
+    let lines = ((chars * 6.3) / (w - 38.0)).ceil().max(1.0);
     let h = lines * 18.0 + 14.0;
     let color = pal.severity(severity);
     let el = h_flex()
