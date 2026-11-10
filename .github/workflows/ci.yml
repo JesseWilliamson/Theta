@@ -105,10 +105,11 @@ jobs:
         include:
           - os: ubuntu-24.04
             rustflags: -C debuginfo=0 -C link-arg=-fuse-ld=mold
-          - os: macos-14
+          - os: macos-15
             rustflags: -C debuginfo=0
           - os: windows-2022
             rustflags: -C debuginfo=0
+    name: app (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
