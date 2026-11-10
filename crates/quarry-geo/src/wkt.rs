@@ -126,7 +126,11 @@ impl<'a> Parser<'a> {
             Ok(v) => Ok(v),
             Err(_) => {
                 self.pos = start;
-                self.err(if tok.is_empty() { "expected a number".to_string() } else { format!("invalid number '{tok}'") })
+                self.err(if tok.is_empty() {
+                    "expected a number".to_string()
+                } else {
+                    format!("invalid number '{tok}'")
+                })
             }
         }
     }
@@ -311,7 +315,10 @@ fn body(g: &Geometry, p: Option<usize>) -> String {
         Geometry::LineString(l) | Geometry::MultiPoint(l) if l.is_empty() => format!("{tag} EMPTY"),
         Geometry::LineString(l) => format!("{tag}({})", coords(l, p)),
         Geometry::MultiPoint(l) => {
-            format!("{tag}({})", l.iter().map(|c| format!("({})", coord(*c, p))).collect::<Vec<_>>().join(","))
+            format!(
+                "{tag}({})",
+                l.iter().map(|c| format!("({})", coord(*c, p))).collect::<Vec<_>>().join(",")
+            )
         }
         Geometry::Polygon(r) if r.is_empty() => format!("{tag} EMPTY"),
         Geometry::Polygon(r) => format!("{tag}{}", rings(r, p)),
@@ -367,7 +374,9 @@ mod tests {
 
     #[test]
     fn dimension_tags_are_dropped() {
-        for s in ["POINT Z (1 2 3)", "POINTZ(1 2 3)", "POINT M (1 2 3)", "POINT ZM (1 2 3 4)", "pointzm(1 2 3 4)"] {
+        for s in
+            ["POINT Z (1 2 3)", "POINTZ(1 2 3)", "POINT M (1 2 3)", "POINT ZM (1 2 3 4)", "pointzm(1 2 3 4)"]
+        {
             assert_eq!(g(s), Geometry::Point(Some([1.0, 2.0])), "{s}");
         }
         // Untagged 3D is tolerated too (PostGIS writes it that way for some tools).
@@ -387,7 +396,10 @@ mod tests {
 
     #[test]
     fn linestring_and_polygon() {
-        assert_eq!(g("LINESTRING(0 0, 1 1,2 0)"), Geometry::LineString(vec![[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]));
+        assert_eq!(
+            g("LINESTRING(0 0, 1 1,2 0)"),
+            Geometry::LineString(vec![[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]])
+        );
         let Geometry::Polygon(r) = g("POLYGON((0 0,4 0,4 4,0 0),(1 1,2 1,2 2,1 1))") else { panic!() };
         assert_eq!(r.len(), 2);
         assert_eq!(r[1].len(), 4);
@@ -403,9 +415,17 @@ mod tests {
 
     #[test]
     fn multis_and_collection() {
-        assert!(matches!(g("MULTILINESTRING((0 0,1 1),(2 2,3 3))"), Geometry::MultiLineString(l) if l.len() == 2));
-        assert!(matches!(g("MULTIPOLYGON(((0 0,1 0,1 1,0 0)),((5 5,6 5,6 6,5 5)))"), Geometry::MultiPolygon(p) if p.len() == 2));
-        let Geometry::GeometryCollection(c) = g("GEOMETRYCOLLECTION(POINT(1 2),LINESTRING(0 0,1 1),GEOMETRYCOLLECTION(POINT EMPTY))") else { panic!() };
+        assert!(
+            matches!(g("MULTILINESTRING((0 0,1 1),(2 2,3 3))"), Geometry::MultiLineString(l) if l.len() == 2)
+        );
+        assert!(
+            matches!(g("MULTIPOLYGON(((0 0,1 0,1 1,0 0)),((5 5,6 5,6 6,5 5)))"), Geometry::MultiPolygon(p) if p.len() == 2)
+        );
+        let Geometry::GeometryCollection(c) =
+            g("GEOMETRYCOLLECTION(POINT(1 2),LINESTRING(0 0,1 1),GEOMETRYCOLLECTION(POINT EMPTY))")
+        else {
+            panic!()
+        };
         assert_eq!(c.len(), 3);
         assert!(matches!(&c[2], Geometry::GeometryCollection(i) if i.len() == 1));
     }
@@ -444,7 +464,8 @@ mod tests {
 
     #[test]
     fn multibyte_garbage_does_not_panic() {
-        for s in ["POINT(é 2)", "POINT(1 2é", "é", "POINT é", "SRID=é;POINT(1 2)", "POLYGON((1 2,€))"] {
+        for s in ["POINT(é 2)", "POINT(1 2é", "é", "POINT é", "SRID=é;POINT(1 2)", "POLYGON((1 2,€))"]
+        {
             assert!(parse_wkt(s).is_err(), "{s}");
         }
     }
@@ -458,7 +479,10 @@ mod tests {
         assert_eq!(w("MULTIPOINT(1 2,3 4)"), "MULTIPOINT((1 2),(3 4))");
         assert_eq!(w("MULTIPOLYGON(((0 0,1 0,1 1,0 0)))"), "MULTIPOLYGON(((0 0,1 0,1 1,0 0)))");
         assert_eq!(w("MULTILINESTRING((0 0,1 1),EMPTY)"), "MULTILINESTRING((0 0,1 1),EMPTY)");
-        assert_eq!(w("GEOMETRYCOLLECTION(POINT(1 2),POLYGON EMPTY)"), "GEOMETRYCOLLECTION(POINT(1 2),POLYGON EMPTY)");
+        assert_eq!(
+            w("GEOMETRYCOLLECTION(POINT(1 2),POLYGON EMPTY)"),
+            "GEOMETRYCOLLECTION(POINT(1 2),POLYGON EMPTY)"
+        );
         assert_eq!(w("GEOMETRYCOLLECTION EMPTY"), "GEOMETRYCOLLECTION EMPTY");
     }
 

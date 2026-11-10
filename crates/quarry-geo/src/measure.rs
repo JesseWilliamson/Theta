@@ -90,7 +90,7 @@ pub(crate) fn thousands(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, ch) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(ch);
@@ -225,7 +225,9 @@ mod tests {
         assert!((length_m(&p) - 4.0 * 111_195.0).abs() < 1500.0);
         assert_eq!(length_m(&f("POINT(1 2)").geometry), 0.0);
         assert_eq!(length_m(&f("MULTIPOINT(1 2,3 4)").geometry), 0.0);
-        assert!(length_m(&f("GEOMETRYCOLLECTION(LINESTRING(0 0,0 1),LINESTRING(0 0,0 1))").geometry) > 220_000.0);
+        assert!(
+            length_m(&f("GEOMETRYCOLLECTION(LINESTRING(0 0,0 1),LINESTRING(0 0,0 1))").geometry) > 220_000.0
+        );
         assert!(length_m(&f("MULTILINESTRING((0 0,0 1),(0 0,0 1))").geometry) > 220_000.0);
     }
 
@@ -246,7 +248,8 @@ mod tests {
     #[test]
     fn area_holes_subtracted() {
         let full = area_m2(&f("POLYGON((0 0,2 0,2 2,0 2,0 0))").geometry);
-        let holed = area_m2(&f("POLYGON((0 0,2 0,2 2,0 2,0 0),(0.5 0.5,1.5 0.5,1.5 1.5,0.5 1.5,0.5 0.5))").geometry);
+        let holed =
+            area_m2(&f("POLYGON((0 0,2 0,2 2,0 2,0 0),(0.5 0.5,1.5 0.5,1.5 1.5,0.5 1.5,0.5 0.5))").geometry);
         let hole = area_m2(&f("POLYGON((0.5 0.5,1.5 0.5,1.5 1.5,0.5 1.5,0.5 0.5))").geometry);
         assert!((full - hole - holed).abs() < 1.0);
     }
@@ -311,7 +314,10 @@ mod tests {
 
     #[test]
     fn describe_point() {
-        assert_eq!(describe(&f("SRID=4326;POINT(151.2093 -33.8688)")), "Point (151.2093, -33.8688) · SRID 4326");
+        assert_eq!(
+            describe(&f("SRID=4326;POINT(151.2093 -33.8688)")),
+            "Point (151.2093, -33.8688) · SRID 4326"
+        );
         assert_eq!(describe(&f("POINT(1 2)")), "Point (1, 2)");
         assert_eq!(describe(&f("POINT EMPTY")), "Point EMPTY");
         assert_eq!(describe(&f("SRID=4326;POINT EMPTY")), "Point EMPTY · SRID 4326");

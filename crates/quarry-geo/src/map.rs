@@ -145,7 +145,10 @@ impl MapView {
         let pinned = self.unproject_raw(screen_anchor);
         self.zoom = (self.zoom + delta_zoom).clamp(0.0, MAX_ZOOM);
         let p = self.world(pinned);
-        self.set_center_world(p[0] - (screen_anchor[0] - self.size[0] / 2.0), p[1] - (screen_anchor[1] - self.size[1] / 2.0));
+        self.set_center_world(
+            p[0] - (screen_anchor[0] - self.size[0] / 2.0),
+            p[1] - (screen_anchor[1] - self.size[1] / 2.0),
+        );
     }
 
     /// Tiles needed to cover the viewport, nearest the centre first, each with the screen
@@ -175,7 +178,8 @@ impl MapView {
         let cx = (self.center[0] + 180.0) / 360.0 * n as f64;
         let cy = frac_from_lat(self.center[1]) * n as f64;
         let (hx, hy) = (self.size[0] / 2.0 / drawn, self.size[1] / 2.0 / drawn);
-        let (x0, x1) = ((cx - hx).floor() as i64, ((cx + hx).ceil() as i64 - 1).max((cx - hx).floor() as i64));
+        let (x0, x1) =
+            ((cx - hx).floor() as i64, ((cx + hx).ceil() as i64 - 1).max((cx - hx).floor() as i64));
         let (y0, y1) = (((cy - hy).floor() as i64).max(0), ((cy + hy).ceil() as i64 - 1).min(n - 1));
         let mut out = Vec::new();
         for ty in y0..=y1 {
@@ -467,7 +471,12 @@ mod tests {
                 if !lat_ok {
                     continue;
                 }
-                let hit = tiles.iter().any(|(_, tl, s)| p[0] >= tl[0] - 1e-6 && p[0] <= tl[0] + s + 1e-6 && p[1] >= tl[1] - 1e-6 && p[1] <= tl[1] + s + 1e-6);
+                let hit = tiles.iter().any(|(_, tl, s)| {
+                    p[0] >= tl[0] - 1e-6
+                        && p[0] <= tl[0] + s + 1e-6
+                        && p[1] >= tl[1] - 1e-6
+                        && p[1] <= tl[1] + s + 1e-6
+                });
                 assert!(hit, "uncovered {p:?} in {v:?}");
             }
         }
@@ -476,7 +485,9 @@ mod tests {
     #[test]
     fn tiles_cover_viewport() {
         for zoom in [0.0, 1.4, 3.5, 8.49, 8.5, 11.3, 15.9, 19.5, 20.0] {
-            for center in [[0.0, 0.0], [151.2, -33.9], [-122.4, 37.8], [179.9, 10.0], [-180.0, 0.0], [0.0, 84.0]] {
+            for center in
+                [[0.0, 0.0], [151.2, -33.9], [-122.4, 37.8], [179.9, 10.0], [-180.0, 0.0], [0.0, 84.0]]
+            {
                 assert_covers(&MapView { center, zoom, size: [1024.0, 700.0] });
             }
         }
@@ -554,7 +565,8 @@ mod tests {
         let v = view();
         let t = v.visible_tiles();
         let mid = [450.0, 300.0];
-        let d = |t: &(TileId, [f64; 2], f64)| (t.1[0] + t.2 / 2.0 - mid[0]).hypot(t.1[1] + t.2 / 2.0 - mid[1]);
+        let d =
+            |t: &(TileId, [f64; 2], f64)| (t.1[0] + t.2 / 2.0 - mid[0]).hypot(t.1[1] + t.2 / 2.0 - mid[1]);
         assert!(t.windows(2).all(|w| d(&w[0]) <= d(&w[1]) + 1e-9));
     }
 
@@ -574,7 +586,9 @@ mod tests {
     fn tile_bounds_contain_their_points() {
         let v = MapView { center: [151.2, -33.9], zoom: 12.0, size: [300.0, 300.0] };
         let (id, _, _) = v.visible_tiles()[0];
-        assert!(id.bounds_lon_lat().expand(1e-9).contains([151.2, -33.9]) || id.bounds_lon_lat().width() > 0.0);
+        assert!(
+            id.bounds_lon_lat().expand(1e-9).contains([151.2, -33.9]) || id.bounds_lon_lat().width() > 0.0
+        );
     }
 
     #[test]
@@ -639,7 +653,9 @@ mod tests {
         let v = PlanarView::fit(bbox, [800.0, 600.0], 50.0);
         for c in [bbox.min, bbox.max] {
             let p = v.project(c);
-            assert!(p[0] >= 50.0 - 1e-9 && p[0] <= 750.0 + 1e-9 && p[1] >= 50.0 - 1e-9 && p[1] <= 550.0 + 1e-9);
+            assert!(
+                p[0] >= 50.0 - 1e-9 && p[0] <= 750.0 + 1e-9 && p[1] >= 50.0 - 1e-9 && p[1] <= 550.0 + 1e-9
+            );
         }
         assert!(close(v.project(bbox.center()), [400.0, 300.0], 1e-9));
         assert!((v.units_per_px - 1000.0 / 700.0).abs() < 1e-12);

@@ -55,7 +55,8 @@ pub fn parse_any_text(text: &str) -> Option<Feature> {
 
 /// Like [`parse_any_text`] but explains the failure; used by the inspector.
 pub fn parse_any_text_result(text: &str) -> Result<Feature, GeoError> {
-    parse_any_text(text).ok_or_else(|| GeoError::InvalidWkt { offset: 0, message: "not a recognised geometry".into() })
+    parse_any_text(text)
+        .ok_or_else(|| GeoError::InvalidWkt { offset: 0, message: "not a recognised geometry".into() })
 }
 
 #[cfg(test)]
@@ -69,7 +70,9 @@ mod tests {
         assert!(parse_any_text("0101000020E6100000000000000000F03F0000000000000040").is_some());
         assert!(parse_any_text("\\x0101000000000000000000F03F0000000000000040").is_some());
         assert!(parse_any_text(r#"{"type":"Point","coordinates":[1,2]}"#).is_some());
-        assert!(parse_any_text(r#"{"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]}}"#).is_some());
+        assert!(
+            parse_any_text(r#"{"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]}}"#).is_some()
+        );
     }
 
     #[test]

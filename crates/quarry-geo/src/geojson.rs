@@ -106,7 +106,12 @@ pub fn parse_geojson(text: &str) -> Result<Vec<Feature>, GeoError> {
     }
 }
 
+/// Whole numbers are written as JSON integers (`1`, not `1.0`) like PostGIS does;
+/// non-finite values have no JSON representation and become `null`.
 fn num(v: f64) -> Value {
+    if v.fract() == 0.0 && v.abs() < 1e15 {
+        return Value::from(v as i64);
+    }
     serde_json::Number::from_f64(v).map_or(Value::Null, Value::Number)
 }
 

@@ -109,7 +109,7 @@ fn read_geometry(r: &mut Reader, depth: usize) -> Result<(Geometry, Option<i32>)
         }
         2 => Geometry::LineString(r.coords(le, ndim)?),
         3 => Geometry::Polygon(r.rings(le, ndim)?),
-        4 | 5 | 6 | 7 => {
+        4..=7 => {
             // The smallest possible child is an empty collection: 1 + 4 + 4 bytes.
             let n = r.count(le, 9)?;
             read_multi(r, base, n, depth)?
@@ -163,8 +163,8 @@ pub fn parse_hex_wkb(text: &str) -> Result<Feature, GeoError> {
     let trimmed = text.trim();
     let skip = if trimmed.starts_with("\\x") || trimmed.starts_with("0x") { 2 } else { 0 };
     let base = text.len() - text.trim_start().len() + skip;
-    let digits = trimmed[skip..].as_bytes();
-    if digits.len() % 2 != 0 {
+    let digits = &trimmed.as_bytes()[skip..];
+    if !digits.len().is_multiple_of(2) {
         return Err(GeoError::InvalidHex { offset: base + digits.len() });
     }
     let nibble = |i: usize| -> Result<u8, GeoError> {

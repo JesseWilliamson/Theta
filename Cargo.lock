@@ -5706,8 +5706,6 @@ dependencies = [
  "bytes",
  "fallible-iterator 0.2.0",
  "postgres-protocol",
- "serde_core",
- "serde_json",
 ]
 
 [[package]]
@@ -5863,6 +5861,7 @@ dependencies = [
  "async-trait",
  "futures-util",
  "mysql_async",
+ "postgres-protocol",
  "quarry-core",
  "rusqlite",
  "russh",
@@ -5872,6 +5871,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tokio-postgres-rustls",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -5886,10 +5886,30 @@ dependencies = [
 [[package]]
 name = "quarry-geo"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "quarry-sql"
 version = "0.1.0"
+dependencies = [
+ "quarry-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "quarry-ui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs 6.0.0",
+ "gpui-kit",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
 
 [[package]]
 name = "quick-error"
@@ -6646,7 +6666,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
- "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
@@ -7834,6 +7853,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

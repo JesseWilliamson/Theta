@@ -57,7 +57,9 @@ impl fmt::Display for GeoError {
             GeoError::TooDeep => write!(f, "geometry nesting is too deep"),
             GeoError::InvalidHex { offset } => write!(f, "invalid hex at offset {offset}"),
             GeoError::InvalidWkb(m) => write!(f, "invalid WKB: {m}"),
-            GeoError::InvalidWkt { offset, message } => write!(f, "invalid WKT at offset {offset}: {message}"),
+            GeoError::InvalidWkt { offset, message } => {
+                write!(f, "invalid WKT at offset {offset}: {message}")
+            }
             GeoError::InvalidGeoJson(m) => write!(f, "invalid GeoJSON: {m}"),
         }
     }
