@@ -311,8 +311,11 @@ impl Editor {
     // ---- the one place text changes ----------------------------------------------------------
 
     pub(crate) fn map_selections(&self, tx: &Transaction) -> Selections {
-        let v = self
-            .sels
+        Self::map_given(&self.sels, tx)
+    }
+
+    pub(crate) fn map_given(sels: &Selections, tx: &Transaction) -> Selections {
+        let v = sels
             .v
             .iter()
             .map(|s| {
@@ -326,7 +329,7 @@ impl Editor {
                 Selection::new(a, h)
             })
             .collect();
-        Selections { v, primary: self.sels.primary }
+        Selections { v, primary: sels.primary }
     }
 
     fn note_syntax(&mut self, tx: &Transaction) {
@@ -351,6 +354,10 @@ impl Editor {
         }
         let inverse = tx.apply(&mut self.rope);
         self.revision += 1;
+        // A prompt's "restore on Esc" selections must follow the text they point into.
+        if let Some(p) = &mut self.prompt {
+            p.saved = Self::map_given(&p.saved, &tx);
+        }
         if let Some(g) = &mut self.group {
             g.forward.push(tx);
             g.inverse.push(inverse);
@@ -364,18 +371,18 @@ impl Editor {
     }
 
     pub(crate) fn commit_group(&mut self) {
-        if let Some(g) = self.group.take() {
-            if !g.forward.is_empty() {
-                let id = self.history.fresh_id();
-                self.history.undo.push(Step {
-                    id,
-                    forward: g.forward,
-                    inverse: g.inverse,
-                    before: g.before,
-                    after: self.sels.clone(),
-                });
-                self.history.redo.clear();
-            }
+        if let Some(g) = self.group.take()
+            && !g.forward.is_empty()
+        {
+            let id = self.history.fresh_id();
+            self.history.undo.push(Step {
+                id,
+                forward: g.forward,
+                inverse: g.inverse,
+                before: g.before,
+                after: self.sels.clone(),
+            });
+            self.history.redo.clear();
         }
     }
 

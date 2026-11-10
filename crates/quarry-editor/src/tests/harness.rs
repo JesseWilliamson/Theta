@@ -84,14 +84,14 @@ pub fn parse_keys(s: &str) -> Vec<KeyInput> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < cs.len() {
-        if cs[i] == '<' {
-            if let Some(j) = cs[i + 1..].iter().position(|&c| c == '>').filter(|&j| j > 0 && j <= 14) {
-                let name: String = cs[i + 1..i + 1 + j].iter().collect();
-                if let Some(k) = KeyInput::parse(&name) {
-                    out.push(k);
-                    i += j + 2;
-                    continue;
-                }
+        if cs[i] == '<'
+            && let Some(j) = cs[i + 1..].iter().position(|&c| c == '>').filter(|&j| j > 0 && j <= 14)
+        {
+            let name: String = cs[i + 1..i + 1 + j].iter().collect();
+            if let Some(k) = KeyInput::parse(&name) {
+                out.push(k);
+                i += j + 2;
+                continue;
             }
         }
         out.push(KeyInput { key: Key::Char(cs[i]), modifiers: Default::default() });
@@ -156,3 +156,27 @@ fn dsl_roundtrip() {
         assert_eq!(render_marked(&t, &sels, p), s);
     }
 }
+
+/// One `#[test]` per case: `hx_cases! { name: before, keys => after; ... }`.
+macro_rules! hx_cases {
+    ($($name:ident: $before:expr, $keys:expr => $after:expr;)*) => {
+        $(
+            #[test]
+            fn $name() {
+                $crate::tests::hx($before, $keys, $after);
+            }
+        )*
+    };
+}
+
+macro_rules! st_cases {
+    ($($name:ident: $before:expr, $keys:expr => $after:expr;)*) => {
+        $(
+            #[test]
+            fn $name() {
+                $crate::tests::st($before, $keys, $after);
+            }
+        )*
+    };
+}
+pub(crate) use {hx_cases, st_cases};

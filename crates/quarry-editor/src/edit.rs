@@ -217,7 +217,7 @@ impl Editor {
             let ls = t.line_to_char(line);
             let col = from - ls;
             if col > 0 && (ls..from).all(|i| t.char(i) == ' ') {
-                let n = if col % 4 == 0 { 4 } else { col % 4 };
+                let n = if col.is_multiple_of(4) { 4 } else { col % 4 };
                 return Some(EditSpec { from: from - n, to: from, text: String::new(), back: 0 });
             }
             Some(EditSpec { from: text::prev_grapheme(t, from), to: from, text: String::new(), back: 0 })

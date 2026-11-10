@@ -49,8 +49,7 @@ impl KeyInput {
     pub fn parse(s: &str) -> Option<KeyInput> {
         let mut mods = Modifiers::default();
         let mut rest = s;
-        loop {
-            let Some(idx) = rest.find('-') else { break };
+        while let Some(idx) = rest.find('-') {
             if idx == 0 || idx + 1 >= rest.len() {
                 break; // a bare "-" key, or a trailing dash
             }

@@ -41,7 +41,7 @@ fn change_selection() {
 #[test]
 fn change_yanks_but_alt_c_does_not() {
     hx("#[hello|]# world\n", "cx<esc>p", "x #[hello|]#world\n");
-    hx("#[ab|]#c\n", "y<A-c>x<esc>p", "x#[c|]#\n".replace("x#[c|]#", "xc#[ab|]#").as_str());
+    hx("#[ab|]#c\n", "y<A-c>x<esc>p", "xc#[ab|]#\n");
 }
 
 #[test]
@@ -189,7 +189,7 @@ fn macros() {
 #[test]
 fn registers() {
     hx("#[a|]#b\n", "\"qyl\"qp", "ab#[a|]#\n");
-    hx("#[a|]#b\n", "\"qyl\"wy\"qp", "ab#[a|]#\n".replace("ab#[a|]#", "ab#[a|]#").as_str());
+    hx("#[a|]#b\n", "\"qyl\"wy\"qp", "ab#[a|]#\n");
     hx("#[a|]#b\n", "\"ayl\"byl\"ap", "ab\n#[a|]#");
 }
 
@@ -232,7 +232,7 @@ fn space_clipboard_commands() {
 
 #[test]
 fn replace_with_yanked() {
-    hx("#[a|]# b\n", "yw", "a #[b|]#\n".replace("a #[b|]#", "#[a |]#b").as_str());
+    hx("#[a|]# b\n", "yw", "#[a |]#b\n");
 }
 
 #[test]

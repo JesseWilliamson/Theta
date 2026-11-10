@@ -16,7 +16,8 @@ fn text_access_api() {
     assert_eq!(e.byte_to_char(3), 2);
     assert_eq!(e.slice(1..4), "éll");
     assert_eq!(e.slice(5..999), "\nwörld\n");
-    assert_eq!(e.slice(4..2), "");
+    let (hi, lo) = (4, 2);
+    assert_eq!(e.slice(hi..lo), "");
 }
 
 #[test]

@@ -14,6 +14,8 @@ use crate::transaction::{Change, Transaction};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+const MAX_COUNT: usize = 10_000;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Await {
     Register,
@@ -220,20 +222,20 @@ impl Sub {
     }
 }
 
-enum Lookup<'a> {
+enum Lookup {
     Leaf(Cmd),
-    Sub(&'a Sub),
+    Sub,
     None,
 }
 
-fn lookup<'a>(root: &'a Sub, keys: &[KeyInput]) -> Lookup<'a> {
+fn lookup(root: &Sub, keys: &[KeyInput]) -> Lookup {
     let mut cur = root;
     for (i, k) in keys.iter().enumerate() {
         match cur.get(k) {
             Some(Node::Leaf(c, _)) if i + 1 == keys.len() => return Lookup::Leaf(*c),
             Some(Node::Sub(s)) => {
                 if i + 1 == keys.len() {
-                    return Lookup::Sub(s);
+                    return Lookup::Sub;
                 }
                 cur = s;
             }
@@ -537,14 +539,15 @@ impl Editor {
             return self.finish_await(aw, k);
         }
         let plain = !k.modifiers.ctrl && !k.modifiers.alt && !k.modifiers.platform;
-        if self.hx.pending.is_empty() && plain {
-            if let Key::Char(d @ '0'..='9') = k.key {
-                if d != '0' || self.hx.count.is_some() {
-                    let v = self.hx.count.unwrap_or(0).saturating_mul(10).saturating_add(d as usize - '0' as usize);
-                    self.hx.count = Some(v.min(1_000_000));
-                    return true;
-                }
-            }
+        if self.hx.pending.is_empty()
+            && plain
+            && let Key::Char(d @ '0'..='9') = k.key
+            && (d != '0' || self.hx.count.is_some())
+        {
+            // Counts are capped so `99999999o` can't hang the UI thread.
+            let v = self.hx.count.unwrap_or(0).saturating_mul(10).saturating_add(d as usize - '0' as usize);
+            self.hx.count = Some(v.min(MAX_COUNT));
+            return true;
         }
         if k.key == Key::Escape {
             let had = !self.hx.pending.is_empty() || self.hx.count.is_some() || self.hx.reg.is_some();
@@ -566,7 +569,7 @@ impl Editor {
                 }
                 true
             }
-            Lookup::Sub(_) => true,
+            Lookup::Sub => true,
             Lookup::None => {
                 let depth = self.hx.pending.len();
                 self.hx.pending.clear();
@@ -941,7 +944,20 @@ impl Editor {
                 self.set_sels(Selections::new(out, 0));
             }
             SelectMode => {
-                self.mode = if self.mode == Mode::Select { Mode::Normal } else { Mode::Select };
+                if self.mode == Mode::Select {
+                    self.mode = Mode::Normal;
+                } else {
+                    // At the very end of the text a bare cursor has no char to be 1-wide on:
+                    // step the anchor back so the selection still covers the last grapheme.
+                    self.transform_sels(|t, s| {
+                        if s.is_empty() && s.head == t.len_chars() && s.head > 0 {
+                            Selection::new(text::prev_grapheme(t, s.head), s.head)
+                        } else {
+                            *s
+                        }
+                    });
+                    self.mode = Mode::Select;
+                }
             }
             Insert => self.enter_insert(),
             Append => self.enter_append(),

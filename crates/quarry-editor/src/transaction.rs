@@ -30,10 +30,8 @@ impl Transaction {
         changes.sort_by_key(|c| (c.from, c.to));
         let mut out: Vec<Change> = Vec::with_capacity(changes.len());
         for c in changes {
-            if let Some(last) = out.last() {
-                if c.from < last.to {
-                    continue;
-                }
+            if out.last().is_some_and(|last| c.from < last.to) {
+                continue;
             }
             out.push(c);
         }

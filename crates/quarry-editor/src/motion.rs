@@ -117,35 +117,40 @@ pub fn word_move(t: Text, sel: Selection, count: usize, kind: WordKind, long: bo
     Selection::new(a, h)
 }
 
+/// Chars from `from` (inclusive) going backwards, with their indexes. Uses the rope's chunk
+/// iterator: random `char(i)` access is O(log n) and scans over a big buffer would add up.
+/// Bracket and quote searches give up after this many chars so one keypress stays O(1)-ish
+/// on huge scripts; no real statement nests brackets across 100k chars.
+pub const MAX_SCAN: usize = 100_000;
+
+pub fn chars_back(t: Text<'_>, from: usize) -> impl Iterator<Item = (usize, char)> + '_ {
+    let start = (from + 1).min(t.len_chars());
+    let mut it = t.chars_at(start);
+    let mut idx = start;
+    std::iter::from_fn(move || {
+        let c = it.prev()?;
+        idx -= 1;
+        Some((idx, c))
+    })
+}
+
+/// Chars from `from` (inclusive) going forwards, with their indexes.
+pub fn chars_fwd(t: Text<'_>, from: usize) -> impl Iterator<Item = (usize, char)> + '_ {
+    let start = from.min(t.len_chars());
+    t.chars_at(start).enumerate().map(move |(i, c)| (start + i, c))
+}
+
 /// `f`/`t`/`F`/`T`: position of the n-th occurrence of `ch`. Returns the char index of the
 /// match (for `till` the neighbouring position is returned by the caller).
 pub fn find_char(t: Text, from: usize, ch: char, count: usize, forward: bool) -> Option<usize> {
-    let len = t.len_chars();
-    let mut n = count.max(1);
+    let n = count.max(1);
     if forward {
-        let mut i = from + 1;
-        while i < len {
-            if t.char(i) == ch {
-                n -= 1;
-                if n == 0 {
-                    return Some(i);
-                }
-            }
-            i += 1;
-        }
+        chars_fwd(t, from + 1).filter(|&(_, c)| c == ch).nth(n - 1).map(|(i, _)| i)
+    } else if from == 0 {
+        None
     } else {
-        let mut i = from;
-        while i > 0 {
-            i -= 1;
-            if t.char(i) == ch {
-                n -= 1;
-                if n == 0 {
-                    return Some(i);
-                }
-            }
-        }
+        chars_back(t, from - 1).filter(|&(_, c)| c == ch).nth(n - 1).map(|(i, _)| i)
     }
-    None
 }
 
 pub fn is_blank(t: Text, line: usize) -> bool {
@@ -216,10 +221,7 @@ pub fn matching_bracket_at(t: Text, pos: usize) -> Option<usize> {
     let (open, close, is_open) = bracket_pair(c)?;
     let mut depth = 0usize;
     if is_open {
-        let mut i = pos + 1;
-        let len = t.len_chars();
-        while i < len {
-            let ch = t.char(i);
+        for (i, ch) in chars_fwd(t, pos + 1).take(MAX_SCAN) {
             if ch == open {
                 depth += 1;
             } else if ch == close {
@@ -228,13 +230,9 @@ pub fn matching_bracket_at(t: Text, pos: usize) -> Option<usize> {
                 }
                 depth -= 1;
             }
-            i += 1;
         }
-    } else {
-        let mut i = pos;
-        while i > 0 {
-            i -= 1;
-            let ch = t.char(i);
+    } else if pos > 0 {
+        for (i, ch) in chars_back(t, pos - 1).take(MAX_SCAN) {
             if ch == close {
                 depth += 1;
             } else if ch == open {

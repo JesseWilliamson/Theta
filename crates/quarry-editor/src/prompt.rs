@@ -34,12 +34,15 @@ pub(crate) struct PromptState {
     pub tab_state: Option<(String, usize)>,
 }
 
+/// (revision, pattern, matches) of the last `search_matches()` call.
+type MatchCache = (u64, String, Vec<Range<usize>>);
+
 #[derive(Default)]
 pub(crate) struct SearchState {
     pub pattern: Option<String>,
     pub history: Vec<String>,
     pub cmd_history: Vec<String>,
-    pub cache: RefCell<Option<(u64, String, Vec<Range<usize>>)>>,
+    pub cache: RefCell<Option<MatchCache>>,
 }
 
 const COMMANDS: &[&str] = &[
@@ -84,10 +87,10 @@ impl Editor {
     }
 
     fn close_prompt(&mut self, restore: bool) {
-        if let Some(p) = self.prompt.take() {
-            if restore {
-                self.set_sels(p.saved);
-            }
+        if let Some(p) = self.prompt.take()
+            && restore
+        {
+            self.set_sels(p.saved);
         }
     }
 
@@ -273,10 +276,10 @@ impl Editor {
                 if text.is_empty() {
                     return;
                 }
-                if let Ok(re) = build_regex(&text) {
-                    if self.search_step(&re, backwards, 1, extend).is_none() {
-                        self.set_sels(saved);
-                    }
+                if let Ok(re) = build_regex(&text)
+                    && self.search_step(&re, backwards, 1, extend).is_none()
+                {
+                    self.set_sels(saved);
                 }
             }
             PromptKind::SelectRegex | PromptKind::SplitRegex | PromptKind::Keep(_) => {
@@ -368,8 +371,9 @@ impl Editor {
         match kind {
             PromptKind::SelectRegex => {
                 for (i, s) in saved.v.iter().enumerate() {
-                    let hay = self.rope.slice(s.from()..s.to()).to_string();
-                    let base = s.from();
+                    let (sf, st) = (s.from().min(t.len_chars()), s.to().min(t.len_chars()));
+                    let hay = self.rope.slice(sf..st).to_string();
+                    let base = sf;
                     let mut ranges = char_matches(&hay, re, true);
                     if i == saved.primary {
                         primary = out.len();
@@ -379,8 +383,9 @@ impl Editor {
             }
             PromptKind::SplitRegex => {
                 for (i, s) in saved.v.iter().enumerate() {
-                    let hay = self.rope.slice(s.from()..s.to()).to_string();
-                    let base = s.from();
+                    let (sf, st) = (s.from().min(t.len_chars()), s.to().min(t.len_chars()));
+                    let hay = self.rope.slice(sf..st).to_string();
+                    let base = sf;
                     let mut start = 0;
                     if i == saved.primary {
                         primary = out.len();
@@ -402,7 +407,8 @@ impl Editor {
             }
             PromptKind::Keep(keep) => {
                 for (i, s) in saved.v.iter().enumerate() {
-                    let hay = self.rope.slice(s.from()..s.to()).to_string();
+                    let (sf, st) = (s.from().min(t.len_chars()), s.to().min(t.len_chars()));
+                    let hay = self.rope.slice(sf..st).to_string();
                     if re.is_match(&hay) == keep {
                         if i == saved.primary {
                             primary = out.len();
@@ -413,7 +419,6 @@ impl Editor {
             }
             _ => return None,
         }
-        let _ = t;
         if out.is_empty() {
             return None;
         }
@@ -446,30 +451,68 @@ impl Editor {
         Some(())
     }
 
+    /// First non-empty match inside `from..to`, scanning growing line-aligned windows so a hit
+    /// near the cursor never pays for the rest of a huge buffer.
+    fn first_match(&self, re: &Regex, from: usize, to: usize) -> Option<Range<usize>> {
+        let t = self.rope.slice(..);
+        let mut width = 32 * 1024;
+        let mut start = from;
+        while start < to {
+            let mut end = (start + width).min(to);
+            if end < to {
+                // extend to the end of the line so `$`/line-based patterns see whole lines
+                end = text::line_end(t, t.char_to_line(end)).max(end).min(to);
+            }
+            let hay = self.rope.slice(start..end).to_string();
+            if let Some(r) = char_matches(&hay, re, true).into_iter().find(|r| r.end > r.start) {
+                return Some(start + r.start..start + r.end);
+            }
+            start = end;
+            width = width.saturating_mul(2);
+        }
+        None
+    }
+
+    /// Last non-empty match inside `from..to`, scanning backwards in growing windows.
+    fn last_match(&self, re: &Regex, from: usize, to: usize) -> Option<Range<usize>> {
+        let t = self.rope.slice(..);
+        let mut width = 32 * 1024;
+        let mut end = to;
+        while end > from {
+            let mut start = end.saturating_sub(width).max(from);
+            if start > from {
+                // begin at a line start so `^` behaves
+                start = t.line_to_char(t.char_to_line(start)).max(from);
+            }
+            let hay = self.rope.slice(start..end).to_string();
+            if let Some(r) = char_matches(&hay, re, true).into_iter().rev().find(|r| r.end > r.start) {
+                return Some(start + r.start..start + r.end);
+            }
+            end = start;
+            width = width.saturating_mul(2);
+        }
+        None
+    }
+
     /// First match after (or before) `from`, wrapping around the document.
     fn find_from(&mut self, re: &Regex, from: &Selection, backwards: bool) -> Option<Range<usize>> {
         let len = self.rope.len_chars();
-        let non_empty = |r: &Range<usize>| r.end > r.start;
         if !backwards {
             let start = from.to().min(len);
-            let hay = self.rope.slice(start..).to_string();
-            if let Some(r) = char_matches(&hay, re, true).into_iter().find(non_empty) {
-                return Some(start + r.start..start + r.end);
+            if let Some(r) = self.first_match(re, start, len) {
+                return Some(r);
             }
-            let hay = self.rope.slice(..start.min(len)).to_string();
-            let r = char_matches(&hay, re, true).into_iter().find(non_empty)?;
+            let r = self.first_match(re, 0, start)?;
             self.status("search wrapped around");
             Some(r)
         } else {
             let end = from.from().min(len);
-            let hay = self.rope.slice(..end).to_string();
-            if let Some(r) = char_matches(&hay, re, true).into_iter().rev().find(non_empty) {
+            if let Some(r) = self.last_match(re, 0, end) {
                 return Some(r);
             }
-            let hay = self.rope.slice(end..).to_string();
-            let r = char_matches(&hay, re, true).into_iter().rev().find(non_empty)?;
+            let r = self.last_match(re, end, len)?;
             self.status("search wrapped around");
-            Some(end + r.start..end + r.end)
+            Some(r)
         }
     }
 
@@ -492,10 +535,11 @@ impl Editor {
 
     pub(crate) fn search_matches_impl(&self) -> Vec<Range<usize>> {
         let Some(pat) = self.search.pattern.clone() else { return Vec::new() };
-        if let Some((rev, p, m)) = &*self.search.cache.borrow() {
-            if *rev == self.revision && *p == pat {
-                return m.clone();
-            }
+        if let Some((rev, p, m)) = &*self.search.cache.borrow()
+            && *rev == self.revision
+            && *p == pat
+        {
+            return m.clone();
         }
         let Ok(re) = build_regex(&pat) else { return Vec::new() };
         let hay = self.rope.to_string();

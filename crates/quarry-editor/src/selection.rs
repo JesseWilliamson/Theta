@@ -186,8 +186,4 @@ impl Selections {
     pub fn len(&self) -> usize {
         self.v.len()
     }
-
-    pub fn is_empty(&self) -> bool {
-        self.v.is_empty()
-    }
 }

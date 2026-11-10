@@ -3,9 +3,11 @@
 //! `#(w|)#orld` a secondary selection, `#[|]#` an empty selection (end of text only).
 //! Key strings use `<ret> <esc> <C-d> <A-;> <space> <lt>` for special keys.
 
+mod cases;
 mod core;
 mod fuzz;
 mod harness;
+mod perf;
 mod helix_edit;
 mod helix_insert;
 mod helix_motion;

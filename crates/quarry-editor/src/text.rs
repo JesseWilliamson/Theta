@@ -173,10 +173,6 @@ pub fn line_end(text: Text, line: usize) -> usize {
     text.line_to_char(line) + text.line(line).len_chars() - eol_len(text, line)
 }
 
-pub fn line_start(text: Text, line: usize) -> usize {
-    text.line_to_char(line.min(text.len_lines().saturating_sub(1)))
-}
-
 /// The last line index that holds content: when the buffer ends in a newline the final empty
 /// "line" is not a place the user can go to with `G`/`ge`.
 pub fn last_content_line(text: Text) -> usize {
@@ -219,15 +215,6 @@ pub fn leading_whitespace(text: Text, line: usize) -> String {
 /// Detect the document's line ending: CRLF if the first terminator is CRLF, else LF.
 pub fn detect_line_ending(rope: &Rope) -> &'static str {
     if rope.len_lines() > 1 && eol_len(rope.slice(..), 0) == 2 { "\r\n" } else { "\n" }
-}
-
-pub fn char_count(s: &str) -> usize {
-    s.chars().count()
-}
-
-/// Column (in chars) of `pos` within its line.
-pub fn column(text: Text, pos: usize) -> usize {
-    pos - text.line_to_char(text.char_to_line(pos))
 }
 
 pub fn is_blank_line(text: Text, line: usize) -> bool {

@@ -1,6 +1,6 @@
 //! Text objects (`mi`/`ma`) and surround pairs (`ms`/`md`/`mr`).
 
-use crate::motion::bracket_pair;
+use crate::motion::{MAX_SCAN, bracket_pair, chars_back, chars_fwd};
 use crate::selection::Selection;
 use crate::text::{self, CharClass, Text, classify};
 
@@ -17,43 +17,38 @@ pub fn surround_pair(c: char) -> (char, char) {
 
 /// All bracket pairs `open..close` that enclose the whole range `from..=end`, innermost first.
 fn enclosing_brackets(t: Text, from: usize, end: usize, open: char, close: char) -> Vec<(usize, usize)> {
-    let len = t.len_chars();
     let mut out = Vec::new();
     let mut depth = 0usize;
-    let mut i = from as isize;
-    while i >= 0 {
-        let ch = t.char(i as usize);
+    for (i, ch) in chars_back(t, from).take(MAX_SCAN) {
         if ch == close {
             // The char the scan starts on is this pair's own closer, not nesting.
-            if i as usize != from {
+            if i != from {
                 depth += 1;
             }
         } else if ch == open {
             if depth == 0 {
                 // find its partner
                 let mut d = 0usize;
-                let mut j = i as usize + 1;
-                while j < len {
-                    let c2 = t.char(j);
+                let mut partner = None;
+                for (j, c2) in chars_fwd(t, i + 1).take(MAX_SCAN) {
                     if c2 == open {
                         d += 1;
                     } else if c2 == close {
                         if d == 0 {
+                            partner = Some(j);
                             break;
                         }
                         d -= 1;
                     }
-                    j += 1;
                 }
                 // A pair that closes before the end of the selection doesn't enclose it.
-                if j < len && j >= end {
-                    out.push((i as usize, j));
+                if let Some(j) = partner.filter(|&j| j >= end) {
+                    out.push((i, j));
                 }
             } else {
                 depth -= 1;
             }
         }
-        i -= 1;
     }
     out
 }
@@ -67,47 +62,33 @@ fn enclosing_quotes(t: Text, from: usize, end: usize, q: char, nth: usize, same_
     } else {
         (0, len)
     };
-    // If the cursor sits on a quote, parity of quotes before it decides if it opens or closes.
-    let on_quote = from < len && t.char(from) == q;
-    let mut left_from = from;
-    let mut right_from = end + 1;
-    if on_quote {
-        let before = (lo..from).filter(|&i| t.char(i) == q).count();
-        if before % 2 == 0 {
-            right_from = from + 1; // opener: partner lies to the right
-            left_from = from + 1; // pretend the opener itself is the nearest left quote
-        } else {
-            left_from = from; // closer: opener lies to the left
-            right_from = from;
-        }
-    }
-    let mut lefts = Vec::new();
-    let mut i = left_from;
-    while i > lo {
-        i -= 1;
-        if t.char(i) == q {
-            lefts.push(i);
-        }
-    }
-    let mut rights = Vec::new();
-    let mut j = right_from;
-    while j < hi {
-        if t.char(j) == q {
-            rights.push(j);
-        }
-        j += 1;
-    }
-    if on_quote {
-        let before = (lo..from).filter(|&i| t.char(i) == q).count();
-        if before % 2 == 0 {
-            lefts.insert(0, from);
-            rights = rights.into_iter().collect();
-        } else {
-            rights.insert(0, from);
-        }
-    }
     let n = nth.max(1);
-    Some((*lefts.get(n - 1)?, *rights.get(n - 1)?)).filter(|(o, c)| o < c)
+    // If the cursor sits on a quote, parity of quotes before it (on its line) says whether it
+    // opens or closes a pair.
+    let on_quote = from < len && t.char(from) == q;
+    if on_quote {
+        let line = t.char_to_line(from);
+        let before = (t.line_to_char(line)..from).filter(|&i| t.char(i) == q).count();
+        let opens = before % 2 == 0;
+        let (mut lefts, mut rights): (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
+        if opens {
+            lefts.push(from);
+            rights.extend(chars_fwd(t, from + 1).take_while(|&(i, _)| i < hi).filter(|&(_, c)| c == q).map(|(i, _)| i).take(n));
+            lefts.extend(chars_back(t, from.saturating_sub(1)).take_while(|&(i, _)| i >= lo && from > 0).filter(|&(_, c)| c == q).map(|(i, _)| i).take(n));
+        } else {
+            rights.push(from);
+            lefts.extend(chars_back(t, from.saturating_sub(1)).take_while(|&(i, _)| i >= lo && from > 0).filter(|&(_, c)| c == q).map(|(i, _)| i).take(n));
+            rights.extend(chars_fwd(t, from + 1).take_while(|&(i, _)| i < hi).filter(|&(_, c)| c == q).map(|(i, _)| i).take(n));
+        }
+        return Some((*lefts.get(n - 1)?, *rights.get(n - 1)?)).filter(|(o, c)| o < c);
+    }
+    let left = if from == 0 {
+        None
+    } else {
+        chars_back(t, from - 1).take(MAX_SCAN).take_while(|&(i, _)| i >= lo).filter(|&(_, c)| c == q).map(|(i, _)| i).nth(n - 1)
+    };
+    let right = chars_fwd(t, end + 1).take(MAX_SCAN).take_while(|&(i, _)| i < hi).filter(|&(_, c)| c == q).map(|(i, _)| i).nth(n - 1);
+    Some((left?, right?)).filter(|(o, c)| o < c)
 }
 
 /// Positions (open, close) of a delimiter pair surrounding `sel`.
@@ -229,7 +210,7 @@ fn word_object(t: Text, sel: Selection, long: bool, inner: bool, count: usize) -
 fn paragraph_object(t: Text, sel: Selection, inner: bool, count: usize) -> Option<Selection> {
     let nlines = t.len_lines();
     let blank = |l: usize| text::is_blank_line(t, l);
-    let mut line = t.char_to_line(sel.block_cursor(t).min(t.len_chars()));
+    let line = t.char_to_line(sel.block_cursor(t).min(t.len_chars()));
     if line >= nlines {
         return None;
     }
@@ -249,7 +230,6 @@ fn paragraph_object(t: Text, sel: Selection, inner: bool, count: usize) -> Optio
             break;
         }
         end += 1;
-        line = end;
     }
     if !inner && !on_blank {
         // `around` also takes the blank lines that follow
@@ -282,10 +262,11 @@ pub fn bracket_near(t: Text, pos: usize) -> Option<(usize, usize)> {
     }
     for p in candidates {
         let c = t.char(p);
-        if matches!(c, '(' | ')' | '[' | ']' | '{' | '}') && bracket_pair(c).is_some() {
-            if let Some(m) = crate::motion::matching_bracket_at(t, p) {
-                return Some((p, m));
-            }
+        if matches!(c, '(' | ')' | '[' | ']' | '{' | '}')
+            && bracket_pair(c).is_some()
+            && let Some(m) = crate::motion::matching_bracket_at(t, p)
+        {
+            return Some((p, m));
         }
     }
     None
