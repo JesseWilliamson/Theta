@@ -6,3 +6,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Default features would add Unicode/CR line breaks (VT, FF, NEL, U+2028 ...);
+# a SQL editor wants exactly LF and CRLF so that line numbers match the server's.
+ropey = { version = "1", default-features = false, features = ["simd"] }
+unicode-segmentation = "1"
+regex = "1"
