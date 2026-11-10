@@ -5,9 +5,11 @@ set -euo pipefail
 bin=$1 version=$2 arch=$3 out=$4
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
-app="$out/Quarry.app"
+mkdir -p "$out"
+stage=$(mktemp -d)   # the bare .app is not an output; only the zip is
+app="$stage/Quarry.app"
 
-rm -rf "$app" && mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/quarry"
 chmod +x "$app/Contents/MacOS/quarry"
 sed "s/@VERSION@/$version/g" "$here/Info.plist.in" > "$app/Contents/Info.plist"
