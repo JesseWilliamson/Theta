@@ -292,3 +292,20 @@ fn global_run_keys() {
     let fx = effects_of(Keymap::Helix, "a#[|]#", "i<C-ret>");
     assert!(fx.contains(&Effect::RunStatementAtCursor));
 }
+
+#[test]
+fn search_matches_follow_the_open_prompt() {
+    // The view highlights every match while the pattern is still being typed.
+    let mut e = editor_from(Keymap::Helix, "#[a|]#b foo c foo d Foo");
+    assert!(e.search_matches().is_empty());
+    feed(&mut e, "/fo");
+    assert_eq!(e.search_matches().len(), 3, "smart-case: lower-case pattern matches Foo too");
+    feed(&mut e, "o");
+    assert_eq!(e.search_matches().len(), 3);
+    feed(&mut e, "<C-w>");
+    assert!(e.search_matches().is_empty(), "an empty prompt has no live matches");
+    feed(&mut e, "Foo");
+    assert_eq!(e.search_matches().len(), 1, "an upper-case letter makes it case-sensitive");
+    feed(&mut e, "<esc>");
+    assert!(e.search_matches().is_empty(), "cancelling restores the committed pattern (none)");
+}

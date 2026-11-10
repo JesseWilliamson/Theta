@@ -561,7 +561,14 @@ impl Editor {
     }
 
     pub(crate) fn search_matches_impl(&self) -> Vec<Range<usize>> {
-        let Some(pat) = self.search.pattern.clone() else { return Vec::new() };
+        // While a search prompt is open the matches follow what is being typed (the view
+        // highlights them live); otherwise they are those of the last committed pattern.
+        let live = self
+            .prompt
+            .as_ref()
+            .filter(|p| matches!(p.kind, PromptKind::Search { .. }) && !p.text.is_empty())
+            .map(|p| p.text.clone());
+        let Some(pat) = live.or_else(|| self.search.pattern.clone()) else { return Vec::new() };
         if let Some((rev, p, m)) = &*self.search.cache.borrow()
             && *rev == self.revision
             && *p == pat
