@@ -1,0 +1,4 @@
+-> Sort: o.total DESC  (actual time=1.2..1.3 rows=600 loops=1)
+    -> Nested loop inner join  (cost=1.2 rows=600) (actual time=0.1..0.9 rows=600 loops=1)
+        -> Table scan on c  (cost=0.45 rows=200) (actual time=0.05..0.2 rows=200 loops=1)
+        -> Index lookup on o using customer_id (customer_id=c.id)  (cost=0.75 rows=3) (actual time=0.002..0.004 rows=3 loops=200)

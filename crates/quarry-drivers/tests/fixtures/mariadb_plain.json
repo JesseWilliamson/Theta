@@ -1,0 +1,43 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "filesort": {
+      "sort_key": "o.total desc",
+      "temporary_table": {
+        "nested_loop": [
+          {
+            "table": {
+              "table_name": "c",
+              "access_type": "ALL",
+              "possible_keys": [
+                "PRIMARY"
+              ],
+              "rows": 200,
+              "filtered": 100,
+              "attached_condition": "c.active = 1"
+            }
+          },
+          {
+            "table": {
+              "table_name": "o",
+              "access_type": "ref",
+              "possible_keys": [
+                "idx_orders_customer"
+              ],
+              "key": "idx_orders_customer",
+              "key_length": "5",
+              "used_key_parts": [
+                "customer_id"
+              ],
+              "ref": [
+                "fx.c.id"
+              ],
+              "rows": 1,
+              "filtered": 100
+            }
+          }
+        ]
+      }
+    }
+  }
+}
