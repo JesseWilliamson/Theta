@@ -1,0 +1,10 @@
+[package]
+name = "quarry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+anyhow.workspace = true

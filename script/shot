@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Render the real app headlessly and capture a PNG.
+#
+#   script/shot OUT.png [STEPS.sh] [-- app args...]
+#
+# Runs the already-built binary under Xvfb with software Vulkan (llvmpipe),
+# waits for the window, optionally sources STEPS.sh (a bash snippet that can
+# drive the UI with `xdotool key ctrl+p`, `xdotool type 'select'`,
+# `xdotool mousemove 400 300 click 1`, `sleep 0.5`, and call `snap NAME` to
+# write extra screenshots next to OUT.png), then captures the screen.
+#
+# Env: SHOT_SIZE (default 1600x1000), SHOT_WAIT seconds before capture
+# (default 2), QUARRY_BIN (default target/debug/quarry).
+set -euo pipefail
+out="$(realpath -m "${1:?usage: script/shot OUT.png [STEPS.sh] [-- args]}")"; shift
+steps=""
+if [[ $# -gt 0 && "$1" != "--" ]]; then steps="$(realpath "$1")"; shift; fi
+[[ "${1:-}" == "--" ]] && shift
+root="$(cd "$(dirname "$0")/.." && pwd)"
+bin="${QUARRY_BIN:-$root/target/debug/quarry}"
+size="${SHOT_SIZE:-1600x1000}"
+export SHOT_OUT="$out" SHOT_STEPS="$steps" SHOT_WAIT="${SHOT_WAIT:-2}" SHOT_BIN="$bin" SHOT_W="${size%x*}" SHOT_H="${size#*x}"
+mkdir -p "$(dirname "$out")"
+exec xvfb-run -a -s "-screen 0 ${size}x24 -nolisten tcp" bash -c '
+  set -uo pipefail
+  # Isolated config dir unless the caller provides one, so runs are reproducible.
+  export QUARRY_CONFIG_DIR="${QUARRY_CONFIG_DIR:-$(mktemp -d)}"
+  export QUARRY_WINDOW_SIZE="${SHOT_W}x${SHOT_H}"
+  "$SHOT_BIN" "$@" >"${SHOT_OUT%.png}.log" 2>&1 &
+  app=$!
+  for _ in $(seq 1 100); do
+    xdotool search --onlyvisible --pid "$app" >/dev/null 2>&1 && break
+    kill -0 "$app" 2>/dev/null || { echo "app exited early; see ${SHOT_OUT%.png}.log" >&2; tail -20 "${SHOT_OUT%.png}.log" >&2; exit 1; }
+    sleep 0.1
+  done
+  win=$(xdotool search --onlyvisible --pid "$app" | head -1)
+  xdotool windowmove "$win" 0 0 windowsize "$win" "$SHOT_W" "$SHOT_H" windowfocus "$win" 2>/dev/null || true
+  sleep 1
+  snap() { import -window root "$(dirname "$SHOT_OUT")/$1.png"; }
+  if [[ -n "$SHOT_STEPS" ]]; then source "$SHOT_STEPS"; fi
+  sleep "$SHOT_WAIT"
+  import -window root "$SHOT_OUT"
+  kill "$app" 2>/dev/null; wait "$app" 2>/dev/null
+  echo "wrote $SHOT_OUT"
+' bash "$@"
