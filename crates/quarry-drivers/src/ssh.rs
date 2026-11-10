@@ -78,38 +78,53 @@ async fn authenticate(session: &mut Handle<Handler>, ssh: &SshConfig) -> Result<
                 .map_err(tunnel_err)?
         }
         SshAuth::Agent => {
-            let mut agent = AgentClient::connect_env()
+            // The agent speaks the same protocol everywhere; only the transport
+            // differs: a Unix socket named by SSH_AUTH_SOCK, or on Windows the
+            // OpenSSH agent service's well-known named pipe.
+            #[cfg(unix)]
+            let agent = AgentClient::connect_env()
                 .await
                 .map_err(|e| Error::Auth(format!("cannot reach ssh-agent (is SSH_AUTH_SOCK set?): {e}")))?;
-            let identities = agent.request_identities().await.map_err(tunnel_err)?;
-            if identities.is_empty() {
-                return Err(Error::Auth("ssh-agent holds no identities".into()));
-            }
-            let hash = session.best_supported_rsa_hash().await.map_err(tunnel_err)?.flatten();
-            let mut last = None;
-            for id in identities {
-                let russh::keys::agent::AgentIdentity::PublicKey { key, .. } = id else { continue };
-                let r = session
-                    .authenticate_publickey_with(user.clone(), key, hash, &mut agent)
-                    .await
-                    .map_err(tunnel_err)?;
-                if r.success() {
-                    last = Some(r);
-                    break;
-                }
-            }
-            match last {
-                Some(r) => r,
-                None => return Err(Error::Auth("none of the ssh-agent identities were accepted".into())),
-            }
+            #[cfg(windows)]
+            let agent = AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await.map_err(|e| {
+                Error::Auth(format!("cannot reach the OpenSSH agent service (is ssh-agent running?): {e}"))
+            })?;
+            authenticate_with_agent(session, user, agent).await?
         }
     };
     if result.success() { Ok(()) } else { Err(Error::Auth("SSH server rejected the credentials".into())) }
 }
 
+async fn authenticate_with_agent<S>(
+    session: &mut Handle<Handler>,
+    user: String,
+    mut agent: AgentClient<S>,
+) -> Result<russh::client::AuthResult>
+where
+    S: russh::keys::agent::client::AgentStream + Send + Unpin + 'static,
+{
+    let identities = agent.request_identities().await.map_err(tunnel_err)?;
+    if identities.is_empty() {
+        return Err(Error::Auth("ssh-agent holds no identities".into()));
+    }
+    let hash = session.best_supported_rsa_hash().await.map_err(tunnel_err)?.flatten();
+    for id in identities {
+        let russh::keys::agent::AgentIdentity::PublicKey { key, .. } = id else { continue };
+        let r = session
+            .authenticate_publickey_with(user.clone(), key, hash, &mut agent)
+            .await
+            .map_err(tunnel_err)?;
+        if r.success() {
+            return Ok(r);
+        }
+    }
+    Err(Error::Auth("none of the ssh-agent identities were accepted".into()))
+}
+
 fn expand_home(path: &str) -> String {
     match path.strip_prefix("~/") {
-        Some(rest) => match std::env::var("HOME") {
+        // USERPROFILE is the Windows spelling of HOME.
+        Some(rest) => match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
             Ok(h) => format!("{h}/{rest}"),
             Err(_) => path.to_string(),
         },

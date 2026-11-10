@@ -140,7 +140,11 @@ impl PgConnection {
     pub async fn connect(config: &ConnectionConfig, via: Option<LocalEndpoint>) -> Result<Self> {
         let mut cfg = Config::new();
         if config.host.starts_with('/') {
+            // A leading '/' means a Unix-socket directory (libpq convention).
+            #[cfg(unix)]
             cfg.host_path(&config.host);
+            #[cfg(not(unix))]
+            return Err(Error::Connect("Unix-socket hosts are not available on this platform".into()));
         } else {
             cfg.host(if config.host.is_empty() { "localhost" } else { &config.host });
         }
