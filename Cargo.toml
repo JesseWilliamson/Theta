@@ -21,6 +21,10 @@ quarry-drivers = { path = "crates/quarry-drivers" }
 quarry-sql = { path = "crates/quarry-sql" }
 quarry-geo = { path = "crates/quarry-geo" }
 quarry-editor = { path = "crates/quarry-editor" }
+dirs = "6"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+quarry-ui = { path = "crates/quarry-ui" }
 
 [profile.dev]
 opt-level = 1
