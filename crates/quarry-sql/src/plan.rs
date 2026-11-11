@@ -873,6 +873,19 @@ fn slowest(plan: &Plan) -> Option<Vec<usize>> {
     best.map(|(_, p)| p)
 }
 
+fn qualify_relations(node: &mut PlanNode, catalog: &Catalog) {
+    if let Some(rel) = node.relation.as_mut()
+        && !rel.contains('.')
+        && let Some((schema, _)) = catalog.find_table(None, rel.trim_matches('"'))
+        && catalog.default_schema.as_deref() != Some(schema.name.as_str())
+    {
+        *rel = format!("{}.{rel}", schema.name);
+    }
+    for child in &mut node.children {
+        qualify_relations(child, catalog);
+    }
+}
+
 /// Summarise a plan and list what is worth fixing, most severe first.
 pub fn analyze_plan(
     plan: &Plan,
@@ -889,7 +902,13 @@ pub fn analyze_plan(
         node_count: 0,
         join_cond: None,
     };
-    visit(&mut ctx, &plan.root, &mut Vec::new());
+    // EXPLAIN names tables without their schema. Suggestions (CREATE INDEX, ANALYZE) must resolve
+    // from any search path, so give tables outside the default schema their schema here.
+    let mut root = plan.root.clone();
+    if let Some(cat) = catalog {
+        qualify_relations(&mut root, cat);
+    }
+    visit(&mut ctx, &root, &mut Vec::new());
     let mut insights = std::mem::take(&mut ctx.out);
     let sev = |s: Severity| match s {
         Severity::Critical => 0,
@@ -1137,6 +1156,23 @@ mod tests {
         assert!(d.title.contains("100%"), "{}", d.title);
         assert!(d.detail.contains("parallel workers"), "{}", d.detail);
         assert!(!d.detail.contains("out of"), "{}", d.detail);
+    }
+
+    #[test]
+    fn suggestions_qualify_tables_outside_the_default_schema() {
+        use quarry_core::{Schema, Table};
+        let mut cat = fixtures::shop();
+        let mut t = cat.schemas[0].tables.iter().find(|t| t.name == "orders").unwrap().clone();
+        t.name = "qa_events".into();
+        t.indexes.clear();
+        cat.schemas.push(Schema { name: "qa_perf".into(), tables: vec![t as Table], routines: vec![], sequences: vec![] });
+        let mut n = scan("qa_events", "((status)::text = 'open'::text)");
+        n.actual_rows = Some(10.0);
+        n.rows_removed_by_filter = Some(299_990.0);
+        n.plan_rows = Some(10.0);
+        let got = analyze_plan(&plan(n, true), Some(&cat), Postgres).1;
+        let sql = got.iter().find_map(|i| i.suggestion.clone()).expect("an index suggestion");
+        assert!(sql.contains("ON qa_perf.qa_events"), "{sql}");
     }
 
     #[test]
