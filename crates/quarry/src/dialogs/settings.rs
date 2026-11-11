@@ -4,7 +4,7 @@
 use crate::exec::keyref;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::select::{Select, SelectEvent, SelectState};
+use gpui_kit::component::select::{SearchableVec, Select, SelectEvent, SelectState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{ActiveTheme as _, IndexPath, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -59,8 +59,8 @@ fn font_names(cx: &App) -> &'static [&'static str] {
 
 pub struct SettingsView {
     section: Section,
-    ui_font: Entity<SelectState<Vec<&'static str>>>,
-    buf_font: Entity<SelectState<Vec<&'static str>>>,
+    ui_font: Entity<SelectState<SearchableVec<&'static str>>>,
+    buf_font: Entity<SelectState<SearchableVec<&'static str>>>,
     basemap: Entity<SelectState<Vec<String>>>,
     bm_name: Entity<InputState>,
     bm_url: Entity<InputState>,
@@ -96,10 +96,10 @@ fn font_select(
     current: &str,
     window: &mut Window,
     cx: &mut Context<SettingsView>,
-) -> Entity<SelectState<Vec<&'static str>>> {
+) -> Entity<SelectState<SearchableVec<&'static str>>> {
     let names = font_names(cx).to_vec();
     let ix = names.iter().position(|n| n.eq_ignore_ascii_case(current)).map(IndexPath::new);
-    cx.new(|cx| SelectState::new(names, ix, window, cx).searchable(true))
+    cx.new(|cx| SelectState::new(SearchableVec::new(names), ix, window, cx).searchable(true))
 }
 
 impl SettingsView {
@@ -123,18 +123,22 @@ impl SettingsView {
                 .map(|k| (format!("Editor · {}", k.section), k.action, k.keys)),
         );
         let subs = vec![
-            cx.subscribe_in(&ui_font, window, |_, _, e: &SelectEvent<Vec<&'static str>>, _, cx| {
+            cx.subscribe_in(&ui_font, window, |_, _, e: &SelectEvent<SearchableVec<&'static str>>, _, cx| {
                 if let SelectEvent::Confirm(Some(name)) = e {
                     let n = name.to_string();
                     Settings::update(cx, |s| s.ui_font_family = n);
                 }
             }),
-            cx.subscribe_in(&buf_font, window, |_, _, e: &SelectEvent<Vec<&'static str>>, _, cx| {
-                if let SelectEvent::Confirm(Some(name)) = e {
-                    let n = name.to_string();
-                    Settings::update(cx, |s| s.buffer_font_family = n);
-                }
-            }),
+            cx.subscribe_in(
+                &buf_font,
+                window,
+                |_, _, e: &SelectEvent<SearchableVec<&'static str>>, _, cx| {
+                    if let SelectEvent::Confirm(Some(name)) = e {
+                        let n = name.to_string();
+                        Settings::update(cx, |s| s.buffer_font_family = n);
+                    }
+                },
+            ),
             cx.subscribe_in(&basemap, window, |_, _, e: &SelectEvent<Vec<String>>, _, cx| {
                 if let SelectEvent::Confirm(Some(name)) = e {
                     let name = name.clone();

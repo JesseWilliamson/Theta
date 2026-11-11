@@ -8,7 +8,7 @@ use crate::workspace::Workspace;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::select::{Select, SelectState};
+use gpui_kit::component::select::{SearchableVec, Select, SelectState};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{ActiveTheme as _, Icon, IndexPath, Sizable as _, WindowExt as _, h_flex, v_flex};
@@ -78,12 +78,31 @@ impl gpui_kit::component::select::SelectItem for KindItem {
 
     /// Type-to-filter finds a kind by its label, its URL schemes and its keywords.
     fn matches(&self, query: &str) -> bool {
-        let q = query.to_lowercase();
-        let i = self.0.info();
-        i.label.to_lowercase().contains(&q)
-            || i.url_schemes.iter().any(|s| s.contains(&q))
-            || i.keywords.iter().any(|k| k.contains(&q))
+        kind_matches(self.0, query)
     }
+}
+
+/// Does `query` select `kind` in the dropdown?
+///
+/// A word of the label, a URL scheme or a keyword must start with the query; only from three
+/// characters on is a match inside a word enough. A plain substring match made "sq" list
+/// PostgreSQL and MySQL next to SQLite, which is not what someone typing the start of a name
+/// means, while "sql" should still find all three.
+fn kind_matches(kind: DatabaseKind, query: &str) -> bool {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return true;
+    }
+    let i = kind.info();
+    let label = i.label.to_lowercase();
+    let fields = std::iter::once(label.as_str())
+        .chain(i.url_schemes.iter().copied())
+        .chain(i.keywords.iter().copied());
+    fields.into_iter().any(|f| {
+        let word_start =
+            f.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).any(|w| w.starts_with(&q));
+        word_start || (q.chars().count() >= 3 && f.contains(&q))
+    })
 }
 
 impl KindItem {
@@ -102,7 +121,7 @@ pub struct ConnectionForm {
     workspace: WeakEntity<Workspace>,
     config_id: String,
     kind: DatabaseKind,
-    kind_select: Entity<SelectState<Vec<KindItem>>>,
+    kind_select: Entity<SelectState<SearchableVec<KindItem>>>,
     url: Entity<InputState>,
     name: Entity<InputState>,
     host: Entity<InputState>,
@@ -198,7 +217,7 @@ impl ConnectionForm {
         let kind_ix = DatabaseKind::ALL.iter().position(|k| *k == c.kind).unwrap_or(0);
         let kind_select = cx.new(|cx| {
             SelectState::new(
-                DatabaseKind::ALL.iter().map(|k| KindItem(*k)).collect::<Vec<_>>(),
+                SearchableVec::new(DatabaseKind::ALL.iter().map(|k| KindItem(*k)).collect::<Vec<_>>()),
                 Some(IndexPath::new(kind_ix)),
                 window,
                 cx,
@@ -254,7 +273,7 @@ impl ConnectionForm {
         subscriptions.push(cx.subscribe_in(
             &kind_select,
             window,
-            |this, _, ev: &gpui_kit::component::select::SelectEvent<Vec<KindItem>>, window, cx| {
+            |this, _, ev: &gpui_kit::component::select::SelectEvent<SearchableVec<KindItem>>, window, cx| {
                 if let gpui_kit::component::select::SelectEvent::Confirm(Some(item)) = ev {
                     this.set_kind(*item, window, cx);
                 }
@@ -370,9 +389,8 @@ impl ConnectionForm {
             );
         }
         self.kind = kind;
-        if let Some(ix) = DatabaseKind::ALL.iter().position(|k| *k == kind) {
-            self.kind_select.update(cx, |s, cx| s.set_selected_index(Some(IndexPath::new(ix)), window, cx));
-        }
+        // By value, not row: with a filter typed the rows of the dropdown are not `ALL`'s.
+        self.kind_select.update(cx, |s, cx| s.set_selected_value(&kind, window, cx));
         self.errors.clear();
         cx.notify();
     }
@@ -937,5 +955,50 @@ impl ConnectionForm {
                     .into_any_element(),
             })
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::TestAppContext;
+    use gpui_kit::component::select::SelectDelegate as _;
+
+    fn matching(q: &str) -> Vec<DatabaseKind> {
+        DatabaseKind::ALL.iter().copied().filter(|k| kind_matches(*k, q)).collect()
+    }
+
+    #[test]
+    fn short_queries_match_word_starts_only() {
+        assert_eq!(matching(""), DatabaseKind::ALL.to_vec());
+        assert_eq!(matching("sq"), vec![DatabaseKind::Sqlite]);
+        assert_eq!(matching("po"), vec![DatabaseKind::Postgres]);
+        assert_eq!(matching("pg"), vec![DatabaseKind::Postgres], "keyword");
+        assert_eq!(matching("maria"), vec![DatabaseKind::MySql], "keyword of a combined label");
+        assert_eq!(matching("zz"), vec![]);
+    }
+
+    #[test]
+    fn longer_queries_match_inside_words() {
+        assert_eq!(matching("sql").len(), 3, "PostgreSQL, MySQL and SQLite all contain it");
+        assert_eq!(matching("sqli"), vec![DatabaseKind::Sqlite]);
+        assert_eq!(matching("SQLITE"), vec![DatabaseKind::Sqlite], "case-insensitive");
+    }
+
+    /// The dropdown filtered nothing while its delegate was a plain `Vec` (whose
+    /// `perform_search` does nothing); `SearchableVec` is what actually applies `matches`.
+    #[gpui_kit::test]
+    fn the_dropdown_delegate_filters(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            let mut items =
+                SearchableVec::new(DatabaseKind::ALL.iter().map(|k| KindItem(*k)).collect::<Vec<_>>());
+            assert_eq!(items.items_count(0), DatabaseKind::ALL.len());
+            items.perform_search("sq", window, cx).detach();
+            assert_eq!(items.items_count(0), 1);
+            assert_eq!(items.item(IndexPath::new(0)).map(|i| i.0), Some(DatabaseKind::Sqlite));
+            items.perform_search("", window, cx).detach();
+            assert_eq!(items.items_count(0), DatabaseKind::ALL.len());
+        });
     }
 }
