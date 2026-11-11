@@ -418,6 +418,9 @@ fn a_failed_apply_keeps_the_edit_and_reports_in_the_footer_and_messages(cx: &mut
     let err = grid.read_with(vcx, |g, _| g.submit_error().map(str::to_string)).unwrap();
     assert!(err.contains("no such table"), "server error in the footer: {err}");
     assert!(grid.read_with(vcx, |g, _| g.has_pending_changes()), "the edit stays staged for a retry");
+    // The grid shows the error before the workspace has finished the rollback bookkeeping (two
+    // separate async hops), so asserting on the transaction right away races on slow machines.
+    wait_for(vcx, "the rollback", |vcx| f.ws.read_with(vcx, |ws, _| !ws.txn.contains(&f.conn_a)));
     f.ws.read_with(vcx, |ws, cx| {
         let last = ws.messages.read(cx).entries().last().cloned().unwrap();
         assert_eq!(last.kind, MessageKind::Error);
