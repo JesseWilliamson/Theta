@@ -6625,6 +6625,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "gpui-kit",
+ "image",
  "keyring",
  "quarry-core",
  "quarry-drivers",

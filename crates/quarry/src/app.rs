@@ -12,11 +12,18 @@ use gpui_kit::{AppContext as _, Bounds, Entity, Focusable as _, WindowBounds, Wi
 use quarry_core::{Catalog, ConnectionConfig, DatabaseKind, Schema, Table, TableKind};
 use std::sync::Arc;
 
+/// The 128 px application icon, decoded once at start-up.
+fn window_icon() -> Option<Arc<image::RgbaImage>> {
+    const PNG: &[u8] = include_bytes!("../../../packaging/icons/hicolor/128x128/apps/quarry.png");
+    image::load_from_memory_with_format(PNG, image::ImageFormat::Png).ok().map(|i| Arc::new(i.to_rgba8()))
+}
+
 pub fn run(args: Args) {
     // Start the I/O runtime eagerly so the first connect does not pay for it.
     let _ = runtime::runtime();
     quarry_ui::application().run(move |cx| {
         quarry_ui::init(cx);
+        cx.set_app_identity("quarry", "Quarry");
         keymap::bind(cx);
         keymap::set_menus(cx);
         if let Some(theme) = &args.theme {
@@ -32,6 +39,10 @@ pub fn run(args: Args) {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(800.), px(500.))),
+            // Matches StartupWMClass in packaging/linux/quarry.desktop so the shell groups the
+            // window with the launcher; the icon is used where the platform takes one per window (X11).
+            app_id: Some("quarry".into()),
+            icon: window_icon(),
             #[cfg(target_os = "linux")]
             window_decorations: Some(gpui_kit::WindowDecorations::Client),
             #[cfg(target_os = "linux")]

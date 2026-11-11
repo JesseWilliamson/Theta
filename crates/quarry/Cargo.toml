@@ -25,6 +25,7 @@ tokio.workspace = true
 url.workspace = true
 uuid.workspace = true
 chrono.workspace = true
+image.workspace = true
 
 # The platform keychain. On Linux the pure-Rust Secret Service client is used
 # (no libdbus headers needed) with the kernel keyring as a session cache; when
