@@ -97,6 +97,7 @@ impl Workspace {
             modified: false,
             initial_sql: None,
             table: None,
+            admin: None,
         });
         if let Some(c) = &connection_id {
             self.active_connection = Some(c.clone());
@@ -338,7 +339,9 @@ impl Workspace {
     /// Where keyboard focus belongs when the window opens: the active editor if there is one
     /// (restored consoles included), else the workspace itself.
     pub fn focus_default(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.active_tab.is_some_and(|id| self.consoles.contains_key(&id) || self.is_table_tab(id)) {
+        if self.active_tab.is_some_and(|id| {
+            self.consoles.contains_key(&id) || self.is_table_tab(id) || self.admin_tab(id).is_some()
+        }) {
             self.focus_editor(window, cx);
         } else {
             self.focus.focus(window, cx);
@@ -353,6 +356,11 @@ impl Workspace {
         } else if let Some(e) = self.active_tab.and_then(|id| self.table_editor(id)) {
             let handle = e.read(cx).focus_handle_ref();
             window.focus(&handle, cx);
+        } else if let Some(a) = self.active_tab.and_then(|id| self.admin_tab(id)) {
+            match a {
+                super::AdminTab::Sessions(v) => v.update(cx, |v, cx| v.focus_list(window, cx)),
+                super::AdminTab::Roles(v) => v.update(cx, |v, cx| v.focus_list(window, cx)),
+            }
         }
     }
 
@@ -421,6 +429,9 @@ impl Workspace {
             "format" | "fmt" => self.format_console(self.active_tab.unwrap_or(0), false, window, cx),
             "open" | "e" => self.open_sql_file(window, cx),
             "import" | "export" => self.bulk_host_command(cmd, arg, window, cx),
+            "sessions" | "sess" | "roles" | "users" | "dump" | "script" | "source" | "restore" => {
+                self.admin_host_command(cmd, arg, window, cx)
+            }
             "table" | "tbl" => self.table_host_command(arg, window, cx),
             // Vim `:help`: the key reference of the active keymap is the nearest thing to it.
             "help" | "h" => crate::dialogs::settings::open_at(crate::dialogs::settings::Section::Keymap, window, cx),
@@ -469,6 +480,10 @@ impl Workspace {
     }
 
     pub(super) fn run_request(&mut self, id: u64, req: RunReq, window: &mut Window, cx: &mut Context<Self>) {
+        // Run (ctrl-enter, F5) in a Sessions or Roles tab means "refresh": there is no statement to run.
+        if self.refresh_admin_tab(id, cx) {
+            return;
+        }
         let Some((text, cursor, sel)) = self.editor_snapshot(id, cx) else {
             self.notify(NoticeKind::Info, "Open a console first (Ctrl+N)", window, cx);
             return;

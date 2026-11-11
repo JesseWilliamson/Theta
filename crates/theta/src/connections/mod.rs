@@ -203,6 +203,23 @@ impl ConnectionStore {
         }
     }
 
+    /// Open a session of its own to the same server, for tools that must keep working while a console's
+    /// session is busy (the session manager has to list and cancel the very query a console is running) and
+    /// that must not share a console's transaction. The caller owns it and closes it. `None` when the
+    /// connection does not exist. The saved secrets are applied here, so no password leaves the store.
+    pub fn open_side_connection(
+        &self,
+        id: &str,
+    ) -> Option<impl std::future::Future<Output = Result<Arc<dyn Connection>, Error>> + use<>> {
+        let config = self.config(id)?.clone();
+        let secrets = self.secrets.clone();
+        Some(runtime::spawn_result(async move {
+            let config = secrets.with_secrets(&config);
+            let (connection, _notices) = open_connection(&config).await?;
+            Ok(Arc::from(connection))
+        }))
+    }
+
     pub fn catalog_error(&self, id: &str) -> Option<&Error> {
         self.catalog_errors.get(id)
     }

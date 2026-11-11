@@ -64,6 +64,11 @@ actions!(
         TruncateTable,
         DropTable,
         SaveConsole,
+        // Server administration
+        OpenSessions,
+        OpenRoles,
+        ExportDatabase,
+        RunSqlScript,
         OpenSettings,
         WelcomeDemo,
         // Explorer (key context "Explorer")

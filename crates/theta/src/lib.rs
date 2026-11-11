@@ -5,6 +5,7 @@
 //! [`connections::ConnectionStore`]) and so dead-code analysis sees them as API.
 
 pub mod actions;
+pub mod admin;
 pub mod app;
 pub mod cli;
 pub mod connections;

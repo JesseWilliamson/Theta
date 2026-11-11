@@ -39,6 +39,19 @@ pub enum ExplorerEvent {
         schema: String,
         table: String,
     },
+    /// Server administration, from the connection's menu.
+    OpenSessions {
+        connection_id: String,
+    },
+    OpenRoles {
+        connection_id: String,
+    },
+    ExportDatabase {
+        connection_id: String,
+    },
+    RunScript {
+        connection_id: String,
+    },
     /// Open a new console, optionally pre-filled (generated SQL, DDL).
     NewConsole {
         connection_id: String,
@@ -616,6 +629,27 @@ impl Explorer {
                     menu = menu.item(item(&explorer, "Disconnect", IconName::Unplug, move |this, cx| {
                         this.store.update(cx, |s, cx| s.disconnect(&id3, cx));
                     }));
+                    // Entries a product cannot do stay in the menu; choosing one says why.
+                    let (a, b, c, d) = (id.clone(), id.clone(), id.clone(), id.clone());
+                    menu = menu
+                        .separator()
+                        .item(item(&explorer, "Sessions", IconName::Activity, move |_, cx| {
+                            cx.emit(ExplorerEvent::OpenSessions { connection_id: a.clone() });
+                        }))
+                        .item(item(&explorer, "Roles and Users", IconName::Users, move |_, cx| {
+                            cx.emit(ExplorerEvent::OpenRoles { connection_id: b.clone() });
+                        }))
+                        .item(item(
+                            &explorer,
+                            "Export Database…",
+                            IconName::HardDriveDownload,
+                            move |_, cx| {
+                                cx.emit(ExplorerEvent::ExportDatabase { connection_id: c.clone() });
+                            },
+                        ))
+                        .item(item(&explorer, "Run SQL Script…", IconName::FileUp, move |_, cx| {
+                            cx.emit(ExplorerEvent::RunScript { connection_id: d.clone() });
+                        }));
                 } else {
                     let id1 = id.clone();
                     menu = menu.item(item(&explorer, "Connect", IconName::Plug, move |this, cx| {

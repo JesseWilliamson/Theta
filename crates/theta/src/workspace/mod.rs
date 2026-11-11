@@ -14,6 +14,7 @@
 //! * Run / cancel / explain / format actions are registered here and re-emitted
 //!   as [`WorkspaceEvent`]s.
 
+mod admin_tabs;
 mod bottom;
 mod bulk;
 pub mod console;
@@ -103,6 +104,15 @@ pub struct ConsoleTab {
     pub initial_sql: Option<String>,
     /// Set for a table editor tab: the editor that fills the tab instead of a console.
     pub table: Option<Entity<crate::table_editor::TableEditor>>,
+    /// Set for a Sessions or Roles tab (`admin_tabs.rs`).
+    pub admin: Option<AdminTab>,
+}
+
+/// The view that fills an administration tab.
+#[derive(Clone)]
+pub enum AdminTab {
+    Sessions(Entity<crate::admin::sessions::SessionsView>),
+    Roles(Entity<crate::admin::roles::RolesView>),
 }
 
 /// Values shown in the status bar's right-hand slots. `None` hides a slot.
@@ -711,6 +721,18 @@ impl Workspace {
                 window,
                 cx,
             ),
+            ExplorerEvent::OpenSessions { connection_id } => {
+                self.open_admin_tab(connection_id, crate::admin::AdminKind::Sessions, window, cx);
+            }
+            ExplorerEvent::OpenRoles { connection_id } => {
+                self.open_admin_tab(connection_id, crate::admin::AdminKind::Roles, window, cx);
+            }
+            ExplorerEvent::ExportDatabase { connection_id } => {
+                self.open_dump_dialog(connection_id, window, cx)
+            }
+            ExplorerEvent::RunScript { connection_id } => {
+                self.open_script_dialog(connection_id, None, window, cx)
+            }
             ExplorerEvent::ExportData { connection_id, schema, table } => {
                 self.open_export_dialog(connection_id, schema, table, window, cx)
             }
@@ -1023,7 +1045,9 @@ impl Render for Workspace {
         let tab_bar = self.render_tab_bar(window, cx);
         let console = self.render_console_area(window, cx);
         // A table editor has its own preview and log line; the results panel would only take its room.
-        let on_table = self.active_tab.is_some_and(|id| self.is_table_tab(id));
+        // Sessions and Roles tabs have their own detail pane and report in Messages.
+        let on_table =
+            self.active_tab.is_some_and(|id| self.is_table_tab(id) || self.admin_tab(id).is_some());
         let bottom = (bottom_open && !on_table).then(|| self.render_bottom_panel(window, cx));
         let status = self.render_status_bar(window, cx);
 
@@ -1071,6 +1095,22 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &DropTable, window, cx| {
                 this.pick_table_for(palette::TablePurpose::Drop, window, cx)
             }))
+            .on_action(cx.listener(|this, _: &OpenSessions, window, cx| {
+                this.admin_from_palette("sessions", window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &OpenRoles, window, cx| this.admin_from_palette("roles", window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &ExportDatabase, window, cx| {
+                    this.admin_from_palette("dump", window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &RunSqlScript, window, cx| {
+                    this.admin_from_palette("script", window, cx)
+                }),
+            )
             .on_action(cx.listener(|this, _: &ExportTableData, window, cx| {
                 this.pick_table_for(palette::TablePurpose::Export, window, cx)
             }))

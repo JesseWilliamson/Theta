@@ -1,7 +1,9 @@
 pub mod confirm;
 pub mod connection;
+pub mod dump;
 pub mod export;
 pub mod import;
 pub mod name;
 pub mod params;
+pub mod script;
 pub mod settings;

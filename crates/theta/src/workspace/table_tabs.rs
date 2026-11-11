@@ -154,6 +154,7 @@ impl Workspace {
             modified: false,
             initial_sql: None,
             table: Some(editor.clone()),
+            admin: None,
         });
         let sub = cx.subscribe_in(&editor, window, move |this, _, ev: &TableEditorEvent, window, cx| {
             this.on_table_event(id, ev.clone(), window, cx)
