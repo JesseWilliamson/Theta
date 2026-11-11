@@ -359,3 +359,293 @@ async fn statements_stay_under_the_size_budget() {
     assert!(rep.statements > 14, "{}", rep.statements);
     fx.done().await;
 }
+
+fn tmp(name: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(unique("theta-import-test"));
+    std::fs::create_dir_all(&d).unwrap();
+    d.join(name)
+}
+
+async fn make_source(fx: &Fx, name: &str, rows: usize, composite: bool) {
+    let k = fx.kind;
+    let (txt, int, num, ts, flag) = match k {
+        DatabaseKind::MySql => ("VARCHAR(200)", "INT", "DECIMAL(12,2)", "DATETIME", "TINYINT(1)"),
+        DatabaseKind::Postgres => ("text", "integer", "numeric(12,2)", "timestamp", "boolean"),
+        DatabaseKind::Sqlite => ("text", "integer", "numeric", "timestamp", "integer"),
+    };
+    let pk = if composite { "PRIMARY KEY (a, id)" } else { "PRIMARY KEY (id)" };
+    q(
+        fx.conn.as_ref(),
+        &format!(
+            "CREATE TABLE {} (a {int} NOT NULL, id {int} NOT NULL, name {txt}, note {txt}, amount {num}, ts {ts}, flag {flag}, {pk})",
+            fx.qual(name)
+        ),
+    )
+    .await;
+    let mut tuples = Vec::new();
+    for i in 0..rows {
+        let note = match i % 5 {
+            0 => "NULL".to_string(),
+            1 => "''".to_string(),
+            2 => "'multi\nline \"quoted\", comma'".to_string(),
+            3 => "'日本語 é'".to_string(),
+            _ => "'plain'".to_string(),
+        };
+        let amount = if i % 7 == 0 { "NULL".to_string() } else { format!("{}.{:02}", i, i % 100) };
+        let ts =
+            if i % 3 == 0 { "NULL".to_string() } else { format!("'2024-01-{:02} 10:20:30'", 1 + i % 28) };
+        let flag = if i % 2 == 0 { "1" } else { "0" };
+        let flag = if k == DatabaseKind::Postgres { if i % 2 == 0 { "TRUE" } else { "FALSE" } } else { flag };
+        tuples.push(format!("({}, {}, 'name {i}', {note}, {amount}, {ts}, {flag})", i % 3, i));
+    }
+    for chunk in tuples.chunks(200) {
+        q(fx.conn.as_ref(), &format!("INSERT INTO {} VALUES {}", fx.qual(name), chunk.join(", "))).await;
+    }
+}
+
+#[tokio::test]
+async fn export_then_import_round_trips_exactly() {
+    for kind in KINDS {
+        for composite in [false, true] {
+            let fx = Fx::new(kind).await;
+            make_source(&fx, "src", 777, composite).await;
+            let path = tmp("src.csv");
+            let ejob = ExportJob {
+                kind,
+                schema: fx.schema.clone(),
+                table: "src".into(),
+                key: if composite { vec!["a".into(), "id".into()] } else { vec!["id".into()] },
+                format: theta_sql::ExportFormat::Csv,
+                // Not a divisor of 777, so the last page is short; small, so keyset paging is exercised.
+                page_rows: 50,
+            };
+            let rep = export_table_to_path(
+                fx.conn.as_ref(),
+                &path,
+                &ejob,
+                Some(777),
+                &AtomicBool::new(false),
+                &|_| {},
+            )
+            .await;
+            assert_eq!(rep.outcome, ExportOutcome::Completed, "{kind:?}");
+            assert_eq!((rep.rows, rep.pages, rep.paging), (777, 16, Paging::Keyset));
+            assert!(!path.with_extension("csv.part").exists());
+
+            // Re-import into a table of the same shape, mapping by name.
+            let (txt, int, num, ts, flag) = match kind {
+                DatabaseKind::MySql => ("VARCHAR(200)", "INT", "DECIMAL(12,2)", "DATETIME", "TINYINT(1)"),
+                DatabaseKind::Postgres => ("text", "integer", "numeric(12,2)", "timestamp", "boolean"),
+                DatabaseKind::Sqlite => ("text", "integer", "numeric", "timestamp", "integer"),
+            };
+            q(fx.conn.as_ref(), &format!("CREATE TABLE {} (a {int}, id {int}, name {txt}, note {txt}, amount {num}, ts {ts}, flag {flag})", fx.qual("dst"))).await;
+            let job = fx.job(
+                "dst",
+                &[
+                    ("a", 0, int),
+                    ("id", 1, int),
+                    ("name", 2, txt),
+                    ("note", 3, txt),
+                    ("amount", 4, num),
+                    ("ts", 5, ts),
+                    ("flag", 6, flag),
+                ],
+            );
+            let file = std::fs::File::open(&path).unwrap();
+            let rep = run_import(fx.conn.as_ref(), file, &job, None, &AtomicBool::new(false), &|_| {}).await;
+            assert_eq!(rep.outcome, Outcome::Completed, "{kind:?} {:?}", rep.issues);
+            assert_eq!(rep.rows_inserted, 777);
+            let (s, d) = (fx.qual("src"), fx.qual("dst"));
+            for (x, y) in [(&s, &d), (&d, &s)] {
+                let diff = count(fx.conn.as_ref(), &format!("(SELECT a,id,name,note,amount,ts,flag FROM {x} EXCEPT SELECT a,id,name,note,amount,ts,flag FROM {y}) z")).await;
+                assert_eq!(diff, 0, "{kind:?} composite={composite}: {x} vs {y}");
+            }
+            assert_eq!(count(fx.conn.as_ref(), &d).await, 777);
+            // NULL and '' stayed distinct.
+            assert_eq!(
+                count(fx.conn.as_ref(), &format!("(SELECT 1 FROM {d} WHERE note = '') z")).await,
+                156,
+                "{kind:?}"
+            );
+            std::fs::remove_dir_all(path.parent().unwrap()).ok();
+            fx.done().await;
+        }
+    }
+}
+
+#[tokio::test]
+async fn export_formats_and_offset_paging_without_a_key() {
+    let fx = Fx::new(DatabaseKind::Sqlite).await;
+    q(fx.conn.as_ref(), "CREATE TABLE nokey (x integer, y text)").await;
+    for i in 0..25 {
+        q(fx.conn.as_ref(), &format!("INSERT INTO nokey VALUES ({i}, 'v{i}')")).await;
+    }
+    for (fmt, name) in [
+        (theta_sql::ExportFormat::Json, "o.json"),
+        (theta_sql::ExportFormat::Tsv, "o.tsv"),
+        (theta_sql::ExportFormat::SqlInserts { table: String::new() }, "o.sql"),
+    ] {
+        let path = tmp(name);
+        let job = ExportJob {
+            kind: DatabaseKind::Sqlite,
+            schema: None,
+            table: "nokey".into(),
+            key: vec![],
+            format: fmt.clone(),
+            page_rows: 10,
+        };
+        let rep =
+            export_table_to_path(fx.conn.as_ref(), &path, &job, None, &AtomicBool::new(false), &|_| {}).await;
+        assert_eq!((rep.rows, rep.paging, &rep.outcome), (25, Paging::Offset, &ExportOutcome::Completed));
+        let text = std::fs::read_to_string(&path).unwrap();
+        match fmt {
+            theta_sql::ExportFormat::Json => {
+                let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+                assert_eq!(v.as_array().unwrap().len(), 25);
+            }
+            theta_sql::ExportFormat::Tsv => assert_eq!(text.lines().count(), 26),
+            _ => {
+                assert_eq!(text.lines().count(), 25);
+                assert!(text.starts_with("INSERT INTO nokey (x, y) VALUES (0, 'v0');"));
+            }
+        }
+    }
+    fx.done().await;
+}
+
+#[tokio::test]
+async fn export_cancel_leaves_no_file() {
+    let fx = Fx::new(DatabaseKind::Sqlite).await;
+    make_source(&fx, "src", 300, false).await;
+    let path = tmp("c.csv");
+    let job = ExportJob {
+        kind: DatabaseKind::Sqlite,
+        schema: None,
+        table: "src".into(),
+        key: vec!["id".into()],
+        format: theta_sql::ExportFormat::Csv,
+        page_rows: 20,
+    };
+    let cancel = Arc::new(AtomicBool::new(false));
+    let c2 = cancel.clone();
+    let rep = export_table_to_path(fx.conn.as_ref(), &path, &job, None, &cancel, &move |p| {
+        if p.rows >= 60 {
+            c2.store(true, Ordering::Relaxed);
+        }
+    })
+    .await;
+    assert_eq!(rep.outcome, ExportOutcome::Cancelled);
+    assert!(!path.exists());
+    assert!(!path.with_file_name("c.csv.part").exists());
+    fx.done().await;
+}
+
+/// `cargo test -p theta-import --release -- --ignored --nocapture throughput` prints rows per second.
+#[tokio::test]
+#[ignore = "generates a 1M-row file; run explicitly"]
+async fn throughput() {
+    let path = tmp("million.csv");
+    {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
+        writeln!(w, "id,name,amount,created,note").unwrap();
+        for i in 0..1_000_000u32 {
+            writeln!(
+                w,
+                "{i},name {i},{}.{:02},2024-01-{:02} 10:20:30,\"note, with \"\"quotes\"\" {i}\"",
+                i % 10000,
+                i % 100,
+                1 + i % 28
+            )
+            .unwrap();
+        }
+    }
+    let size = std::fs::metadata(&path).unwrap().len();
+    println!("file: {:.1} MB", size as f64 / 1e6);
+    // Parse only (validate): no database.
+    let job = {
+        let fx_kind = DatabaseKind::Postgres;
+        ImportJob {
+            kind: fx_kind,
+            schema: None,
+            table: "t".into(),
+            create_sql: None,
+            truncate_sql: None,
+            columns: ["integer", "text", "numeric", "timestamp", "text"]
+                .iter()
+                .enumerate()
+                .map(|(i, t)| ImportColumn {
+                    source: i,
+                    name: format!("c{i}"),
+                    target: Target::from_type_name(t, fx_kind, true),
+                })
+                .collect(),
+            csv: CsvOptions::default(),
+            has_header: true,
+            convert: ConvertOptions::default(),
+            on_error: ErrorMode::Abort,
+            batch_rows: 1000,
+            max_statement_bytes: DEFAULT_STATEMENT_BYTES,
+            txn: TxnPlan::Own { begin: vec!["BEGIN".into()] },
+        }
+    };
+    let t = std::time::Instant::now();
+    let rep =
+        validate(std::fs::File::open(&path).unwrap(), &job, Some(size), &AtomicBool::new(false), &|_| {});
+    let s = t.elapsed().as_secs_f64();
+    println!(
+        "parse+convert only: {} rows in {s:.2}s = {:.0} rows/s",
+        rep.rows_read,
+        rep.rows_read as f64 / s
+    );
+    // Raw parse, no conversion.
+    let t = std::time::Instant::now();
+    let mut r = CsvReader::new(std::fs::File::open(&path).unwrap(), CsvOptions::default());
+    let mut rec = Record::default();
+    let mut n = 0u64;
+    while r.read_record(&mut rec).unwrap() {
+        n += 1;
+    }
+    let s = t.elapsed().as_secs_f64();
+    println!(
+        "raw parse: {n} records in {s:.2}s = {:.0} rows/s ({:.0} MB/s)",
+        n as f64 / s,
+        size as f64 / 1e6 / s
+    );
+    // End to end into each database.
+    for kind in KINDS {
+        let fx = Fx::new(kind).await;
+        let (txt, int, num, ts) = match kind {
+            DatabaseKind::MySql => ("VARCHAR(200)", "INT", "DECIMAL(12,2)", "DATETIME"),
+            DatabaseKind::Postgres => ("text", "integer", "numeric(12,2)", "timestamp"),
+            DatabaseKind::Sqlite => ("text", "integer", "numeric", "timestamp"),
+        };
+        let mut j = fx.job(
+            "big",
+            &[("id", 0, int), ("name", 1, txt), ("amount", 2, num), ("created", 3, ts), ("note", 4, txt)],
+        );
+        j.create_sql = Some(
+            fx.create("big", &[("id", int), ("name", txt), ("amount", num), ("created", ts), ("note", txt)]),
+        );
+        let t = std::time::Instant::now();
+        let rep = run_import(
+            fx.conn.as_ref(),
+            std::fs::File::open(&path).unwrap(),
+            &j,
+            Some(size),
+            &AtomicBool::new(false),
+            &|_| {},
+        )
+        .await;
+        let s = t.elapsed().as_secs_f64();
+        println!(
+            "{kind:?}: {:?} {} rows in {s:.2}s = {:.0} rows/s ({} statements)",
+            rep.outcome,
+            rep.rows_inserted,
+            rep.rows_inserted as f64 / s,
+            rep.statements
+        );
+        fx.done().await;
+    }
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}

@@ -24,7 +24,7 @@ pub mod templates;
 pub mod fixtures;
 
 pub use complete::{CompletionItem, CompletionKind, CompletionList, CompletionRequest, complete};
-pub use export::{ExportFormat, export};
+pub use export::{ExportEncoder, ExportFormat, export};
 pub use fk::{
     JoinSuggestion, TableRef, VirtualForeignKey, infer_foreign_keys, suggest_joins, tables_in_scope,
 };

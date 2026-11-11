@@ -258,6 +258,66 @@ pub fn export(result: &ResultSet, format: &ExportFormat, kind: DatabaseKind) -> 
     }
 }
 
+/// Incremental encoder for exports too large to hold in memory: feed it pages of rows and write what it
+/// returns. The concatenation of `begin`, every `rows` call and `finish` equals [`export`] over all rows
+/// (for CSV, TSV, JSON and SQL INSERTs; Markdown needs every row to align its columns, so it is not
+/// streamable and `begin` returns `None` for it).
+pub struct ExportEncoder {
+    format: ExportFormat,
+    kind: DatabaseKind,
+    columns: Vec<theta_core::Column>,
+    wrote_row: bool,
+}
+
+impl ExportEncoder {
+    pub fn new(format: ExportFormat, kind: DatabaseKind, columns: Vec<theta_core::Column>) -> Option<Self> {
+        (format != ExportFormat::Markdown).then_some(Self { format, kind, columns, wrote_row: false })
+    }
+
+    fn chunk(&self, rows: &[Vec<Value>]) -> ResultSet {
+        ResultSet { columns: self.columns.clone(), rows: rows.to_vec(), truncated: false }
+    }
+
+    /// Text that precedes the rows: the header line, or the opening bracket of a JSON array.
+    pub fn begin(&mut self) -> String {
+        match self.format {
+            ExportFormat::Csv | ExportFormat::Tsv => export(&self.chunk(&[]), &self.format, self.kind),
+            ExportFormat::Json => "[\n".into(),
+            _ => String::new(),
+        }
+    }
+
+    /// Text for one page of rows.
+    pub fn rows(&mut self, rows: &[Vec<Value>]) -> String {
+        if rows.is_empty() {
+            return String::new();
+        }
+        let text = export(&self.chunk(rows), &self.format, self.kind);
+        match self.format {
+            ExportFormat::Csv | ExportFormat::Tsv => {
+                let header = export(&self.chunk(&[]), &self.format, self.kind);
+                text[header.len()..].to_string()
+            }
+            ExportFormat::Json => {
+                let body = text.strip_prefix("[\n").and_then(|t| t.strip_suffix("\n]\n")).unwrap_or(&text);
+                let sep = if self.wrote_row { ",\n" } else { "" };
+                self.wrote_row = true;
+                format!("{sep}{body}")
+            }
+            _ => text,
+        }
+    }
+
+    /// Text that closes the output.
+    pub fn finish(&mut self) -> String {
+        match self.format {
+            ExportFormat::Json if self.wrote_row => "\n]\n".into(),
+            ExportFormat::Json => "]\n".into(),
+            _ => String::new(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,6 +430,32 @@ mod tests {
         assert_eq!(pg, "INSERT INTO public.t (id, \"Name\") VALUES (1, 'O''Neil');\n");
         let my = export(&r, &ExportFormat::SqlInserts { table: "order".into() }, MySql);
         assert_eq!(my, "INSERT INTO `order` (id, Name) VALUES (1, 'O''Neil');\n");
+    }
+
+    #[test]
+    fn streamed_export_equals_one_shot_export() {
+        let rows: Vec<Vec<Value>> = (0..7)
+            .map(|i| vec![Value::Int(i), if i % 3 == 0 { Value::Null } else { Value::Text(format!("a\"b,{i}\n")) }])
+            .collect();
+        let all = rs(&["id", "t"], rows.clone());
+        for fmt in [
+            ExportFormat::Csv,
+            ExportFormat::Tsv,
+            ExportFormat::Json,
+            ExportFormat::SqlInserts { table: "t".into() },
+        ] {
+            let mut enc = ExportEncoder::new(fmt.clone(), Postgres, all.columns.clone()).unwrap();
+            let mut out = enc.begin();
+            for page in rows.chunks(3) {
+                out.push_str(&enc.rows(page));
+            }
+            out.push_str(&enc.finish());
+            assert_eq!(out, export(&all, &fmt, Postgres), "{fmt:?}");
+        }
+        // No rows at all still yields a valid document.
+        let mut enc = ExportEncoder::new(ExportFormat::Json, Postgres, all.columns.clone()).unwrap();
+        assert_eq!(format!("{}{}", enc.begin(), enc.finish()), "[\n]\n");
+        assert!(ExportEncoder::new(ExportFormat::Markdown, Postgres, vec![]).is_none());
     }
 
     #[test]
