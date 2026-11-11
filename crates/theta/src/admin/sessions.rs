@@ -231,6 +231,13 @@ impl SessionsView {
 
     /// Fetch the sessions now (also what Run does in this tab).
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        let busy = self.ws.upgrade().is_some_and(|w| w.read(cx).is_busy(&self.conn_id));
+        self.refresh_with(busy, cx);
+    }
+
+    /// [`Self::refresh`] for a caller that is inside a workspace update and so cannot be asked: it says
+    /// whether the console's session is busy.
+    pub fn refresh_with(&mut self, console_busy: bool, cx: &mut Context<Self>) {
         let Ok(q) = self.queries.clone() else { return };
         if self.loading {
             return;
@@ -239,9 +246,7 @@ impl SessionsView {
         let open = self.side.take_or_open(&self.store, &self.conn_id, cx);
         // The console's own session, to mark it as Theta's: only asked when the console is not mid-query,
         // because the shared connection would make the question wait behind it.
-        let console = (!self.ws.upgrade().is_some_and(|w| w.read(cx).is_busy(&self.conn_id)))
-            .then(|| self.store.read(cx).connection(&self.conn_id))
-            .flatten();
+        let console = (!console_busy).then(|| self.store.read(cx).connection(&self.conn_id)).flatten();
         let kind = self.kind;
         let task = runtime::spawn(async move {
             let side = open.await?;

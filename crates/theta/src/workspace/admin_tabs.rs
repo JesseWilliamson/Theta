@@ -126,7 +126,9 @@ impl Workspace {
     pub(super) fn refresh_admin_tab(&mut self, tab: u64, cx: &mut Context<Self>) -> bool {
         match self.admin_tab(tab) {
             Some(AdminTab::Sessions(v)) => {
-                v.update(cx, |v, cx| v.refresh(cx));
+                // This runs inside a workspace update, so the view must not read the workspace itself.
+                let busy = self.admin_tab(tab).is_some_and(|a| self.is_busy(&a.conn_id(cx)));
+                v.update(cx, |v, cx| v.refresh_with(busy, cx));
                 true
             }
             Some(AdminTab::Roles(v)) => {

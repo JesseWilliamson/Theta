@@ -150,9 +150,12 @@ impl FormView {
                         }
                         s
                     });
-                    subs.push(cx.subscribe_in(&input, window, |_, _, ev: &InputEvent, _, cx| {
-                        if matches!(ev, InputEvent::Change) {
-                            cx.notify();
+                    subs.push(cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
+                        match ev {
+                            InputEvent::Change => cx.notify(),
+                            // Enter in a field runs the form when it is valid, so a form is fillable from the keyboard.
+                            InputEvent::PressEnter { .. } => this.run(window, cx),
+                            _ => {}
                         }
                     }));
                     Control::Text(input)

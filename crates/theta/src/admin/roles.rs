@@ -508,7 +508,7 @@ impl RolesView {
         );
     }
 
-    fn execute(&mut self, change: Change, cx: &mut Context<Self>) {
+    pub(crate) fn execute(&mut self, change: Change, cx: &mut Context<Self>) {
         let open = self.side.take_or_open(&self.store, &self.conn_id, cx);
         let sql = change.sql.clone();
         let task = runtime::spawn(async move {

@@ -32,6 +32,8 @@ mod txn;
 mod welcome;
 
 #[cfg(test)]
+mod admin_tests;
+#[cfg(test)]
 mod ddl_refresh_tests;
 #[cfg(test)]
 mod isolation_tests;

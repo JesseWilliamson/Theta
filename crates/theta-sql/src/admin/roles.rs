@@ -274,19 +274,22 @@ pub fn privileges_query(kind: DatabaseKind, role: &Role) -> Result<String, &'sta
             Ok(format!(
                 r#"WITH r AS (SELECT oid FROM pg_roles WHERE rolname = {r})
 SELECT 'database' AS scope, d.datname::text AS object, '' AS col, a.privilege_type AS privilege, a.is_grantable AS grantable
-  FROM pg_database d, aclexplode(d.datacl) a, r WHERE a.grantee = r.oid
+  FROM pg_database d, aclexplode(d.datacl) a, r WHERE a.grantee = r.oid AND d.datname NOT LIKE 'template%'
 UNION ALL
 SELECT 'schema', n.nspname::text, '', a.privilege_type, a.is_grantable
-  FROM pg_namespace n, aclexplode(n.nspacl) a, r WHERE a.grantee = r.oid
+  FROM pg_namespace n, aclexplode(n.nspacl) a, r
+  WHERE a.grantee = r.oid AND n.nspname <> 'information_schema' AND n.nspname !~ '^pg_'
 UNION ALL
 SELECT CASE c.relkind WHEN 'S' THEN 'sequence' WHEN 'v' THEN 'view' WHEN 'm' THEN 'view' ELSE 'table' END,
        n.nspname || '.' || c.relname, '', a.privilege_type, a.is_grantable
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a, r
   WHERE a.grantee = r.oid AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+    AND n.nspname <> 'information_schema' AND n.nspname !~ '^pg_'
 UNION ALL
 SELECT 'column', n.nspname || '.' || c.relname, at.attname::text, a.privilege_type, a.is_grantable
   FROM pg_attribute at JOIN pg_class c ON c.oid = at.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace,
        aclexplode(at.attacl) a, r WHERE a.grantee = r.oid AND NOT at.attisdropped
+    AND n.nspname <> 'information_schema' AND n.nspname !~ '^pg_'
 UNION ALL
 SELECT 'owner', n.nspname || '.' || c.relname, '', 'OWNER', false
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, r
