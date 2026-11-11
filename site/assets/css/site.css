@@ -219,7 +219,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
 .eyebrow { display: flex; align-items: center; gap: 10px; margin: 0 0 18px;
   font: 400 var(--t-label)/1.2 var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 .eyebrow .num { color: var(--accent-ink); }
-.eyebrow .m { width: 9px; height: 12px; flex: none; color: var(--accent-ink); }
+.eyebrow .m { width: 8px; height: 13px; flex: none; color: var(--accent-ink); }
 
 /* ---------- key chips ---------- */
 kbd, .k {
@@ -254,7 +254,7 @@ kbd, .k {
 .nav .wrap { height: 100%; display: flex; align-items: center; gap: 28px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text-strong); text-decoration: none; font-weight: 600; font-size: 1.125rem; letter-spacing: -0.005em; }
 .brand:hover { text-decoration: none; }
-.brand .mark { width: 16px; height: 21px; color: var(--accent); }
+.brand .mark { width: 14px; height: 23px; color: var(--accent); }
 .nav-main { margin-left: 8px; }
 .nav-links { display: flex; align-items: center; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .nav-links a { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; color: var(--muted); text-decoration: none; font-size: 0.9375rem; border-radius: 6px; }
@@ -479,8 +479,9 @@ html:not(.js) .tabpanel + .tabpanel { margin-top: 48px; }
 /* ---------- why theta ---------- */
 .why { display: grid; gap: clamp(24px, 6vw, 96px); align-items: center; }
 @media (min-width: 860px) { .why { grid-template-columns: minmax(200px, 4fr) minmax(0, 7fr); } }
-/* The large mark is drawn thin: the same geometry as everywhere, with the stroke set to 2.7% of the ring's width. */
-.why-mark { color: var(--accent); width: min(46vw, 240px); margin-inline: auto; --mark-w: 5.5; aspect-ratio: 216 / 280; }
+/* The large marks use the approved delicate drawing (#theta-fine: hairline top and bottom, serifed bar); the
+   small ones (#theta) are the heavier in-app drawing. Both are filled shapes with the same 46 x 76 viewBox. */
+.why-mark { color: var(--accent); width: min(40vw, 180px); margin-inline: auto; aspect-ratio: 46 / 76; }
 .why-mark svg { width: 100%; height: 100%; }
 .why .passage { margin: 0; font: 300 clamp(1.375rem, 1.5vw + 1rem, 2rem)/1.4 var(--font-serif); letter-spacing: -0.01em; color: var(--text-strong); max-width: 30em; text-wrap: pretty; }
 .why .passage em { font-style: italic; color: var(--hero-ink); }
@@ -580,7 +581,7 @@ mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: in
 /* 404 */
 .lost { min-height: 62vh; display: grid; place-items: center; text-align: center; padding-block: 80px; position: relative; overflow: hidden; }
 .lost .wrap { position: relative; }
-.lost .big { color: var(--accent); width: 72px; margin: 0 auto 28px; --mark-w: 9; aspect-ratio: 216 / 280; }
+.lost .big { color: var(--accent); width: 56px; margin: 0 auto 28px; aspect-ratio: 46 / 76; }
 .lost .big svg { width: 100%; height: 100%; }
 .lost .eyebrow { justify-content: center; }
 .lost h1 { font-size: var(--t-title); font-style: italic; font-weight: 300; letter-spacing: -0.02em; line-height: 1.15; color: var(--hero-ink); }

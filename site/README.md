@@ -57,12 +57,14 @@ need Playwright: `NODE_PATH=$(npm root -g) node site/tools/check.mjs http://loca
   `python3 site/tools/set_repo.py https://github.com/JesseWilliamson/Theta`, which rewrites the constant, the fallbacks
   and the GitHub Pages URL used by the absolute `og:image` tags (social crawlers need an absolute image URL).
   Then run `build_pages.py` if you also want regenerated pages.
-- **The theta mark.** One source: `packaging/icons/theta-mark.svg`, written by `packaging/icons/gen_icon.py` and embedded
-  in the app. `tools/mark.py` reads it and derives everything the site draws: the hidden `<symbol id="theta">` sprite that
-  `build_pages.py` puts in every page (pages use `<use href="#theta"/>` in an `<svg>` sized by CSS), `assets/theta-mark.svg`,
-  `assets/favicon.svg` (white on the app's dark tile) and the mark in `tools/og.html`. `python3 site/tools/mark.py` rewrites
-  them, `--check` (run by `check.mjs`) fails if they are stale. Never edit those files by hand. The stroke can be thinned
-  for a large mark with the CSS variable `--mark-w` (the source's units, where the tight viewBox is about 216 wide).
+- **The theta mark.** One source: `packaging/icons/gen_icon.py`, which draws the app icon, the in-app
+  `theta-mark.svg` and everything below. `tools/mark.py` imports it and derives what the site draws: the hidden sprite
+  `build_pages.py` puts in every page, with `<symbol id="theta">` (medium weight, for the nav, footer and eyebrow) and
+  `<symbol id="theta-fine">` (the approved delicate drawing, for the large marks), both used as `<use href="#theta"/>`
+  in an `<svg>` sized by CSS; `assets/theta-mark.svg`; `assets/favicon.svg` (the 32 px pixel-grid app icon); and the
+  mark in `tools/og.html`. `python3 site/tools/mark.py` rewrites them, `--check` (run by `check.mjs`) fails if they are
+  stale. Never edit those files by hand. The marks are filled shapes, so there is no stroke width to tune; the two
+  symbols exist because the delicate drawing's hairlines vanish below about 60 px tall.
 - **Screenshots.** Pages refer to stable names in `assets/screens/` (`editor-results`, `completion-fk-joins`,
   `map`, `plan-insights`, `editable-grid`, `explorer-suggested-fks`, `theme-light`, `theme-picker`,
   `connection-ssh`, `vim-visual-block`, `keymap-choice`). Re-shoot into `docs/screenshots/` under the same
