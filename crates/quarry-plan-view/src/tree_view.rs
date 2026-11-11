@@ -24,7 +24,7 @@ const W_ROWS: f32 = 204.0;
 const W_COST: f32 = 112.0;
 const W_COST_EST: f32 = 190.0;
 const W_LOOPS: f32 = 56.0;
-const W_BUF: f32 = 88.0;
+const W_BUF: f32 = 128.0;
 /// Narrowest Operation column worth showing; below it columns are dropped.
 const MIN_OP: f32 = 200.0;
 

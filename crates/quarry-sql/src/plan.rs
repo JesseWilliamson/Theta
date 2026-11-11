@@ -582,11 +582,19 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
         && own >= 1.0
         && own / total >= 0.5
     {
-        let share = own / total;
+        // Parallel workers each report their own time, so a step can add up to more than the
+        // wall-clock total: never present that as "30 ms out of 23 ms".
+        let parallel = own > total * 1.02;
+        let share = (own / total).min(1.0);
+        let body = if parallel {
+            format!("This step spent {} summed over parallel workers, against {} of wall-clock time for the whole query, excluding its children. It is the best place to look first when making the query faster.", fmt_ms(own), fmt_ms(total))
+        } else {
+            format!("This step alone spent {} out of {} in total, excluding its children. It is the best place to look first when making the query faster.", fmt_ms(own), fmt_ms(total))
+        };
         c.push(
             if share >= 0.8 && own >= 100.0 { Severity::Critical } else { Severity::Warning },
             format!("{} takes {} of the runtime", describe(n), fmt_pct(share)),
-            format!("This step alone spent {} out of {} in total, excluding its children. It is the best place to look first when making the query faster.", fmt_ms(own), fmt_ms(total)),
+            body,
             path,
             None,
         );
@@ -1113,6 +1121,22 @@ mod tests {
         assert!(d.title.starts_with("Seq Scan on stores takes 90%"), "{}", d.title);
         assert_eq!(d.severity, Severity::Critical);
         assert!(d.detail.contains("900 ms") && d.detail.contains("1.00 s"));
+    }
+
+    #[test]
+    fn parallel_worker_time_is_not_reported_as_more_than_the_total() {
+        // Workers each report their own time: a step can sum to more than the wall clock.
+        let mut leaf = node("Seq Scan");
+        leaf.relation = Some("events".into());
+        leaf.actual_total_ms = Some(30.3);
+        let mut root = node("Gather");
+        root.actual_total_ms = Some(22.8);
+        root.children = vec![leaf];
+        let got = insights(root, true, Postgres);
+        let d = got.iter().find(|i| i.title.contains("of the runtime")).expect("dominant");
+        assert!(d.title.contains("100%"), "{}", d.title);
+        assert!(d.detail.contains("parallel workers"), "{}", d.detail);
+        assert!(!d.detail.contains("out of"), "{}", d.detail);
     }
 
     #[test]
