@@ -490,3 +490,38 @@ async fn close_then_use_reports_closed() {
     c.close().await.unwrap();
     assert!(matches!(c.execute("SELECT 1", &all()).await, Err(Error::Closed)));
 }
+
+/// `KILL CONNECTION_ID()` ends the session under the statement; the first failure must already
+/// classify as a lost connection so the host can reconnect and re-run.
+#[tokio::test]
+async fn killing_the_own_connection_is_reported_as_connection_lost() {
+    let conn = quarry_drivers::connect(&mysql_config()).await.expect("connect to MariaDB");
+    let err = conn.execute("KILL CONNECTION_ID()", &all()).await;
+    // Some servers acknowledge the KILL of the own connection and drop the socket afterwards.
+    if let Err(e) = &err {
+        assert!(e.is_connection_lost(), "first failure must be a session loss: {e:?}");
+    }
+    let next = conn.execute("select 1", &all()).await.expect_err("the session is gone");
+    assert!(next.is_connection_lost(), "{next:?}");
+    let fresh = quarry_drivers::connect(&mysql_config()).await.expect("reconnect");
+    let syntax = fresh.execute("selec 1", &all()).await.expect_err("syntax error");
+    assert!(!syntax.is_connection_lost(), "{syntax:?}");
+    assert_eq!(scalar(fresh.as_ref(), "select 1").await, Value::Int(1));
+    let _ = fresh.close().await;
+}
+
+#[tokio::test]
+async fn a_connection_killed_by_another_session_is_reported_as_connection_lost() {
+    let victim = quarry_drivers::connect(&mysql_config()).await.expect("connect");
+    let admin = quarry_drivers::connect(&mysql_config()).await.expect("connect");
+    let id = match scalar(victim.as_ref(), "select connection_id()").await {
+        Value::Int(i) => i.to_string(),
+        Value::UInt(u) => u.to_string(),
+        other => panic!("connection id is an integer, got {other:?}"),
+    };
+    run(admin.as_ref(), &format!("KILL CONNECTION {id}")).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let err = victim.execute("select 1", &all()).await.expect_err("killed");
+    assert!(err.is_connection_lost(), "{err:?}");
+    let _ = admin.close().await;
+}

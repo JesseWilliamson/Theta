@@ -618,3 +618,39 @@ async fn close_then_use_reports_closed() {
     c.close().await.unwrap();
     assert!(matches!(c.execute("SELECT 1", &all()).await, Err(Error::Closed)));
 }
+
+/// A server-terminated session must be classified as lost on the very first failing statement
+/// (the host reconnects and re-runs from that signal), and every statement after it too.
+#[tokio::test]
+async fn terminating_the_own_backend_is_reported_as_connection_lost() {
+    let conn = quarry_drivers::connect(&pg_config()).await.expect("connect to PostgreSQL");
+    let err = conn
+        .execute("select pg_terminate_backend(pg_backend_pid())", &all())
+        .await
+        .expect_err("the backend terminated itself");
+    assert!(err.is_connection_lost(), "first failure must be a session loss: {err:?}");
+    let again = conn.execute("select 1", &all()).await.expect_err("the session is gone");
+    assert!(again.is_connection_lost(), "later statements too: {again:?}");
+    // A fresh connection works, and an ordinary SQL error is not a session loss.
+    let fresh = quarry_drivers::connect(&pg_config()).await.expect("reconnect");
+    let syntax = fresh.execute("selec 1", &all()).await.expect_err("syntax error");
+    assert!(!syntax.is_connection_lost(), "{syntax:?}");
+    assert_eq!(scalar(fresh.as_ref(), "select 1").await, Value::Int(1));
+    let _ = fresh.close().await;
+}
+
+/// Killed from the outside while idle (an admin, a failover): the next statement is the one
+/// that finds out.
+#[tokio::test]
+async fn a_backend_killed_by_another_session_is_reported_as_connection_lost() {
+    let victim = quarry_drivers::connect(&pg_config()).await.expect("connect");
+    let admin = quarry_drivers::connect(&pg_config()).await.expect("connect");
+    let pid = scalar(victim.as_ref(), "select pg_backend_pid()::int8").await;
+    let Value::Int(pid) = pid else { panic!("pid is an integer") };
+    assert_eq!(scalar(admin.as_ref(), &format!("select pg_terminate_backend({pid})")).await, Value::Bool(true));
+    // Give the server a moment to close the socket.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let err = victim.execute("select 1", &all()).await.expect_err("terminated");
+    assert!(err.is_connection_lost(), "{err:?}");
+    let _ = admin.close().await;
+}
