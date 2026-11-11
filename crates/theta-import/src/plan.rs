@@ -154,6 +154,7 @@ impl Target {
             default: None,
             comment: None,
             geometry: None,
+            ..Default::default()
         };
         Target::from_column(&info, db)
     }
@@ -172,6 +173,7 @@ mod tests {
             default: None,
             comment: None,
             geometry: None,
+            ..Default::default()
         }
     }
 

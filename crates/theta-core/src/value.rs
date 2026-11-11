@@ -101,7 +101,7 @@ fn format_float(f: f64) -> String {
 }
 
 /// Coarse type family, used for alignment, icons, editors and export.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum TypeKind {
     Bool,
     Integer,
@@ -117,6 +117,7 @@ pub enum TypeKind {
     Interval,
     Array,
     Geometry,
+    #[default]
     Other,
 }
 

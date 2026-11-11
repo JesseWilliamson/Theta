@@ -324,6 +324,7 @@ mod tests {
                 default: None,
                 comment: None,
                 geometry: None,
+                ..Default::default()
             },
             DatabaseKind::Postgres,
         )

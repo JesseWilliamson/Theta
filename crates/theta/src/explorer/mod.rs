@@ -1217,6 +1217,7 @@ mod tests {
                 indexes: vec![],
                 row_estimate: Some(i as u64),
                 comment: None,
+                ..Default::default()
             })
             .collect();
         Catalog {

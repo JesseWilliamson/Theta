@@ -515,6 +515,7 @@ mod tests {
             definition: Some(
                 "CREATE UNIQUE INDEX products_sku_key ON public.products USING btree (sku);".into(),
             ),
+            ..Default::default()
         });
         t.comment = Some("Catalog's products".into());
         let ddl = table_ddl(Postgres, "public", &t);

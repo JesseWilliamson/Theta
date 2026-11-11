@@ -54,8 +54,12 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
     let tables = rows(
         conn,
         &format!(
-            "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, TABLE_ROWS, TABLE_COMMENT \
-             FROM information_schema.TABLES WHERE TABLE_SCHEMA NOT IN {SYSTEM} ORDER BY TABLE_SCHEMA, TABLE_NAME"
+            "SELECT t.TABLE_SCHEMA, t.TABLE_NAME, t.TABLE_TYPE, t.TABLE_ROWS, t.TABLE_COMMENT, t.ENGINE, \
+                    t.TABLE_COLLATION, c.CHARACTER_SET_NAME \
+             FROM information_schema.TABLES t \
+             LEFT JOIN information_schema.COLLATION_CHARACTER_SET_APPLICABILITY c \
+               ON c.COLLATION_NAME = t.TABLE_COLLATION \
+             WHERE t.TABLE_SCHEMA NOT IN {SYSTEM} ORDER BY t.TABLE_SCHEMA, t.TABLE_NAME"
         ),
     )
     .await?;
@@ -78,8 +82,35 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
             indexes: vec![],
             row_estimate: if kind == TableKind::View { None } else { n(r, 3) },
             comment,
+            options: if kind == TableKind::View {
+                Vec::new()
+            } else {
+                [("ENGINE", s(r, 5)), ("CHARSET", s(r, 7)), ("COLLATION", s(r, 6))]
+                    .into_iter()
+                    .filter_map(|(k, v)| v.map(|value| TableOption { name: k.to_string(), value }))
+                    .collect()
+            },
+            ..Default::default()
         });
         tidx.insert((si, name), schemas[si].tables.len() - 1);
+    }
+
+    if let Ok(rs) = rows(
+        conn,
+        &format!(
+            "SELECT TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION FROM information_schema.VIEWS \
+             WHERE TABLE_SCHEMA NOT IN {SYSTEM}"
+        ),
+    )
+    .await
+    {
+        for r in rs {
+            let Some(&si) = sidx.get(&s(&r, 0).unwrap_or_default()) else { continue };
+            if let Some(&ti) = tidx.get(&(si, s(&r, 1).unwrap_or_default())) {
+                // Empty when the user may not see the definition.
+                schemas[si].tables[ti].view_definition = s(&r, 2).filter(|d| !d.is_empty());
+            }
+        }
     }
 
     // MariaDB implements JSON as LONGTEXT plus a CHECK (json_valid(col)) named
@@ -123,7 +154,7 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
         conn,
         &format!(
             "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, \
-                    COLUMN_COMMENT, EXTRA \
+                    COLUMN_COMMENT, EXTRA, GENERATION_EXPRESSION \
              FROM information_schema.COLUMNS WHERE TABLE_SCHEMA NOT IN {SYSTEM} \
              ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION"
         ),
@@ -143,6 +174,11 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
         if default.is_none() && extra.to_ascii_lowercase().contains("auto_increment") {
             default = Some("AUTO_INCREMENT".into());
         }
+        let identity = extra.to_ascii_lowercase().contains("auto_increment").then_some(Identity::ByDefault);
+        let generated = s(r, 9).filter(|g| !g.is_empty()).map(|expression| {
+            let e = extra.to_ascii_uppercase();
+            GeneratedColumn { expression, stored: e.contains("STORED") || e.contains("PERSISTENT") }
+        });
         let is_json = json_cols.contains(&(schema.clone(), table.clone(), name.clone()));
         if is_json {
             data_type = "json".into();
@@ -176,6 +212,8 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
             default,
             comment: s(r, 7).filter(|c| !c.is_empty()),
             geometry,
+            identity,
+            generated,
         });
     }
 
@@ -207,6 +245,7 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
                 primary: index_name == "PRIMARY",
                 method: s(r, 5).map(|m| m.to_ascii_lowercase()),
                 definition: None,
+                ..Default::default()
             });
         }
         table.indexes.last_mut().unwrap().columns.push(col);
@@ -231,6 +270,57 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
                             .unwrap_or_default()
                     )
                 });
+            }
+        }
+    }
+
+    // CHECK constraints. MySQL's CHECK_CONSTRAINTS has no table column, so TABLE_CONSTRAINTS supplies it.
+    // MariaDB's own `json_valid(col)` checks only implement the JSON type and are not the user's.
+    if let Ok(rs) = rows(
+        conn,
+        &format!(
+            "SELECT tc.TABLE_SCHEMA, tc.TABLE_NAME, tc.CONSTRAINT_NAME, cc.CHECK_CLAUSE \
+             FROM information_schema.TABLE_CONSTRAINTS tc \
+             JOIN information_schema.CHECK_CONSTRAINTS cc \
+               ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME \
+             WHERE tc.CONSTRAINT_TYPE = 'CHECK' AND tc.TABLE_SCHEMA NOT IN {SYSTEM} \
+             ORDER BY tc.TABLE_SCHEMA, tc.TABLE_NAME, tc.CONSTRAINT_NAME"
+        ),
+    )
+    .await
+    {
+        for r in rs {
+            let clause = s(&r, 3).unwrap_or_default();
+            if clause.starts_with("json_valid(") {
+                continue;
+            }
+            let Some(&si) = sidx.get(&s(&r, 0).unwrap_or_default()) else { continue };
+            if let Some(&ti) = tidx.get(&(si, s(&r, 1).unwrap_or_default())) {
+                schemas[si].tables[ti]
+                    .checks
+                    .push(CheckConstraint { name: s(&r, 2).unwrap_or_default(), expression: clause });
+            }
+        }
+    }
+    // UNIQUE constraints are the unique indexes MySQL created for them (same name); their columns are
+    // already known from the index list.
+    if let Ok(rs) = rows(
+        conn,
+        &format!(
+            "SELECT TABLE_SCHEMA, TABLE_NAME, CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS \
+             WHERE CONSTRAINT_TYPE = 'UNIQUE' AND TABLE_SCHEMA NOT IN {SYSTEM}"
+        ),
+    )
+    .await
+    {
+        for r in rs {
+            let Some(&si) = sidx.get(&s(&r, 0).unwrap_or_default()) else { continue };
+            let Some(&ti) = tidx.get(&(si, s(&r, 1).unwrap_or_default())) else { continue };
+            let name = s(&r, 2).unwrap_or_default();
+            let table = &mut schemas[si].tables[ti];
+            if let Some(i) = table.indexes.iter().find(|i| i.name == name) {
+                let columns = i.columns.clone();
+                table.unique_constraints.push(UniqueConstraint { name, columns });
             }
         }
     }
@@ -263,6 +353,7 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
                 referenced_columns: vec![],
                 on_update: action_rule(s(r, 7)),
                 on_delete: action_rule(s(r, 8)),
+                ..Default::default()
             });
         }
         let fk = table.foreign_keys.last_mut().unwrap();

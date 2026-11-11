@@ -179,6 +179,7 @@ pub fn synthetic_catalog(tables: usize) -> Catalog {
             indexes: vec![],
             row_estimate: Some((i as u64 * 7919) % 2_000_000),
             comment: None,
+            ..Default::default()
         })
         .collect();
     Catalog {

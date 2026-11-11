@@ -335,6 +335,161 @@ fn introspect(conn: &mut rusqlite::Connection) -> Result<Catalog> {
     Ok(Catalog { schemas, default_schema: Some("main".into()) })
 }
 
+/// What the catalog pragmas do not say and only the `CREATE TABLE` text does.
+#[derive(Default, Debug, PartialEq)]
+struct ParsedTable {
+    columns: Vec<ParsedColumn>,
+    checks: Vec<CheckConstraint>,
+    without_rowid: bool,
+}
+
+#[derive(Default, Debug, PartialEq)]
+struct ParsedColumn {
+    name: String,
+    generated: Option<String>,
+    autoincrement: bool,
+}
+
+/// Split `sql` on commas that are not inside quotes or parentheses.
+fn split_top_level(sql: &str) -> Vec<&str> {
+    let (mut parts, mut depth, mut start) = (Vec::new(), 0i32, 0usize);
+    let mut quote: Option<char> = None;
+    for (i, c) in sql.char_indices() {
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                }
+            }
+            None => match c {
+                '\'' | '"' | '`' => quote = Some(c),
+                '[' => quote = Some(']'),
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                ',' if depth == 0 => {
+                    parts.push(&sql[start..i]);
+                    start = i + 1;
+                }
+                _ => {}
+            },
+        }
+    }
+    parts.push(&sql[start..]);
+    parts
+}
+
+/// The text inside the parentheses that open at `from` (which must be a `(`), and the index after the `)`.
+fn balanced(s: &str, from: usize) -> Option<(&str, usize)> {
+    let (mut depth, mut quote) = (0i32, None::<char>);
+    for (i, c) in s[from..].char_indices() {
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                }
+            }
+            None => match c {
+                '\'' | '"' | '`' => quote = Some(c),
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some((&s[from + 1..from + i], from + i + 1));
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+    None
+}
+
+fn ident(word: &str) -> String {
+    word.trim().trim_matches(|c| matches!(c, '"' | '`' | '[' | ']' | '\'')).to_string()
+}
+
+/// Find `keyword` as a whole word, case-insensitively, outside quotes; returns its byte offset.
+fn find_word(s: &str, keyword: &str) -> Option<usize> {
+    let upper = s.to_ascii_uppercase();
+    let mut from = 0;
+    while let Some(p) = upper[from..].find(keyword) {
+        let at = from + p;
+        let before = upper[..at].chars().next_back();
+        let after = upper[at + keyword.len()..].chars().next();
+        let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+        if !word(before) && !word(after) {
+            return Some(at);
+        }
+        from = at + keyword.len();
+    }
+    None
+}
+
+fn parse_table_sql(sql: &str) -> ParsedTable {
+    let mut out = ParsedTable::default();
+    let Some(open) = sql.find('(') else { return out };
+    let Some((body, end)) = balanced(sql, open) else { return out };
+    out.without_rowid = find_word(&sql[end..], "WITHOUT").is_some();
+    for part in split_top_level(body) {
+        let def = part.trim();
+        let upper = def.to_ascii_uppercase();
+        let (name, rest) = {
+            let mut it = def.splitn(2, char::is_whitespace);
+            (ident(it.next().unwrap_or("")), it.next().unwrap_or(""))
+        };
+        let is_table_constraint = ["CONSTRAINT", "PRIMARY", "UNIQUE", "CHECK", "FOREIGN"].iter().any(|k| {
+            upper.starts_with(k) && def[k.len()..].starts_with(|c: char| c.is_whitespace() || c == '(')
+        });
+        if is_table_constraint {
+            if let Some(p) = find_word(def, "CHECK")
+                && let Some(open) = def[p..].find('(')
+                && let Some((expr, _)) = balanced(def, p + open)
+            {
+                let cname = if upper.starts_with("CONSTRAINT") {
+                    ident(def["CONSTRAINT".len()..].split_whitespace().next().unwrap_or(""))
+                } else {
+                    String::new()
+                };
+                out.checks.push(CheckConstraint { name: cname, expression: expr.trim().to_string() });
+            }
+            continue;
+        }
+        let mut col = ParsedColumn { name, ..Default::default() };
+        col.autoincrement = find_word(rest, "AUTOINCREMENT").is_some();
+        if let Some(p) = find_word(rest, "AS")
+            && let Some(open) = rest[p..].find('(')
+            && let Some((expr, _)) = balanced(rest, p + open)
+        {
+            col.generated = Some(expr.trim().to_string());
+        }
+        if let Some(p) = find_word(rest, "CHECK")
+            && let Some(open) = rest[p..].find('(')
+            && let Some((expr, _)) = balanced(rest, p + open)
+        {
+            let cname = rest[..p]
+                .rfind("CONSTRAINT")
+                .or_else(|| rest[..p].to_ascii_uppercase().rfind("CONSTRAINT"))
+                .map(|c| ident(rest[c + "CONSTRAINT".len()..p].trim()))
+                .unwrap_or_default();
+            out.checks.push(CheckConstraint { name: cname, expression: expr.trim().to_string() });
+        }
+        out.columns.push(col);
+    }
+    out
+}
+
+/// `WHERE` clause of a partial index's `CREATE INDEX` text.
+fn index_predicate(sql: &str) -> Option<String> {
+    let p = find_word(sql, "WHERE")?;
+    Some(sql[p + "WHERE".len()..].trim().trim_end_matches(';').trim().to_string())
+}
+
+/// The `SELECT` of a `CREATE VIEW name AS SELECT ...`.
+fn view_select(sql: &str) -> Option<&str> {
+    let p = find_word(sql, "AS")?;
+    Some(sql[p + 2..].trim())
+}
+
 fn q(name: &str) -> String {
     DatabaseKind::Sqlite.quote_ident(name)
 }
@@ -343,11 +498,12 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
     struct Obj {
         kind: TableKind,
         name: String,
+        sql: Option<String>,
     }
     let objs: Vec<Obj> = {
         let mut stmt = conn
             .prepare(&format!(
-                "SELECT type, name FROM {}.sqlite_master WHERE type IN ('table','view') \
+                "SELECT type, name, sql FROM {}.sqlite_master WHERE type IN ('table','view') \
                  AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
                 q(db)
             ))
@@ -358,6 +514,7 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
                 Ok(Obj {
                     kind: if t == "view" { TableKind::View } else { TableKind::Table },
                     name: r.get(1)?,
+                    sql: r.get(2)?,
                 })
             })
             .map_err(map_err)?;
@@ -395,9 +552,13 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
     for o in objs {
         let mut columns = Vec::new();
         let mut pk: Vec<(i64, String)> = Vec::new();
+        let parsed = match (&o.kind, &o.sql) {
+            (TableKind::Table, Some(sql)) => parse_table_sql(sql),
+            _ => ParsedTable::default(),
+        };
         {
             let mut stmt = conn
-                .prepare("SELECT name, type, \"notnull\", dflt_value, pk FROM pragma_table_xinfo(?1, ?2) WHERE hidden IN (0, 2, 3) ORDER BY cid")
+                .prepare("SELECT name, type, \"notnull\", dflt_value, pk, hidden FROM pragma_table_xinfo(?1, ?2) WHERE hidden IN (0, 2, 3) ORDER BY cid")
                 .map_err(map_err)?;
             let rows = stmt
                 .query_map([&o.name, db], |r| {
@@ -407,26 +568,44 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
                         r.get::<_, i64>(2)?,
                         r.get::<_, Option<String>>(3)?,
                         r.get::<_, i64>(4)?,
+                        r.get::<_, i64>(5)?,
                     ))
                 })
                 .map_err(map_err)?;
             for r in rows {
-                let (name, ty, notnull, dflt, pkpos) = r.map_err(map_err)?;
+                let (name, ty, notnull, dflt, pkpos, hidden) = r.map_err(map_err)?;
                 if pkpos > 0 {
                     pk.push((pkpos, name.clone()));
                 }
+                let def = parsed.columns.iter().find(|c| c.name.eq_ignore_ascii_case(&name));
+                // hidden 2 = VIRTUAL generated, 3 = STORED generated; the expression only exists in the SQL.
+                let generated = (hidden == 2 || hidden == 3).then(|| GeneratedColumn {
+                    expression: def.and_then(|d| d.generated.clone()).unwrap_or_default(),
+                    stored: hidden == 3,
+                });
+                let autoincrement = def.is_some_and(|d| d.autoincrement);
                 columns.push(ColumnInfo {
                     kind: type_kind_for_decl(&ty),
                     data_type: ty,
                     nullable: notnull == 0 && pkpos == 0,
-                    default: dflt,
+                    default: if generated.is_some() { None } else { dflt },
                     comment: None,
                     geometry: None,
                     name,
+                    identity: autoincrement.then_some(Identity::ByDefault),
+                    generated,
                 });
             }
         }
         pk.sort();
+        // A lone INTEGER PRIMARY KEY is an alias of the rowid and numbers itself, AUTOINCREMENT or not.
+        if pk.len() == 1
+            && !parsed.without_rowid
+            && let Some(c) = columns.iter_mut().find(|c| c.name == pk[0].1)
+            && c.data_type.eq_ignore_ascii_case("integer")
+        {
+            c.identity = Some(Identity::ByDefault);
+        }
         let mut foreign_keys: Vec<ForeignKey> = Vec::new();
         if o.kind == TableKind::Table {
             let mut stmt = conn
@@ -457,6 +636,7 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
                         referenced_columns: vec![],
                         on_delete: Some(on_delete).filter(|s| s != "NO ACTION"),
                         on_update: Some(on_update).filter(|s| s != "NO ACTION"),
+                        ..Default::default()
                     });
                 }
                 let fk = foreign_keys.last_mut().unwrap();
@@ -468,17 +648,20 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
             }
         }
         let mut indexes = Vec::new();
+        let mut unique_constraints = Vec::new();
         if o.kind == TableKind::Table {
-            let list: Vec<(String, bool, String)> = {
+            let list: Vec<(String, bool, String, bool)> = {
                 let mut stmt = conn
-                    .prepare("SELECT name, \"unique\", origin FROM pragma_index_list(?1, ?2) ORDER BY seq")
+                    .prepare("SELECT name, \"unique\", origin, partial FROM pragma_index_list(?1, ?2) ORDER BY seq")
                     .map_err(map_err)?;
                 let rows = stmt
-                    .query_map([&o.name, db], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? != 0, r.get(2)?)))
+                    .query_map([&o.name, db], |r| {
+                        Ok((r.get(0)?, r.get::<_, i64>(1)? != 0, r.get(2)?, r.get::<_, i64>(3)? != 0))
+                    })
                     .map_err(map_err)?;
                 rows.collect::<std::result::Result<_, _>>().map_err(map_err)?
             };
-            for (name, unique, origin) in list {
+            for (name, unique, origin, partial) in list {
                 let mut stmt = conn
                     .prepare("SELECT name FROM pragma_index_info(?1, ?2) ORDER BY seqno")
                     .map_err(map_err)?;
@@ -487,14 +670,25 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
                     .map_err(map_err)?
                     .collect::<std::result::Result<_, _>>()
                     .map_err(map_err)?;
+                let has_expressions = cols.iter().any(Option::is_none);
+                let columns: Vec<String> =
+                    cols.into_iter().map(|c| c.unwrap_or_else(|| "<expression>".into())).collect();
+                if origin == "u" {
+                    unique_constraints
+                        .push(UniqueConstraint { name: name.clone(), columns: columns.clone() });
+                }
+                let definition = index_sql.get(&name).cloned();
+                let predicate = if partial { definition.as_deref().and_then(index_predicate) } else { None };
                 indexes.push(Index {
-                    definition: index_sql.get(&name).cloned(),
+                    definition,
                     name,
                     // NULL name = an expression column.
-                    columns: cols.into_iter().map(|c| c.unwrap_or_else(|| "<expression>".into())).collect(),
+                    columns,
                     unique,
                     primary: origin == "pk",
                     method: Some("btree".into()),
+                    predicate,
+                    has_expressions,
                 });
             }
         }
@@ -507,6 +701,12 @@ fn introspect_schema(conn: &rusqlite::Connection, db: &str) -> Result<Schema> {
             foreign_keys,
             indexes,
             comment: None,
+            checks: parsed.checks,
+            unique_constraints,
+            view_definition: (o.kind == TableKind::View)
+                .then(|| o.sql.as_deref().and_then(view_select).map(str::to_string))
+                .flatten(),
+            options: Vec::new(),
         });
     }
     // sqlite_sequence only exists once an AUTOINCREMENT table was created.
@@ -664,5 +864,42 @@ mod tests {
         let plan = plan_from_eqp(&[(2, 0, "SCAN TABLE t".to_string())]);
         assert_eq!(plan.node_type, "SCAN");
         assert_eq!(plan.relation.as_deref(), Some("t"));
+    }
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::*;
+
+    #[test]
+    fn create_table_text_yields_generated_checks_and_autoincrement() {
+        let p = parse_table_sql(
+            "CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, price REAL CHECK (price > 0), \
+             qty INT, total REAL GENERATED ALWAYS AS (price * qty) STORED, \
+             name TEXT CONSTRAINT name_len CHECK (length(name) < 'a,b'), \
+             CONSTRAINT qty_ok CHECK (qty >= 0), UNIQUE (name, qty))",
+        );
+        assert!(p.columns.iter().find(|c| c.name == "id").unwrap().autoincrement);
+        assert_eq!(
+            p.columns.iter().find(|c| c.name == "total").unwrap().generated.as_deref(),
+            Some("price * qty")
+        );
+        let checks: Vec<(&str, &str)> =
+            p.checks.iter().map(|c| (c.name.as_str(), c.expression.as_str())).collect();
+        assert_eq!(
+            checks,
+            vec![("", "price > 0"), ("name_len", "length(name) < 'a,b'"), ("qty_ok", "qty >= 0")]
+        );
+        assert!(!p.without_rowid);
+        assert!(parse_table_sql("CREATE TABLE t (a INT PRIMARY KEY) WITHOUT ROWID").without_rowid);
+    }
+
+    #[test]
+    fn partial_index_and_view_text() {
+        assert_eq!(
+            index_predicate("CREATE INDEX i ON t (a) WHERE a IS NOT NULL AND b > 1;").as_deref(),
+            Some("a IS NOT NULL AND b > 1")
+        );
+        assert_eq!(view_select("CREATE VIEW v AS SELECT 1 AS x"), Some("SELECT 1 AS x"));
     }
 }

@@ -11,6 +11,7 @@ pub fn col(name: &str, ty: &str, kind: TypeKind) -> ColumnInfo {
         default: None,
         comment: None,
         geometry: None,
+        ..Default::default()
     }
 }
 
@@ -31,6 +32,7 @@ pub fn fk(name: &str, cols: &[&str], schema: Option<&str>, table: &str, refs: &[
         referenced_columns: refs.iter().map(|s| s.to_string()).collect(),
         on_delete: None,
         on_update: None,
+        ..Default::default()
     }
 }
 
@@ -42,6 +44,7 @@ pub fn index(name: &str, cols: &[&str], unique: bool, primary: bool) -> Index {
         primary,
         method: Some("btree".into()),
         definition: None,
+        ..Default::default()
     }
 }
 
@@ -65,6 +68,7 @@ pub fn table(
         indexes,
         row_estimate: rows,
         comment: None,
+        ..Default::default()
     }
 }
 

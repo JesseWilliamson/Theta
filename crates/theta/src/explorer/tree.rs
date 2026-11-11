@@ -745,6 +745,7 @@ mod tests {
             default: None,
             comment: None,
             geometry: None,
+            ..Default::default()
         }
     }
 
@@ -766,6 +767,7 @@ mod tests {
                 referenced_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                ..Default::default()
             }],
             indexes: vec![Index {
                 name: format!("{name}_pkey"),
@@ -774,9 +776,11 @@ mod tests {
                 primary: true,
                 method: Some("btree".into()),
                 definition: None,
+                ..Default::default()
             }],
             row_estimate: rows,
             comment: None,
+            ..Default::default()
         }
     }
 

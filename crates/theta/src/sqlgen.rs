@@ -244,6 +244,7 @@ mod tests {
             default: None,
             comment: None,
             geometry: None,
+            ..Default::default()
         }
     }
 
@@ -265,6 +266,7 @@ mod tests {
                 referenced_columns: vec!["id".into()],
                 on_delete: Some("CASCADE".into()),
                 on_update: Some("NO ACTION".into()),
+                ..Default::default()
             }],
             indexes: vec![
                 Index {
@@ -274,6 +276,7 @@ mod tests {
                     primary: true,
                     method: None,
                     definition: None,
+                    ..Default::default()
                 },
                 Index {
                     name: "orders_customer_idx".into(),
@@ -282,10 +285,12 @@ mod tests {
                     primary: false,
                     method: None,
                     definition: None,
+                    ..Default::default()
                 },
             ],
             row_estimate: None,
             comment: None,
+            ..Default::default()
         }
     }
 
