@@ -1262,8 +1262,13 @@ impl Workspace {
                     let out = quarry_sql::format(&src, kind, &opts);
                     ed.replace_range(from..to, out.trim_end());
                 } else {
-                    let out = quarry_sql::format(&ed.text(), kind, &opts);
+                    let before = ed.text();
+                    let out = quarry_sql::format(&before, kind, &opts);
+                    let cursor = cursor_after_format(&before, &out, ed.cursor_of(&sel));
                     ed.set_text(&out);
+                    // The old selection would span an arbitrary part of the re-flowed text (and
+                    // "run selection" would then run a fragment): continue from the same token.
+                    ed.set_selections(vec![quarry_editor::Selection::point(cursor)], 0);
                 }
             })
         });
@@ -1606,6 +1611,41 @@ impl Workspace {
 
 #[allow(dead_code)]
 fn _unused(_: Entity<()>, _: RwLock<()>) {}
+
+/// Where the cursor belongs after `before` was re-flowed into `after`: the position with the
+/// same number of non-whitespace characters in front of it, since formatting only changes
+/// whitespace and keyword case. `cursor` is a char index into `before`.
+fn cursor_after_format(before: &str, after: &str, cursor: usize) -> usize {
+    let wanted = before.chars().take(cursor).filter(|c| !c.is_whitespace()).count();
+    let mut seen = 0;
+    for (i, c) in after.chars().enumerate() {
+        if c.is_whitespace() {
+            continue;
+        }
+        if seen == wanted {
+            return i;
+        }
+        seen += 1;
+    }
+    after.chars().count()
+}
+
+#[cfg(test)]
+mod format_cursor_tests {
+    use super::cursor_after_format;
+
+    #[test]
+    fn cursor_follows_its_token() {
+        let before = "select a,b from t where x=1";
+        let after = "SELECT\n    a,\n    b\nFROM t\nWHERE x = 1";
+        // On the `b`.
+        let at = before.find('b').unwrap();
+        let idx = cursor_after_format(before, after, at);
+        assert_eq!(after.chars().nth(idx), Some('b'));
+        assert_eq!(cursor_after_format(before, after, 0), 0);
+        assert_eq!(cursor_after_format(before, after, before.len()), after.chars().count());
+    }
+}
 
 #[cfg(test)]
 mod tests {
