@@ -114,33 +114,9 @@ pub fn create_table_sql(
     format!("CREATE TABLE {name} (\n{}\n)", cols.join(",\n"))
 }
 
-/// Classify a free-text SQL type. Unknown names are `Other`, which converts to an untyped literal the
-/// server coerces (that is what lets a `geometry` or `inet` column accept text).
+/// Classify a free-text SQL type; see [`theta_sql::ddl::kind_of_type_name`].
 pub fn kind_of_type_name(sql_type: &str) -> TypeKind {
-    let t = sql_type.trim().to_ascii_lowercase();
-    let base = t.split(['(', ' ']).next().unwrap_or("");
-    let has = |w: &str| t.contains(w);
-    if base == "tinyint" && t.starts_with("tinyint(1)") {
-        return TypeKind::Bool;
-    }
-    match base {
-        "bool" | "boolean" => TypeKind::Bool,
-        "smallint" | "int" | "integer" | "bigint" | "tinyint" | "mediumint" | "int2" | "int4" | "int8"
-        | "serial" | "bigserial" | "smallserial" | "year" => TypeKind::Integer,
-        "numeric" | "decimal" | "money" | "number" | "dec" => TypeKind::Decimal,
-        "real" | "float" | "float4" | "float8" | "double" => TypeKind::Float,
-        "date" => TypeKind::Date,
-        "time" | "timetz" => TypeKind::Time,
-        "timestamp" | "timestamptz" | "datetime" => TypeKind::Timestamp,
-        "json" | "jsonb" => TypeKind::Json,
-        "uuid" => TypeKind::Uuid,
-        "bytea" | "blob" | "binary" | "varbinary" | "longblob" | "mediumblob" | "tinyblob" => TypeKind::Bytes,
-        "interval" => TypeKind::Interval,
-        "text" | "varchar" | "char" | "character" | "nvarchar" | "nchar" | "longtext" | "mediumtext"
-        | "tinytext" | "citext" | "string" | "clob" | "enum" => TypeKind::Text,
-        _ if has("char") || has("text") => TypeKind::Text,
-        _ => TypeKind::Other,
-    }
+    theta_sql::ddl::kind_of_type_name(sql_type)
 }
 
 impl Target {

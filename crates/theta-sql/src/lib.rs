@@ -6,6 +6,7 @@
 //! every keystroke and be tested without a database.
 
 pub mod complete;
+pub mod ddl;
 pub mod export;
 pub mod fk;
 pub mod format;
