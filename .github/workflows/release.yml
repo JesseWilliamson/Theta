@@ -23,6 +23,12 @@ on:
           when the draft is published.
         required: false
         default: ""
+      publish:
+        description: >-
+          With `tag`: publish the release immediately (this creates the tag) instead of
+          leaving a draft. Only allowed for pre-release tags (containing a hyphen).
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -167,6 +173,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NEW_TAG: ${{ github.event.inputs.tag }}
+          PUBLISH: ${{ github.event.inputs.publish }}
         run: |
           # Re-running replaces the draft instead of failing or leaving a duplicate. Only a
           # DRAFT with exactly this tag name is deleted; a published release is never touched
@@ -182,7 +189,13 @@ jobs:
             # Draft for a tag that does not exist yet: GitHub creates the tag at
             # this commit when a maintainer publishes the draft.
             case "$NEW_TAG" in *-*) pre=--prerelease ;; *) pre= ;; esac
-            gh release create "$NEW_TAG" --draft $pre --target "$(git rev-parse HEAD)" \
+            # Stable versions always stop at a draft so a person signs them off.
+            draft=--draft
+            if [ "$PUBLISH" = "true" ]; then
+              [ -n "$pre" ] || { echo "publish=true is only allowed for pre-release tags"; exit 1; }
+              draft=
+            fi
+            gh release create "$NEW_TAG" $draft $pre --target "$(git rev-parse HEAD)" \
               --title "Quarry ${NEW_TAG#v}" --notes-file RELEASE_NOTES.md dist/*
           else
             git show-ref --verify --quiet "refs/tags/$REF" || { echo "$REF is not a tag"; exit 1; }
