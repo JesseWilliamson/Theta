@@ -17,6 +17,7 @@ pub mod params;
 pub mod plan;
 pub(crate) mod scope;
 pub mod script;
+pub mod templates;
 
 /// Realistic catalogs used by this crate's tests; exposed so other crates can reuse them.
 #[doc(hidden)]

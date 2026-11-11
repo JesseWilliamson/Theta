@@ -586,50 +586,12 @@ fn expr_column_items(env: &Env, scan: &ScopeScan, ctes: &[CteDef], clause: Claus
     out
 }
 
-struct Snippet {
-    trigger: &'static str,
-    insert: &'static str,
-    shown: &'static str,
-}
-
-const SNIPPETS: &[Snippet] = &[
-    Snippet { trigger: "sel", insert: "SELECT * FROM ", shown: "SELECT * FROM …" },
-    Snippet { trigger: "selc", insert: "SELECT count(*) FROM ", shown: "SELECT count(*) FROM …" },
-    Snippet { trigger: "selw", insert: "SELECT * FROM  WHERE ", shown: "SELECT * FROM … WHERE …" },
-    Snippet {
-        trigger: "ins", insert: "INSERT INTO  () VALUES ()", shown: "INSERT INTO … (…) VALUES (…)"
-    },
-    Snippet { trigger: "upd", insert: "UPDATE  SET  WHERE ", shown: "UPDATE … SET … WHERE …" },
-    Snippet { trigger: "del", insert: "DELETE FROM  WHERE ", shown: "DELETE FROM … WHERE …" },
-    Snippet {
-        trigger: "cte",
-        insert: "WITH cte AS (\n    SELECT \n)\nSELECT * FROM cte",
-        shown: "WITH cte AS (…) SELECT …",
-    },
-    Snippet {
-        trigger: "crt",
-        insert: "CREATE TABLE  (\n    id integer PRIMARY KEY\n)",
-        shown: "CREATE TABLE … (…)",
-    },
-    Snippet { trigger: "idx", insert: "CREATE INDEX  ON  ()", shown: "CREATE INDEX … ON … (…)" },
-    Snippet { trigger: "exp", insert: "EXPLAIN ANALYZE ", shown: "EXPLAIN ANALYZE …" },
-];
-
+/// The built-in live templates (`crate::templates`), offered at the start of a statement. Their bodies carry
+/// tab stops; the editor view expands them as a snippet when accepted. The host adds the user's own.
 fn snippet_items(env: &Env) -> Vec<Raw> {
-    SNIPPETS
-        .iter()
-        .map(|s| {
-            let insert = if env.lower_kw
-                && !env.prefix.chars().any(|c| c.is_uppercase())
-                && !s.insert.contains('\n')
-            {
-                // Keep lower-case scripts lower-case.
-                s.insert.to_lowercase()
-            } else {
-                s.insert.to_string()
-            };
-            raw(s.trigger, CompletionKind::Snippet, Some(s.shown.to_string()), insert, 130)
-        })
+    crate::templates::builtins(env.kind)
+        .into_iter()
+        .map(|t| raw(&t.abbreviation, CompletionKind::Snippet, Some(t.description.clone()), t.body, 130))
         .collect()
 }
 
@@ -1210,8 +1172,8 @@ mod tests {
         let l = items("sel|");
         assert_ne!(l[0].kind, CompletionKind::Column);
         let snip = l.iter().find(|i| i.kind == CompletionKind::Snippet).unwrap();
-        assert_eq!(snip.insert_text, "SELECT * FROM ");
-        assert!(snip.detail.as_deref().unwrap().contains("SELECT * FROM"));
+        assert!(snip.insert_text.starts_with("SELECT "), "{}", snip.insert_text);
+        assert!(snip.detail.as_deref().unwrap().contains("SELECT"));
         assert!(l.iter().any(|i| i.label == "SELECT"));
     }
 
