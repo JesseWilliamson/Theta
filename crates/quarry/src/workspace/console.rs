@@ -5,7 +5,8 @@ use crate::exec::geo::GeoData;
 use gpui_kit::{Entity, Subscription, Task};
 use quarry_core::{Catalog, DatabaseKind, ResultSet};
 use quarry_editor_view::{CompletionProvider, EditorView};
-use quarry_grid::GridMeta;
+use quarry_grid::{GridMeta, ResultGrid};
+use quarry_plan_view::PlanInput;
 use quarry_sql::{CompletionList, CompletionRequest};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -22,9 +23,27 @@ pub struct ResultItem {
     pub geo: Option<Arc<GeoData>>,
 }
 
+/// What the Plan tab shows for a console. Kept per console so an EXPLAIN that finishes while
+/// another tab is active is stored with the console that asked for it, not shown in the other one.
+#[derive(Clone, Default)]
+pub enum PlanState {
+    #[default]
+    Empty,
+    Loading,
+    Ready(PlanInput),
+    Failed(String),
+}
+
 pub struct Console {
     pub key: String,
     pub editor: Entity<EditorView>,
+    /// This console's results grid (shown by the Results panel while the console is active).
+    pub grid: Entity<ResultGrid>,
+    pub plan: PlanState,
+    /// The statement last explained, for "rerun" and "open suggestion".
+    pub last_explain: Option<super::run::ExplainTarget>,
+    /// Bumped by every EXPLAIN so a slow, superseded one cannot overwrite a newer plan.
+    pub explain_gen: u64,
     pub file: Option<PathBuf>,
     pub results: Vec<ResultItem>,
     pub active_result: usize,

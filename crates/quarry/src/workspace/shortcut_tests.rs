@@ -570,7 +570,9 @@ fn explain_on_a_disconnected_console_connects_first(cx: &mut TestAppContext) {
     editor.update_in(vcx, |v, _, cx| v.update_editor(cx, |e| e.set_text("select 5 as five")));
     f.ws.update_in(vcx, |ws, window, cx| ws.explain_active(false, window, cx));
     wait_for(vcx, "the connection", |vcx| store.read_with(vcx, |s, _| s.state(&id).is_connected()));
-    wait_for(vcx, "the explain outcome", |vcx| f.ws.read_with(vcx, |ws, _| ws.last_explain.is_some()));
+    wait_for(vcx, "the explain outcome", |vcx| {
+        f.ws.read_with(vcx, |ws, _| ws.consoles.values().any(|c| c.last_explain.is_some()))
+    });
 }
 
 #[gpui_kit::test]

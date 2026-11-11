@@ -24,6 +24,8 @@ mod title_bar;
 mod welcome;
 
 #[cfg(test)]
+mod isolation_tests;
+#[cfg(test)]
 mod shortcut_tests;
 
 use crate::actions::*;
@@ -47,7 +49,6 @@ use gpui_kit::{
 };
 use persist::*;
 use quarry_editor_view::EditorStatus;
-use quarry_grid::GridEvent;
 use quarry_map_view::{MapEvent, MapPanel};
 use quarry_plan_view::{PlanEvent, PlanPanel};
 use quarry_ui::picker::{Picker, PickerDelegate, PickerEvent};
@@ -180,7 +181,8 @@ pub struct Workspace {
     startup_warnings: Vec<String>,
     ticker: Option<gpui_kit::Task<()>>,
     editor_status: Option<EditorStatus>,
-    last_explain: Option<run::ExplainTarget>,
+    /// Console whose plan the Plan tab currently shows.
+    plan_owner: Option<u64>,
     startup: Option<run::Startup>,
     /// Tests run in windows without a `Root`, where toasts cannot be shown.
     quiet: bool,
@@ -216,16 +218,12 @@ impl Workspace {
         });
         let plan = cx.new(|cx| PlanPanel::new(window, cx));
         let map = cx.new(|cx| MapPanel::new(window, cx));
-        let grid = results.read(cx).grid.clone();
         let subscriptions = vec![
             cx.subscribe_in(&store, window, Self::on_store_event),
             cx.subscribe_in(&explorer, window, Self::on_explorer_event),
             cx.subscribe_in(&results, window, |this, _, e: &ResultsEvent, window, cx| {
                 let ResultsEvent::ActivateTab(i) = e;
                 this.activate_result(*i, window, cx);
-            }),
-            cx.subscribe_in(&grid, window, |this, _, e: &GridEvent, window, cx| {
-                this.on_grid_event(e.clone(), window, cx)
             }),
             cx.subscribe_in(&history, window, |this, _, e: &HistoryEvent, window, cx| {
                 this.on_history_event(e.clone(), window, cx)
@@ -270,7 +268,7 @@ impl Workspace {
             startup_warnings: Vec::new(),
             ticker: None,
             editor_status: None,
-            last_explain: None,
+            plan_owner: None,
             startup: None,
             quiet: false,
             data_dir,

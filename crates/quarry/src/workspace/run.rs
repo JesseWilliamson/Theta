@@ -2,7 +2,7 @@
 //! execution, results, messages, history, transactions, editing results,
 //! export, map, explain and formatting.
 
-use super::console::{CatalogSlot, Console, ResultItem, SqlCompletion, fmt_ms, plural, verb};
+use super::console::{CatalogSlot, Console, PlanState, ResultItem, SqlCompletion, fmt_ms, plural, verb};
 use super::{BottomTab, ConsoleTab, Workspace, WorkspaceEvent};
 use crate::connections::{ConnState, NoticeKind, StoreEvent};
 use crate::dialogs::confirm::{self, Choice, Tone};
@@ -16,7 +16,7 @@ use gpui_kit::{App, AppContext as _, ClipboardItem, Context, Entity, Window};
 use quarry_core::{Connection, DatabaseKind, Error, ExecOptions, StatementOutcome};
 use quarry_editor::{Effect, Selection};
 use quarry_editor_view::{EditorEvent, StatementStatus};
-use quarry_grid::GridEvent;
+use quarry_grid::{GridEvent, ResultGrid};
 use quarry_map_view::MapEvent;
 use quarry_plan_view::{PlanEvent, PlanInput};
 use quarry_sql::{ExportFormat, FormatOptions, StatementClass};
@@ -76,6 +76,12 @@ impl Workspace {
         let sub = cx.subscribe_in(&editor, window, move |this, _, ev: &EditorEvent, window, cx| {
             this.on_editor_event(id, ev.clone(), window, cx)
         });
+        // Grid events carry no console id, so each grid is subscribed with its console's: a
+        // submit or an export always acts on the console the grid belongs to.
+        let grid = cx.new(|cx| ResultGrid::new(window, cx));
+        let grid_sub = cx.subscribe_in(&grid, window, move |this, _, ev: &GridEvent, window, cx| {
+            this.on_grid_event(id, ev.clone(), window, cx)
+        });
         if cursor > 0 {
             editor.update(cx, |e, cx| {
                 e.update_editor(cx, |ed| {
@@ -100,13 +106,17 @@ impl Workspace {
             Console {
                 key,
                 editor,
+                grid,
+                plan: PlanState::Empty,
+                last_explain: None,
+                explain_gen: 0,
                 file,
                 results: vec![],
                 active_result: 0,
                 summary: None,
                 catalog: CatalogSlot::default(),
                 save_task: None,
-                _subs: vec![sub],
+                _subs: vec![sub, grid_sub],
             },
         );
         self.configure_console(id, cx);
@@ -234,6 +244,9 @@ impl Workspace {
 
     pub(super) fn on_console_activated(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
         self.apply_console(id, window, cx);
+        if self.plan_owner != Some(id) {
+            self.show_plan_state(id, window, cx);
+        }
         self.refresh_editor_status(id, cx);
         self.sync_running(cx);
         if let Some(c) = self.consoles.get(&id) {
@@ -635,6 +648,13 @@ impl Workspace {
             c.results.clear();
             c.active_result = 0;
             c.summary = None;
+            // The previous rows stay, dimmed with a progress bar, until the answer replaces them.
+            c.grid.update(cx, |g, cx| g.set_loading(true, cx));
+        }
+        // With no rows to dim (the last statement returned none, or this is the first), say so.
+        let nothing_on_show = self.consoles.get(&id).is_some_and(|c| c.grid.read(cx).result().is_none());
+        if self.active_tab == Some(id) && nothing_on_show {
+            self.results.update(cx, |r, cx| r.show_running(cx));
         }
         self.sync_running(cx);
         self.ensure_ticker(cx);
@@ -808,10 +828,13 @@ impl Workspace {
     ) {
         let failed = self.runs.remove(conn_id).is_some_and(|r| r.failed);
         self.sync_running(cx);
+        // Only the console on screen may touch the shared panels: a statement that finishes in a
+        // background tab stores its result with that console (see `finish_statement`) and is
+        // shown when the tab is next activated.
         if self.active_tab == Some(id) {
             self.apply_console(id, window, cx);
+            self.set_bottom_tab(if failed { BottomTab::Messages } else { BottomTab::Results }, cx);
         }
-        self.set_bottom_tab(if failed { BottomTab::Messages } else { BottomTab::Results }, cx);
         self.refresh_txn(conn_id.to_string(), connection, cx);
     }
 
@@ -910,10 +933,12 @@ impl Workspace {
         }));
     }
 
-    /// Elapsed time of the query running on the active connection.
-    pub(super) fn running_elapsed(&self, cx: &App) -> Option<Duration> {
-        let conn = self.active_connection_id(cx)?;
-        self.runs.get(&conn).map(|r| r.started.elapsed())
+    /// Elapsed time of the query the *active console* is running. A console that shares the
+    /// connection with a running one shows nothing: its own state is idle (its Run is refused
+    /// with an explanation, and Cancel in the title bar still stops the connection's query).
+    pub(super) fn running_elapsed(&self, _cx: &App) -> Option<Duration> {
+        let id = self.active_tab?;
+        self.runs.values().find(|r| r.console == id).map(|r| r.started.elapsed())
     }
 
     // ------------------------------------------------------- logging/history
@@ -996,23 +1021,40 @@ impl Workspace {
 
     // ------------------------------------------------------ results display
 
+    /// Make the shared bottom panels show console `id`: its grid, result tabs, map and status.
+    ///
+    /// Everything shown here is read from the console's own state; asynchronous completions
+    /// only ever write to the console they belong to and call this when that console is the
+    /// active one.
     pub(super) fn apply_console(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(c) = self.consoles.get(&id) else {
-            self.results.update(cx, |r, cx| r.clear(cx));
+            self.results.update(cx, |r, cx| {
+                r.use_grid(None, cx);
+                r.clear(cx);
+            });
             self.results.read(cx).grid.clone().update(cx, |g, cx| g.clear(cx));
             self.map.update(cx, |m, cx| m.clear(cx));
             self.map_badge = None;
+            self.plan_owner = None;
+            self.plan.update(cx, |p, cx| p.clear(cx));
             self.set_result_info(None, cx);
             return;
         };
+        let grid = c.grid.clone();
+        self.results.update(cx, |r, cx| r.use_grid(Some(grid.clone()), cx));
+        let running = self.runs.values().any(|r| r.console == id);
         let active = c.active_result.min(c.results.len().saturating_sub(1));
         if !c.results.is_empty() {
             let titles: Vec<String> = c.results.iter().map(|r| r.title.clone()).collect();
             let item = &c.results[active];
             let (rs, meta) = (item.result.clone(), item.meta.clone());
             self.results.update(cx, |r, cx| r.show_sets(titles, active, cx));
-            let grid = self.results.read(cx).grid.clone();
-            grid.update(cx, |g, cx| g.set_result(rs.clone(), meta.clone(), window, cx));
+            // Re-installing the result the grid already shows would throw away its staged
+            // edits, sort and scroll position: switching tabs must not cost the user that.
+            if !grid.read(cx).result().is_some_and(|g| Arc::ptr_eq(g, &rs)) {
+                grid.update(cx, |g, cx| g.set_result(rs.clone(), meta.clone(), window, cx));
+            }
+            grid.update(cx, |g, cx| g.set_loading(running, cx));
             let mut info = format!(
                 "{} · {}",
                 plural(rs.rows.len() as u64, "row", "rows"),
@@ -1025,9 +1067,12 @@ impl Workspace {
             self.apply_map(id, active, window, cx);
         } else {
             let summary = c.summary.clone();
-            let grid = self.results.read(cx).grid.clone();
             grid.update(cx, |g, cx| g.clear(cx));
             match summary {
+                _ if running => {
+                    self.set_result_info(None, cx);
+                    self.results.update(cx, |r, cx| r.show_running(cx));
+                }
                 Some((t, err)) => {
                     self.set_result_info(Some(t.clone().into()), cx);
                     self.results.update(cx, |r, cx| r.show_summary(t, err, cx));
@@ -1098,41 +1143,55 @@ impl Workspace {
 
     // ------------------------------------------------------------ grid events
 
-    fn active_item(&self) -> Option<(&ResultItem, String)> {
-        let id = self.active_tab?;
+    /// The result console `id` is showing and the connection it belongs to.
+    fn item_of(&self, id: u64) -> Option<(&ResultItem, String)> {
         let c = self.consoles.get(&id)?;
         let conn = self.tabs.iter().find(|t| t.id == id)?.connection_id.clone()?;
         c.results.get(c.active_result.min(c.results.len().saturating_sub(1))).map(|r| (r, conn))
     }
 
-    pub(super) fn on_grid_event(&mut self, e: GridEvent, window: &mut Window, cx: &mut Context<Self>) {
+    /// An event from console `id`'s grid. The id comes from the subscription, not from whichever
+    /// tab happens to be active when the event is handled.
+    pub(super) fn on_grid_event(
+        &mut self,
+        id: u64,
+        e: GridEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match e {
-            GridEvent::SubmitChanges(changes) => self.submit_changes(changes, window, cx),
+            GridEvent::SubmitChanges(changes) => self.submit_changes(id, changes, window, cx),
             GridEvent::Copied { cells } => self.notify(
                 NoticeKind::Info,
                 format!("Copied {}", plural(cells as u64, "cell", "cells")),
                 window,
                 cx,
             ),
-            GridEvent::Export(req) => self.export_grid(req, window, cx),
+            GridEvent::Export(req) => self.export_grid(id, req, window, cx),
             GridEvent::ShowOnMap { row, .. } => {
-                self.set_bottom_tab(BottomTab::Map, cx);
-                self.map.update(cx, |m, cx| m.select_row(row, true, cx));
+                // The map shows the active console's features; a stale grid has nothing to show.
+                if self.active_tab == Some(id) {
+                    self.set_bottom_tab(BottomTab::Map, cx);
+                    self.map.update(cx, |m, cx| m.select_row(row, true, cx));
+                }
             }
             GridEvent::SelectionChanged => {}
             GridEvent::ReturnFocus => self.focus_editor(window, cx),
-            GridEvent::FollowReference { column, value } => self.follow_reference(column, value, window, cx),
+            GridEvent::FollowReference { column, value } => {
+                self.follow_reference(id, column, value, window, cx)
+            }
         }
     }
 
     fn follow_reference(
         &mut self,
+        console: u64,
         column: usize,
         value: quarry_core::Value,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((item, conn)) = self.active_item() else { return };
+        let Some((item, conn)) = self.item_of(console) else { return };
         let Some(catalog) = self.store.read(cx).catalog(&conn) else { return };
         let Some(target) = item.meta.editable.clone() else { return };
         let Some((schema, table, col)) =
@@ -1158,16 +1217,19 @@ impl Workspace {
 
     fn submit_changes(
         &mut self,
+        console: u64,
         changes: Vec<quarry_grid::RowChange>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let grid = self.results.read(cx).grid.clone();
-        let Some((item, conn)) = self.active_item() else { return };
+        let Some(grid) = self.consoles.get(&console).map(|c| c.grid.clone()) else { return };
+        let Some((item, conn)) = self.item_of(console) else { return };
         let Some(target) = item.meta.editable.clone() else {
             grid.update(cx, |g, cx| g.changes_failed("This result is not editable".into(), cx));
             return;
         };
+        // The data the edits were staged on: the answer is folded into exactly this result.
+        let submitted = item.result.clone();
         let kind = self.store.read(cx).config(&conn).map(|c| c.kind).unwrap_or(DatabaseKind::Postgres);
         let stmts = match changes::statements(kind, &target, &changes) {
             Ok(s) if !s.is_empty() => s,
@@ -1181,8 +1243,12 @@ impl Workspace {
             grid.update(cx, |g, cx| g.changes_failed("The connection is closed".into(), cx));
             return;
         };
+        if self.quiet {
+            // Test windows have no `Root` to host the confirmation dialog: act as if confirmed.
+            self.apply_changes(console, submitted, conn, connection, stmts, window, cx);
+            return;
+        }
         let ws = cx.entity().downgrade();
-        let ws2 = ws.clone();
         let n = stmts.len();
         let stmts2 = stmts.clone();
         let (conn2, connection2) = (conn.clone(), connection.clone());
@@ -1197,16 +1263,25 @@ impl Workspace {
                 Tone::Primary,
                 move |window, cx| {
                     let (stmts, conn, connection) = (stmts2.clone(), conn2.clone(), connection2.clone());
-                    ws.update(cx, |this, cx| this.apply_changes(conn, connection, stmts, window, cx)).ok();
+                    let submitted = submitted.clone();
+                    ws.update(cx, |this, cx| {
+                        this.apply_changes(console, submitted, conn, connection, stmts, window, cx)
+                    })
+                    .ok();
                 },
             )],
         );
         // Cancelling the dialog leaves the edits staged; nothing else to do.
-        let _ = ws2;
     }
 
+    /// Run the staged edits in one transaction and report the outcome to console `console`'s
+    /// grid. The user may switch tabs (or close this one) while the server works, so the answer
+    /// is routed by id and never to whatever grid is on screen when it arrives.
+    #[allow(clippy::too_many_arguments)]
     fn apply_changes(
         &mut self,
+        console: u64,
+        submitted: Arc<quarry_core::ResultSet>,
         conn_id: String,
         connection: Arc<dyn Connection>,
         stmts: Vec<String>,
@@ -1232,11 +1307,13 @@ impl Workspace {
             })
             .await;
             this.update_in(cx, |this, window, cx| {
-                let grid = this.results.read(cx).grid.clone();
                 let name = this.conn_name(&conn_id, cx);
+                let grid = this.consoles.get(&console).map(|c| c.grid.clone());
                 match res {
                     Ok(in_txn) => {
-                        grid.update(cx, |g, cx| g.changes_applied(cx));
+                        if let Some(grid) = grid {
+                            this.fold_applied_changes(console, &grid, &submitted, cx);
+                        }
                         for s in &stmts {
                             this.push_history(&name, s, Duration::ZERO, None, None, cx);
                         }
@@ -1260,7 +1337,10 @@ impl Workspace {
                         );
                     }
                     Err(e) => {
-                        grid.update(cx, |g, cx| g.changes_failed(e.to_string(), cx));
+                        // The staged edits stay in the grid so the user can fix and resubmit.
+                        if let Some(grid) = grid {
+                            grid.update(cx, |g, cx| g.changes_failed(e.to_string(), cx));
+                        }
                         this.log(
                             &conn_id,
                             &stmts[0],
@@ -1279,12 +1359,42 @@ impl Workspace {
         .detach();
     }
 
-    fn export_grid(&mut self, req: quarry_grid::ExportRequest, window: &mut Window, cx: &mut Context<Self>) {
+    /// The submit succeeded: fold the staged edits into the console's grid, and keep the
+    /// console's stored result in step with what the grid now shows (otherwise the next
+    /// activation would see a different `Arc` and reload the stale rows).
+    fn fold_applied_changes(
+        &mut self,
+        console: u64,
+        grid: &Entity<ResultGrid>,
+        submitted: &Arc<quarry_core::ResultSet>,
+        cx: &mut Context<Self>,
+    ) {
+        // A newer run replaced the rows the edits were staged on: nothing left to fold into.
+        if !grid.read(cx).result().is_some_and(|r| Arc::ptr_eq(r, submitted)) {
+            return;
+        }
+        grid.update(cx, |g, cx| g.changes_applied(cx));
+        let folded = grid.read(cx).result().cloned();
+        if let (Some(folded), Some(c)) = (folded, self.consoles.get_mut(&console))
+            && let Some(item) = c.results.iter_mut().find(|r| Arc::ptr_eq(&r.result, submitted))
+        {
+            item.result = folded;
+        }
+    }
+
+    fn export_grid(
+        &mut self,
+        console: u64,
+        req: quarry_grid::ExportRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         use quarry_grid::ExportFormatChoice as F;
-        let Some((item, conn)) = self.active_item() else { return };
+        let Some((item, conn)) = self.item_of(console) else { return };
         let table = item.meta.editable.as_ref().map(|t| t.table.clone());
         let kind = self.store.read(cx).config(&conn).map(|c| c.kind).unwrap_or(DatabaseKind::Postgres);
-        let rs = self.results.read(cx).grid.read(cx).export_view(req.selection_only);
+        let Some(grid) = self.consoles.get(&console).map(|c| c.grid.clone()) else { return };
+        let rs = grid.read(cx).export_view(req.selection_only);
         let n = rs.rows.len() as u64;
         let (fmt, ext) = match req.format {
             F::Csv => (ExportFormat::Csv, "csv"),
@@ -1366,7 +1476,13 @@ impl Workspace {
         }
     }
 
-    fn explain_console(&mut self, id: u64, analyze: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn explain_console(
+        &mut self,
+        id: u64,
+        analyze: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some((text, cursor, _)) = self.editor_snapshot(id, cx) else { return };
         let kind = self.console_kind(id, cx);
         let Some(p) = pick::at_cursor(&text, cursor, kind) else {
@@ -1408,29 +1524,60 @@ impl Workspace {
         };
         let kind = connection.kind();
         let catalog = self.store.read(cx).catalog(&t.connection_id);
-        self.last_explain = Some(t.clone());
-        self.plan.update(cx, |p, cx| p.set_loading(true, cx));
-        self.set_bottom_tab(BottomTab::Plan, cx);
+        let console = t.console;
+        let Some(c) = self.consoles.get_mut(&console) else { return };
+        c.explain_gen += 1;
+        let generation = c.explain_gen;
+        c.last_explain = Some(t.clone());
+        c.plan = match &c.plan {
+            // The previous plan stays on screen, dimmed, until the new one arrives.
+            PlanState::Ready(_) => c.plan.clone(),
+            _ => PlanState::Loading,
+        };
+        if self.active_tab == Some(console) {
+            if self.plan_owner == Some(console) {
+                self.plan.update(cx, |p, cx| p.set_loading(true, cx));
+            } else {
+                self.show_plan_state(console, window, cx);
+            }
+            self.set_bottom_tab(BottomTab::Plan, cx);
+        }
         let sql = t.sql.clone();
         cx.spawn_in(window, async move |this, cx| {
             let sql2 = sql.clone();
             let res = runtime::spawn_result(async move { connection.explain(&sql2, analyze).await }).await;
-            this.update_in(cx, |this, window, cx| match res {
-                Ok(plan) => {
-                    let (summary, insights) = quarry_sql::analyze_plan(&plan, catalog.as_deref(), kind);
-                    let input = PlanInput { plan: Arc::new(plan), summary, insights, kind, statement: sql };
-                    this.plan.update(cx, |p, cx| p.set_plan(input, window, cx));
-                }
-                Err(e) => {
-                    this.plan.update(cx, |p, cx| p.set_error(e.to_string(), cx));
-                    this.log(
-                        &t.connection_id,
-                        &t.sql,
-                        MessageKind::Error,
-                        vec![format!("Explain failed: {e}")],
-                        Some(&e),
-                        cx,
-                    );
+            this.update_in(cx, |this, window, cx| {
+                let state = match res {
+                    Ok(plan) => {
+                        let (summary, insights) = quarry_sql::analyze_plan(&plan, catalog.as_deref(), kind);
+                        PlanState::Ready(PlanInput {
+                            plan: Arc::new(plan),
+                            summary,
+                            insights,
+                            kind,
+                            statement: sql,
+                        })
+                    }
+                    Err(e) => {
+                        this.log(
+                            &t.connection_id,
+                            &t.sql,
+                            MessageKind::Error,
+                            vec![format!("Explain failed: {e}")],
+                            Some(&e),
+                            cx,
+                        );
+                        PlanState::Failed(e.to_string())
+                    }
+                };
+                // Stored with the console that asked (it may have been closed meanwhile, or a
+                // newer EXPLAIN may have started); shown only if that console is on screen.
+                let Some(c) = this.consoles.get_mut(&console).filter(|c| c.explain_gen == generation) else {
+                    return;
+                };
+                c.plan = state;
+                if this.active_tab == Some(console) {
+                    this.show_plan_state(console, window, cx);
                 }
             })
             .ok();
@@ -1438,15 +1585,35 @@ impl Workspace {
         .detach();
     }
 
+    /// Make the Plan tab show console `id`'s plan state.
+    pub(super) fn show_plan_state(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let state = self.consoles.get(&id).map(|c| c.plan.clone()).unwrap_or_default();
+        match state {
+            PlanState::Ready(input) => self.plan.update(cx, |p, cx| p.set_plan(input, window, cx)),
+            PlanState::Loading => self.plan.update(cx, |p, cx| {
+                p.clear(cx);
+                p.set_loading(true, cx);
+            }),
+            PlanState::Failed(m) => self.plan.update(cx, |p, cx| {
+                p.clear(cx);
+                p.set_error(m, cx);
+            }),
+            PlanState::Empty => self.plan.update(cx, |p, cx| p.clear(cx)),
+        }
+        self.plan_owner = Some(id);
+    }
+
     pub(super) fn on_plan_event(&mut self, e: PlanEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // The panel shows the active console's plan, so its events belong to that console.
+        let last = self.active_tab.and_then(|id| self.consoles.get(&id)).and_then(|c| c.last_explain.clone());
         match e {
             PlanEvent::OpenSuggestion(sql) => {
-                let conn = self.last_explain.as_ref().map(|t| t.connection_id.clone());
+                let conn = last.map(|t| t.connection_id);
                 self.open_console(conn, Some(sql), window, cx);
             }
             PlanEvent::CopyText(t) => cx.write_to_clipboard(ClipboardItem::new_string(t)),
             PlanEvent::Rerun { analyze } => {
-                if let Some(t) = self.last_explain.clone() {
+                if let Some(t) = last {
                     if analyze {
                         self.explain_console(t.console, true, window, cx);
                     } else {

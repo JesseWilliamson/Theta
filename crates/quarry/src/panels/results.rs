@@ -2,7 +2,7 @@
 //! statements that return no rows.
 
 use gpui_kit::assets::IconName;
-use gpui_kit::component::{ActiveTheme as _, Icon, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, Entity, EventEmitter, InteractiveElement as _, IntoElement, ParentElement as _,
@@ -23,11 +23,17 @@ pub struct Summary {
 }
 
 pub struct ResultsPanel {
+    /// The grid on show: the active console's own grid (each console keeps its grid so staged
+    /// edits, sorting and scroll survive switching tabs, and an async answer for a console that
+    /// is not on screen lands in that console's grid).
     pub grid: Entity<ResultGrid>,
+    /// Shown when there is no console.
+    default_grid: Entity<ResultGrid>,
     titles: Vec<String>,
     active: usize,
     summary: Option<Summary>,
     show_grid: bool,
+    running: bool,
 }
 
 impl EventEmitter<ResultsEvent> for ResultsPanel {}
@@ -35,7 +41,33 @@ impl EventEmitter<ResultsEvent> for ResultsPanel {}
 impl ResultsPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let grid = cx.new(|cx| ResultGrid::new(window, cx));
-        Self { grid, titles: vec![], active: 0, summary: None, show_grid: false }
+        Self {
+            default_grid: grid.clone(),
+            grid,
+            titles: vec![],
+            active: 0,
+            summary: None,
+            show_grid: false,
+            running: false,
+        }
+    }
+
+    /// Display `grid` (a console's), or the empty default one for no console.
+    pub fn use_grid(&mut self, grid: Option<Entity<ResultGrid>>, cx: &mut Context<Self>) {
+        let grid = grid.unwrap_or_else(|| self.default_grid.clone());
+        if self.grid != grid {
+            self.grid = grid;
+            cx.notify();
+        }
+    }
+
+    /// The console on show has a statement in flight and nothing to display yet.
+    pub fn show_running(&mut self, cx: &mut Context<Self>) {
+        self.titles.clear();
+        self.summary = None;
+        self.show_grid = false;
+        self.running = true;
+        cx.notify();
     }
 
     /// Show the grid with these sub-tab titles (the strip appears for more than one).
@@ -44,6 +76,7 @@ impl ResultsPanel {
         self.active = active;
         self.summary = None;
         self.show_grid = true;
+        self.running = false;
         cx.notify();
     }
 
@@ -51,6 +84,7 @@ impl ResultsPanel {
         self.titles.clear();
         self.summary = Some(Summary { text, error });
         self.show_grid = false;
+        self.running = false;
         cx.notify();
     }
 
@@ -58,6 +92,7 @@ impl ResultsPanel {
         self.titles.clear();
         self.summary = None;
         self.show_grid = false;
+        self.running = false;
         cx.notify();
     }
 
@@ -71,6 +106,9 @@ impl ResultsPanel {
     }
     pub fn summary(&self) -> Option<&Summary> {
         self.summary.as_ref()
+    }
+    pub fn is_running(&self) -> bool {
+        self.running
     }
 }
 
@@ -111,6 +149,16 @@ impl Render for ResultsPanel {
         });
         let body = if self.show_grid {
             div().flex_1().min_h_0().child(self.grid.clone()).into_any_element()
+        } else if self.running {
+            h_flex()
+                .flex_1()
+                .px_3()
+                .pt_3()
+                .gap_2()
+                .items_start()
+                .child(gpui_kit::component::spinner::Spinner::new().xsmall().color(theme.warning))
+                .child(div().text_size(px(13.)).text_color(theme.muted_foreground).child("Running…"))
+                .into_any_element()
         } else if let Some(s) = &self.summary {
             let (icon, color) = if s.error {
                 (IconName::CircleAlert, theme.danger)

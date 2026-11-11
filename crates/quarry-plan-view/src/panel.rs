@@ -26,6 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Everything the panel needs to show one plan.
+#[derive(Clone)]
 pub struct PlanInput {
     pub plan: Arc<Plan>,
     pub summary: PlanSummary,
@@ -164,6 +165,16 @@ impl PlanPanel {
     }
 
     /// While loading, the previous plan stays on screen but dimmed.
+    /// The statement whose plan is on show, if any.
+    pub fn shown_statement(&self) -> Option<&str> {
+        self.loaded.as_ref().map(|l| l.input.statement.as_str())
+    }
+
+    /// True while a plan is being fetched.
+    pub fn is_loading(&self) -> bool {
+        self.loading
+    }
+
     pub fn set_loading(&mut self, loading: bool, cx: &mut Context<Self>) {
         self.loading = loading;
         if loading {

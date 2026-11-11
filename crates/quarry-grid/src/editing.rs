@@ -201,7 +201,35 @@ impl ResultGrid {
         self.after_pending_change(cx);
     }
 
-    pub(crate) fn submit_changes(&mut self, cx: &mut Context<Self>) {
+    /// Stage `text` (parsed for the column's type, like typing it in the cell editor and pressing
+    /// Enter) as the new value of cell (`row`, `col`) of the *original* result. For hosts that
+    /// drive the grid without a keyboard; the error is the message the editor would show.
+    pub fn stage_cell_text(
+        &mut self,
+        row: usize,
+        col: usize,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let value = parse_input(text, self.column_kind(col))?;
+        let (Some(p), Some(rs)) = (self.pending.as_mut(), self.result.as_ref()) else {
+            return Err("This result is not editable".into());
+        };
+        if !p.can_edit_column(col) {
+            return Err("This column cannot be edited".into());
+        }
+        p.set_cell(rs, RowRef::Orig(row), col, value);
+        self.after_pending_change(cx);
+        Ok(())
+    }
+
+    /// The server's complaint about the last submit, shown in the footer while the edits stay staged.
+    pub fn submit_error(&self) -> Option<&str> {
+        self.submit_error.as_deref()
+    }
+
+    /// Hand the staged edits to the host (what Ctrl+Enter does in the grid).
+    pub fn submit_changes(&mut self, cx: &mut Context<Self>) {
         let (Some(p), Some(rs)) = (&self.pending, &self.result) else { return };
         if p.is_empty() {
             return;
