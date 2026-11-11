@@ -216,7 +216,7 @@ mod tests {
     fn bundled_themes_get_readable_muted_text() {
         use crate::contrast::ratio;
         use gpui_kit::component::ThemeRegistry;
-        let mut app = gpui_kit::TestAppContext::single();
+        let app = gpui_kit::TestAppContext::single();
         app.update(|cx| {
             crate::init(cx);
             let names: Vec<_> = ThemeRegistry::global(cx).themes().keys().cloned().collect();
