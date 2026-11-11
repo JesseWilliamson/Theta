@@ -263,12 +263,15 @@ pub(crate) struct VimOpts {
     pub ignorecase: bool,
     pub smartcase: bool,
     pub hlsearch: bool,
+    /// Like `set clipboard=unnamedplus`: the unnamed register is the host clipboard. Off by
+    /// default because that is what plain Vim does; hosts that integrate with the system turn it on.
+    pub clipboard_unnamed: bool,
 }
 
 impl Default for VimOpts {
     fn default() -> Self {
         // Matches the other keymaps' search: case-insensitive unless the pattern has capitals.
-        VimOpts { ignorecase: true, smartcase: true, hlsearch: true }
+        VimOpts { ignorecase: true, smartcase: true, hlsearch: true, clipboard_unnamed: false }
     }
 }
 

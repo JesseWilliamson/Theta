@@ -359,6 +359,42 @@ fn plus_register_goes_through_the_host_clipboard() {
 }
 
 #[test]
+fn unnamed_clipboard_option_mirrors_yanks_deletes_and_puts() {
+    let mut e = ed("[a]bc def\nline\n");
+    e.set_vim_clipboard_unnamed(true);
+    assert_eq!(feed(&mut e, "yiw"), vec![Effect::SetClipboard("abc".into())]);
+    assert_eq!(feed(&mut e, "wdw"), vec![Effect::SetClipboard("def".into())]);
+    // a delete into the black hole or a named register leaves the clipboard alone
+    let out = feed(&mut e, "\"_dd");
+    assert!(!out.iter().any(|x| matches!(x, Effect::SetClipboard(_))), "{out:?}");
+    // the host reports the clipboard it last received: the internal register (with its kind) wins
+    e.set_clipboard(Some("def".into()));
+    feed(&mut e, "p");
+    assert_eq!(e.text(), "ldefine\n");
+    // another application copied something: plain `p` pastes that
+    e.set_clipboard(Some("from outside".into()));
+    feed(&mut e, "0p");
+    assert_eq!(e.text(), "lfrom outsidedefine\n");
+}
+
+#[test]
+fn unnamed_clipboard_keeps_linewise_registers_linewise() {
+    let mut e = ed("[o]ne\ntwo\n");
+    e.set_vim_clipboard_unnamed(true);
+    let out = feed(&mut e, "yy");
+    assert_eq!(out, vec![Effect::SetClipboard("one\n".into())]);
+    e.set_clipboard(Some("one\n".into()));
+    feed(&mut e, "jp");
+    assert_eq!(e.text(), "one\ntwo\none\n");
+}
+
+#[test]
+fn unnamed_clipboard_is_off_by_default() {
+    let out = fx("[a]bc\n", "yl");
+    assert!(out.is_empty(), "{out:?}");
+}
+
+#[test]
 fn star_register_is_the_same_clipboard() {
     let out = fx("[a]bc\n", "\"*yl");
     assert_eq!(out, vec![Effect::SetClipboard("a".into())]);

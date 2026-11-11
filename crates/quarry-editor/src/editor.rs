@@ -556,6 +556,13 @@ impl Editor {
         self.clipboard = text;
     }
 
+    /// Vim only: make the unnamed register the host clipboard (`set clipboard=unnamedplus`), so
+    /// yanks and deletes emit `SetClipboard` and `p` pastes text copied in other applications.
+    /// Off by default, like plain Vim.
+    pub fn set_vim_clipboard_unnamed(&mut self, on: bool) {
+        self.vim.opts.clipboard_unnamed = on;
+    }
+
     pub fn prompt(&self) -> Option<Prompt<'_>> {
         self.prompt.as_ref().map(|p| Prompt { prefix: &p.prefix, text: &p.text, cursor: p.cursor })
     }

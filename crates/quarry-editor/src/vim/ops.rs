@@ -180,7 +180,17 @@ impl Editor {
             }
             Some(':') => self.vim.last_ex.clone().map(|p| Reg { text: p, kind: RegKind::Char }),
             Some('.') => Some(Reg { text: self.vim.last_insert.clone(), kind: RegKind::Char }),
-            None | Some('"') => self.vim.regs.get(&'"').cloned(),
+            None | Some('"') => {
+                // Another application changed the clipboard since our last mirror: that is what
+                // the user means by "paste". Otherwise the internal register keeps block/line kinds
+                // that the flat clipboard string cannot carry.
+                if self.vim.opts.clipboard_unnamed
+                    && self.clipboard.as_ref().is_some_and(|c| !c.is_empty() && self.last_mirror.as_ref() != Some(c))
+                {
+                    return self.reg_get(Some('+'));
+                }
+                self.vim.regs.get(&'"').cloned()
+            }
             Some(c) => {
                 let c = c.to_ascii_lowercase();
                 self.vim.regs.get(&c).cloned()
@@ -219,9 +229,20 @@ impl Editor {
         }
     }
 
+    /// With `clipboard_unnamed`, whatever lands in the unnamed register is also sent to the host.
+    fn mirror_unnamed(&mut self, reg: &Reg) {
+        if self.vim.opts.clipboard_unnamed {
+            let text = if self.line_ending == "\r\n" { reg.text.replace('\n', "\r\n") } else { reg.text.clone() };
+            self.effects.push(Effect::SetClipboard(text.clone()));
+            self.last_mirror = Some(text.clone());
+            self.clipboard = Some(text);
+        }
+    }
+
     pub(crate) fn reg_yank(&mut self, name: Option<char>, reg: Reg) {
         match name {
             None | Some('"') => {
+                self.mirror_unnamed(&reg);
                 self.vim.regs.insert('0', reg.clone());
                 self.vim.regs.insert('"', reg);
             }
@@ -252,6 +273,7 @@ impl Editor {
             self.vim.regs.insert('-', reg.clone());
         }
         if named.is_none() {
+            self.mirror_unnamed(&reg);
             self.vim.regs.insert('"', reg);
         }
     }
