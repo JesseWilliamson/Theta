@@ -3,5 +3,5 @@
   <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b3d42"/><stop offset="1" stop-color="#18191b"/></linearGradient><linearGradient id="hi" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.16"/><stop offset="0.12" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
   <rect width="512" height="512" rx="115" fill="url(#bg)"/>
   
-  <g transform="translate(256 256) scale(32)"><path fill="#FFFFFF" d="M-5 0A5 6 0 1 1 5 0A5 6 0 1 1 -5 0ZM-2.5 0A2.5 4.5 0 1 0 2.5 0A2.5 4.5 0 1 0 -2.5 0Z"/><path fill="#FFFFFF" d="M-1.5 -1C-1.4 -1 -1.23 -1 -1 -1L1 -1C1.23 -1 1.4 -1 1.5 -1Q1.5 -0.5 1.5 0C1.4 0 1.23 0 1 0L-1 0C-1.23 0 -1.4 0 -1.5 0Q-1.5 -0.5 -1.5 -1Z"/></g>
+  <g transform="translate(256 256) scale(32)"><path fill="#FFFFFF" d="M-5 0A5 6 0 1 1 5 0A5 6 0 1 1 -5 0ZM-2.5 0A2.5 4.5 0 1 0 2.5 0A2.5 4.5 0 1 0 -2.5 0ZM-3.75 -1H3.75V0H-3.75Z"/></g>
 </svg>

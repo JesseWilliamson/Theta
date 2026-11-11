@@ -36,6 +36,9 @@ Fonts (assets/fonts)
 --------------------
 IBM Plex Sans: Copyright 2017 IBM Corp. SIL Open Font License 1.1 (assets/fonts/IBMPlexSans-OFL.txt).
 Lilex: Copyright 2019 The Lilex Project Authors. SIL Open Font License 1.1 (assets/fonts/Lilex-OFL.txt).
+GFS Didot: Copyright (c) 2007 Greek Font Society, Reserved Font Name 'GFS Didot'. SIL Open Font License 1.1
+(assets/fonts/GFSDidot-OFL.txt). Only the outline of its letter theta (U+03B8) is used, as Theta's logo
+(packaging/icons/gen_icon.py draws it); the font itself is not bundled.
 
 Icons
 -----

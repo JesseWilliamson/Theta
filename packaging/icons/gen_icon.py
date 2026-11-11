@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Generates the Theta icon SVGs (run from anywhere; writes next to this file, stdlib only).
 
-The mark is the lowercase Greek letter theta, drawn as geometry rather than typeset: a tall, upright,
-high-contrast oval in the manner of a Didot face (thick sides, hairline top and bottom) with a short
-crossbar that floats inside it, touching nothing. The bar has soft bracketed serifs: the thin bar
-curves smoothly up into small serif ends, so there is no hard corner anywhere. It is white on a quiet
-dark grey gradient tile. Theta is the name of the generalised join of relational algebra (the theta
-join), and the product's signature feature is suggesting joins. The detached bar keeps the letter from
-reading as a zero with a slash.
+The mark is the lowercase Greek letter theta: a tall, upright, high-contrast oval (thick sides,
+hairline top and bottom) with a thin crossbar that runs the full inner width, joins both sides and sits
+a little above the centre. White on a quiet dark grey gradient tile. Theta is the name of the generalised
+join of relational algebra (the theta join), and the product's signature feature is suggesting joins.
+
+The letterform at 64 px and above IS the theta (U+03B8) of the typeface GFS Didot, (c) 2007 Greek Font
+Society, SIL Open Font License 1.1: its outline is embedded below as path data, so the build does not
+need the font installed. See GLYPH_D for the licence notes and docs/THIRD_PARTY.md for the credit.
 
 Outputs
   theta.svg        full-detail 512 tile, used for every size >= 64 px
@@ -18,23 +19,24 @@ Outputs
   theta-mark.svg   glyph only, `currentColor`, tight square viewBox (embedded in the app and, via
                    site/tools/mark.py, the website)
 
-Why several drawings: the approved drawing has a 2% hairline at the top and bottom of the bowl and a
-1% bar waist. At 512 px that is the whole charm; at 32 px it is a fraction of a pixel and vanishes,
-leaving an open ellipse with a floating dash. The small drawings therefore keep the design (oval,
-thick sides, detached bar with serifs) but thicken the parts that cannot be resolved and put every edge
-on a whole pixel of the size they are used at, so they never rely on anti-aliasing to stay legible.
-The in-app mark (about 44 px, `currentColor`) gets its own medium-weight drawing for the same reason.
+Why several drawings: the real glyph has a hairline top and bottom (3% of the letter's height) and a
+bar 5% thick. At 512 px that is the whole charm; at 32 px it is a fraction of a pixel and vanishes,
+leaving an open ellipse that is no longer recognisably a theta. The small drawings therefore keep the
+design (oval, thick sides, a full-width bar joined to both sides, a little above centre) but are built
+from parts that can be thickened: a heavier top and bottom, and a bar a whole pixel thick, with every edge
+on a whole pixel of the size they are used at, so they never rely on anti-aliasing to stay legible. The
+in-app mark (about 44 px, `currentColor`) gets its own medium-weight drawing for the same reason.
 
 Geometry notes
-  * Everything is a FILLED shape. The bowl is one path: the outer ellipse clockwise and the inner
-    one counter-clockwise, so it is a ring under the nonzero rule as well as even-odd and does not
-    depend on how a renderer treats `fill-rule`.
-  * The bar is cubic Béziers (a polyline would show facets when the 512 px tile is enlarged). A thin
-    round-joined outline in the same colour rounds off the corners where the bracket meets the end cap.
+  * Everything is a FILLED shape, nonzero fill rule (the SVG default; no drawing may rely on even-odd,
+    because the bar overlaps the walls of the oval). The font's outline already winds correctly; the
+    parametric oval is the outer ellipse clockwise and the inner one counter-clockwise, and the bar is a
+    clockwise rectangle, so where it overlaps the wall the winding number is 2 and stays filled.
   * Drawings are specified in their own units (`u` tile-pixels each, origin at the glyph centre) and
     placed with one transform, so a 16 px drawing is written in whole pixels.
 """
 import os
+import re
 
 TILE_RX = 115        # 22.4% of 512, the usual macOS-style squircle approximation
 SIZE = 512
@@ -51,53 +53,75 @@ def fmt(v):
     return "0" if s == "-0" else s
 
 
-def bowl(cx, cy, rx, ry, side, top):
-    """The oval: outer ellipse rx x ry, inner counter (rx - side) x (ry - top).
+# The theta of GFS Didot Regular (U+03B8, glyph "theta"), outline in font units (1000 per em, y up),
+# extracted from GFSDidot.otf with fontTools. Bounding box (59, -10)-(466, 710): 407 x 720 units.
+# Copyright (c) 2007 Greek Font Society (www.greekfontsociety.org), with Reserved Font Name 'GFS Didot'.
+# SIL Open Font License 1.1 (docs/THIRD_PARTY.md, crates/theta-ui/assets/fonts/GFSDidot-OFL.txt). The licence allows
+# embedding and modifying the font in software, provided the notice and licence travel with it and no
+# modified version uses the reserved name; this file is neither sold as a font nor named "GFS Didot".
+GLYPH_D = ("M466 361C466 442 452 515 424 580C387 667 335 710 266 710C189 710 132 665 97 575C72 511 59 433 59 341"
+           "C59 250 72 174 97 115C132 32 188 -10 266 -10C340 -10 394 36 429 129C454 194 466 272 466 361Z"
+           "M154 418C158 479 166 532 178 576C197 650 226 687 264 687C311 687 343 651 360 579C368 550 374 495 378 416Z"
+           "M381 339C381 276 374 213 359 152C338 60 307 14 266 14C215 14 182 50 165 121C155 159 150 214 150 287"
+           "V382H381Z")
+GLYPH_BOX = (59, -10, 466, 710)
 
-    Thick sides and thin top/bottom are what make it a Didot-style letter rather than a ring.
+
+def glyph_path(cx, cy, height):
+    """GLYPH_D scaled so the letter is `height` tall, flipped to y-down and centred by its bounding
+    box on (cx, cy). Absolute M/C/V/H/Z only, which is all the outline uses."""
+    x0, y0, x1, y1 = GLYPH_BOX
+    k = height / (y1 - y0)
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+
+    def X(v):
+        return fmt(cx + (v - mx) * k)
+
+    def Y(v):
+        return fmt(cy - (v - my) * k)
+
+    out, cur = [], [0.0, 0.0]
+    for cmd, args in re.findall(r"([MCVHZ])([^MCVHZ]*)", GLYPH_D):
+        n = [float(v) for v in args.replace("-", " -").split()]
+        if cmd in "MC":
+            pts = [(n[i], n[i + 1]) for i in range(0, len(n), 2)]
+            out.append(cmd + " ".join(f"{X(x)} {Y(y)}" for x, y in pts))
+            cur = list(pts[-1])
+        elif cmd == "V":
+            cur[1] = n[0]
+            out.append(f"L{X(cur[0])} {Y(cur[1])}")
+        elif cmd == "H":
+            cur[0] = n[0]
+            out.append(f"L{X(cur[0])} {Y(cur[1])}")
+        else:
+            out.append("Z")
+    return "".join(out)
+
+
+def oval(cx, cy, rx, ry, side, top, bar_h, rise):
+    """The parametric letter: an oval plus a full-width bar.
+
+    Outer ellipse rx x ry, inner counter (rx - side) x (ry - top): thick sides and thin top/bottom are
+    what make it a Didot-style letter rather than a ring. The bar is a rectangle of half thickness
+    `bar_h` centred `rise` above the middle (a real theta carries its bar a little high); it runs
+    to the middle of each wall so there is no seam where it joins.
     """
-    irx, iry = rx - side, ry - top
-
     def ellipse(a, b, sweep):
         return (f"M{fmt(cx - a)} {fmt(cy)}A{fmt(a)} {fmt(b)} 0 1 {sweep} {fmt(cx + a)} {fmt(cy)}"
                 f"A{fmt(a)} {fmt(b)} 0 1 {sweep} {fmt(cx - a)} {fmt(cy)}Z")
 
-    return ellipse(rx, ry, 1) + ellipse(irx, iry, 0)
-
-
-def bracket(cx, cy, L, h, s, b, e):
-    """A bar with bracketed serifs, centred on (cx, cy).
-
-    L  half length          h  half thickness of the flat run (the waist)
-    s  half height of the serif ends
-    b  length over which the bracket curves from the waist up to the serif
-    e  how far the end cap bulges (slightly convex ends look softer than cut ones)
-    Each flank is one cubic from the end cap's corner to the start of the flat run; the control
-    points hug the end first and the run second, which makes the curve leave the end steeply and
-    arrive on the run tangentially: the "bracket".
-    """
-    k = (s - h) * 0.12
-    x0, x1 = cx - L, cx + L
-    up, dn = cy - h, cy + h
-    return (f"M{fmt(x0)} {fmt(cy - s)}"
-            f"C{fmt(x0 + b * .2)} {fmt(up - k)} {fmt(x0 + b * .55)} {fmt(up)} {fmt(x0 + b)} {fmt(up)}"
-            f"L{fmt(x1 - b)} {fmt(up)}"
-            f"C{fmt(x1 - b * .55)} {fmt(up)} {fmt(x1 - b * .2)} {fmt(up - k)} {fmt(x1)} {fmt(cy - s)}"
-            f"Q{fmt(x1 + e)} {fmt(cy)} {fmt(x1)} {fmt(cy + s)}"
-            f"C{fmt(x1 - b * .2)} {fmt(dn + k)} {fmt(x1 - b * .55)} {fmt(dn)} {fmt(x1 - b)} {fmt(dn)}"
-            f"L{fmt(x0 + b)} {fmt(dn)}"
-            f"C{fmt(x0 + b * .55)} {fmt(dn)} {fmt(x0 + b * .2)} {fmt(dn + k)} {fmt(x0)} {fmt(cy + s)}"
-            f"Q{fmt(x0 - e)} {fmt(cy)} {fmt(x0)} {fmt(cy - s)}Z")
+    a, by = rx - side / 2, cy - rise
+    bar = f"M{fmt(cx - a)} {fmt(by - bar_h)}H{fmt(cx + a)}V{fmt(by + bar_h)}H{fmt(cx - a)}Z"
+    return ellipse(rx, ry, 1) + ellipse(rx - side, ry - top, 0) + bar
 
 
 def shapes(D, cx=0.0, cy=0.0, ink="currentColor"):
-    """Bowl and bar of drawing D, centred on (cx, cy) in the drawing's own units."""
-    rise = D["rise"]  # real thetas carry the crossbar a hair above the centre
-    bar = bracket(cx, cy - rise, D["L"], D["h"], D["s"], D["b"], D["e"])
-    ol = D["outline"]
-    stroke = f' stroke="{ink}" stroke-width="{fmt(ol)}" stroke-linejoin="round"' if ol else ""
-    return (f'<path fill="{ink}" d="{bowl(cx, cy, D["rx"], D["ry"], D["side"], D["top"])}"/>'
-            f'<path fill="{ink}"{stroke} d="{bar}"/>')
+    """The letter of drawing D as one filled path, centred on (cx, cy) in the drawing's own units."""
+    if "glyph" in D:
+        d = glyph_path(cx, cy, D["height"])
+    else:
+        d = oval(cx, cy, D["rx"], D["ry"], D["side"], D["top"], D["h"], D["rise"])
+    return f'<path fill="{ink}" d="{d}"/>'
 
 
 def glyph_group(D, ink):
@@ -130,46 +154,41 @@ def svg_mark(D, pad=2):
     Coordinates are written directly in the viewBox (no transform) so that consumers such as
     site/tools/mark.py can read the paths without interpreting transforms.
     """
-    side = max(2 * D["rx"], 2 * D["ry"]) + 2 * pad
+    side = 2 * D["ry"] + 2 * pad
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {fmt(side)} {fmt(side)}">\n'
             f'  <title>Theta</title>\n  {shapes(D, side / 2, side / 2)}\n</svg>\n')
 
 
 # ---- the drawings --------------------------------------------------------------------------------
-# FULL is the approved drawing (units of a 100 unit tile): bowl 23 x 38 with 7.4 sides and 2.0
-# top/bottom, bar bracket(L=10.5, h=1.0, s=3.6, b=5, e=0.9) with a 0.7 outline. Two refinements: it is
-# drawn at 80% so the letter fills about 61% of the tile's height (the previous icon's ring filled
-# 54%; the approved 76% crowded the tile edge), and the bar sits 1.25% of the tile above centre.
-FULL = dict(u=5.12 * 0.8, rx=23, ry=38, side=7.4, top=2.0, L=10.5, h=1.0, s=3.6, b=5, e=0.9, outline=0.7,
-            rise=1.25 / 0.8)
+# FULL: the GFS Didot theta, 61% of the tile's height (the previous icon's ring filled 54%), centred by
+# its bounding box. The glyph's own crossbar sits 7% of its height above the middle of that box.
+FULL = dict(u=1, glyph=True, height=0.608 * SIZE)
 
-# In-app mark, 16-48 px in the text colour: the same oval and bar, medium weight. Sides 9 and
-# top/bottom 4.6 of 76 survive as 2+ px at 44 px; the waist is 2.4 units (~1.3 px).
-MARK = dict(rx=23, ry=38, side=9.2, top=4.6, L=9, h=1.4, s=4.4, b=4.4, e=1.0, outline=0.8, rise=1.6)
+# In-app mark, 16-48 px in the text colour: the same letter as the parametric oval at medium weight.
+# Units are those of the viewBox (the letter is 43 x 76): sides 10 and top/bottom 5 survive as 2.5+ px at
+# 44 px, and the bar is 4.2 thick (about 2.3 px).
+MARK = dict(rx=21.5, ry=38, side=10, top=5, h=2.1, rise=3.5)
 
 
 def grid(px, at, **kw):
-    """A drawing in whole pixels of a `px` pixel icon, centred at `at` (pixels). Outline is off:
-    a fractional-pixel outline is exactly the blur the grid drawings exist to avoid."""
+    """A drawing in whole pixels of a `px` pixel icon, centred at `at` (pixels)."""
     u = SIZE / px
-    return dict(u=u, at=(at[0] * u, at[1] * u), outline=0, **kw)
+    return dict(u=u, at=(at[0] * u, at[1] * u), **kw)
 
 
-# Each grid drawing was chosen by rendering variants at the real size and enlarged. What had to change
-# against the approved proportions, and why:
-#   * sides 3-3.5 px at 32 and 2-2.5 px at 16-24 (the design has 16% of the width): an ellipse's
-#     side stroke narrows quickly away from its widest point, so anything lighter shows as a grey
-#     double line;
-#   * top/bottom 2-2.5 px at 24-32 and 1.5 px at 16 instead of the 2% hairline, which would be gone;
-#   * the bar keeps a 1 px waist (the thinnest thing that is still solid white) and, where there is room,
-#     3-4 px tall serif ends. The bar always leaves a clear 1 px column to each side wall, so it
-#     cannot read as a Phi or as a bar fused to the bowl.
-# 32 px grid (also used at 48): oval 14 x 20 px, counter 7 x 15.
-MID = grid(32, (16, 16), rx=7, ry=10, side=3.5, top=2.5, L=2.5, h=0.75, s=2, b=1.2, e=0.3, rise=0.5)
-# 24 px grid: oval 10 x 16 px, counter 5 x 12; bar 3 px long.
-SMALL24 = grid(24, (12, 12), rx=5, ry=8, side=2.5, top=2, L=1.5, h=0.5, s=1.5, b=0.8, e=0.2, rise=0.5)
-# 16 px grid: oval 10 x 12 px, counter 5 x 9; a plain 3 x 1 bar: serifs cannot be resolved here.
-SMALL = grid(16, (8, 8), rx=5, ry=6, side=2.5, top=1.5, L=1.5, h=0.5, s=0.5, b=0.5, e=0, rise=0.5)
+# Each grid drawing was chosen by rendering variants at the real size and enlarged. What differs from
+# the glyph, and why:
+#   * sides 3.5 px at 32 and 2.5 px at 16-24 (the glyph has 22% of the width): an ellipse's side stroke
+#     narrows quickly away from its widest point, so anything lighter shows as a grey double line;
+#   * top/bottom 2-2.5 px at 24-32 and 1.5 px at 16 instead of 3% of the height, which would be gone;
+#   * the bar is 1 px thick (the glyph's is 5% of the height: 1 px at 20 px tall), spans the whole counter
+#     and lies exactly on a pixel row, one to two rows above the centre line.
+# 32 px grid (also used at 48): oval 14 x 20 px, counter 7 x 15; bar on row 14.
+MID = grid(32, (16, 16), rx=7, ry=10, side=3.5, top=2.5, h=0.5, rise=1.5)
+# 24 px grid: oval 10 x 16 px, counter 5 x 12; bar on row 10.
+SMALL24 = grid(24, (12, 12), rx=5, ry=8, side=2.5, top=2, h=0.5, rise=1.5)
+# 16 px grid: oval 10 x 12 px, counter 5 x 9; bar on row 7, one row above the centre line.
+SMALL = grid(16, (8, 8), rx=5, ry=6, side=2.5, top=1.5, h=0.5, rise=0.5)
 
 
 def main():
