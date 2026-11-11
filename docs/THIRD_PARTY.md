@@ -25,10 +25,11 @@ unmodified use as a dependency is unproblematic but its notices must travel with
 | anyhow | 1.0.104 | MIT OR Apache-2.0 | theta, theta-ui | https://github.com/dtolnay/anyhow |
 | async-channel | 2.5.0 | Apache-2.0 OR MIT | theta-map-view | https://github.com/smol-rs/async-channel |
 | async-trait | 0.1.92 | MIT OR Apache-2.0 | theta, theta-core, theta-drivers | https://github.com/dtolnay/async-trait |
+| chrono | 0.4.45 | MIT OR Apache-2.0 | theta | https://github.com/chronotope/chrono |
 | dirs | 6.0.0 | MIT OR Apache-2.0 | theta-map-view, theta-ui | https://github.com/soc/dirs-rs |
 | futures-util | 0.3.34 | MIT OR Apache-2.0 | theta-drivers | https://github.com/rust-lang/futures-rs |
 | gpui-kit | 0.9.1 | Apache-2.0 | theta, theta-editor-view, theta-grid, theta-map-view, theta-plan-view, theta-ui | https://github.com/longbridge/gpui-kit |
-| image | 0.25.10 | MIT OR Apache-2.0 | theta-map-view | https://github.com/image-rs/image |
+| image | 0.25.10 | MIT OR Apache-2.0 | theta, theta-map-view | https://github.com/image-rs/image |
 | keyring | 3.6.3 | MIT OR Apache-2.0 | theta | https://github.com/hwchen/keyring-rs.git |
 | mysql_async | 0.37.1 | MIT OR Apache-2.0 | theta-drivers | https://github.com/blackbeam/mysql_async |
 | postgres-protocol | 0.6.12 | MIT OR Apache-2.0 | theta-drivers | https://github.com/rust-postgres/rust-postgres |

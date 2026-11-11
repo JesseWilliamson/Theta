@@ -1,11 +1,10 @@
-# Theta
+<h1 align="center"><img src="packaging/icons/theta.svg" alt="" width="64" align="absmiddle"> Theta</h1>
 
-<p align="center"><img src="packaging/icons/theta.svg" alt="Theta icon" width="64"></p>
-
-Theta is a keyboard-first database IDE written in Rust on [GPUI](https://www.gpui.rs/) (through the
+Theta, a keyboard-first database IDE, is written in Rust on [GPUI](https://www.gpui.rs/) (through the
 [`gpui-kit`](https://github.com/longbridge/gpui-kit) component crate). It connects to PostgreSQL,
 MySQL/MariaDB and SQLite, gives you a SQL editor with Helix, Vim or standard key bindings, and shows results
-as an editable grid, as a query plan, or on a map.
+as an editable grid, as a query plan, or on a map. The name comes from the theta join (θ-join) of relational
+algebra, the general form of JOIN: suggesting joins is what Theta is best at.
 
 It is also a codebase meant to be read: the database drivers, SQL tooling, geometry code and the text
 editor are plain Rust libraries with ordinary tests, and the UI crates are thin layers on top. See
@@ -13,7 +12,7 @@ editor are plain Rust libraries with ordinary tests, and the UI crates are thin 
 
 ## What works today
 
-Theta 0.1.0-alpha.3 is an alpha. The application is fully wired together: every feature below is
+Theta 0.1.0-alpha.4 is an alpha. The application is fully wired together: every feature below is
 implemented and was run by hand on Linux (X11) against PostgreSQL 16 with PostGIS, MariaDB 10.11 and
 SQLite. SSH tunnelling is covered by the driver integration tests only. The macOS and Windows builds are
 compiled and unit-tested in CI but nobody has used them by hand yet. See
