@@ -73,10 +73,11 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Changed
 
-- **New app icon and logo**: the theta is now a high-contrast serif letter (thick sides, hairline top and bottom) with a
-  short detached crossbar that has soft bracketed serifs, white on the same dark tile. The icon has separate, heavier
-  drawings for 16, 24 and 32/48 px, so it stays legible in a taskbar; the in-app mark and the website use the same
-  design (`packaging/icons/gen_icon.py` is the single source).
+- **New app icon and logo**: the theta is now the lowercase theta of the GFS Didot typeface (a tall, high-contrast
+  serif oval with a thin crossbar joined to both sides), white on the same dark tile. Its outline is embedded in
+  `packaging/icons/gen_icon.py`, the single source of the icon, and GFS Didot's licence (SIL OFL 1.1) is credited in
+  `docs/THIRD_PARTY.md`, the NOTICE file and the website footer. The icon has separate, heavier drawings of the same
+  letter for 16, 24 and 32/48 px, so it stays legible in a taskbar; the in-app mark and the website use the same design.
 - The statement splitter, formatter and parameter finder know T-SQL's `GO`, `BEGIN TRANSACTION` and `DECLARE`;
   the formatter keeps `GO` on its own line.
 
