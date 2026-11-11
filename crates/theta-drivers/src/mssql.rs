@@ -578,7 +578,25 @@ impl SqlServerConnection {
         let started = Instant::now();
         let kw = leading_keyword(sql);
         let dml = reports_rows_affected(sql) && !sql.to_ascii_uppercase().contains("OUTPUT");
-        if dml || is_ddl(sql) {
+        if is_ddl(sql) && !dml {
+            // DDL goes as a plain batch. `execute` wraps the text in an `sp_executesql` call, and
+            // CREATE VIEW / PROCEDURE / FUNCTION / TRIGGER must be the first statement of their batch:
+            // SQL Server 2022 answered the wrapped form with "Incorrect syntax near the keyword 'VIEW'".
+            client
+                .simple_query(sql)
+                .await
+                .map_err(|e| query_error(e, sql))?
+                .into_results()
+                .await
+                .map_err(|e| query_error(e, sql))?;
+            return Ok(StatementOutcome {
+                result: None,
+                rows_affected: None,
+                notices: Vec::new(),
+                elapsed: started.elapsed(),
+            });
+        }
+        if dml {
             // `execute` reports the row count of DML.
             let r = client.execute(sql, &[]).await.map_err(|e| query_error(e, sql))?;
             let n = dml.then(|| r.total());

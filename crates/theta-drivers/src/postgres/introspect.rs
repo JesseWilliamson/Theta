@@ -125,11 +125,12 @@ pub async fn introspect(client: &Client, kind: DatabaseKind) -> Result<Catalog> 
     let schema_index: HashMap<String, usize> =
         schemas.iter().enumerate().map(|(i, s)| (s.name.clone(), i)).collect();
 
-    // Relations. reltuples is -1 for never-analysed tables (PG14+); 0 means empty.
+    // Relations. reltuples is -1 for never-analysed tables (PG14+); 0 means empty. CockroachDB
+    // reports NULL there, which reads as "never analysed" too.
     let rels = q(
         client,
         &format!(
-            "SELECT c.oid, n.nspname::text, c.relname::text, c.relkind::text, c.reltuples::float8, \
+            "SELECT c.oid, n.nspname::text, c.relname::text, c.relkind::text, coalesce(c.reltuples, -1)::float8, \
                     obj_description(c.oid, 'pg_class'), \
                     CASE WHEN c.relkind IN ('v','m') THEN pg_get_viewdef(c.oid, true) END \
              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \

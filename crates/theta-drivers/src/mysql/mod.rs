@@ -22,6 +22,9 @@ use theta_core::*;
 use tokio::sync::Mutex;
 
 /// MySQL, MariaDB and TiDB (MySQL wire protocol; `kind` says which product the user chose).
+/// Rows read and thrown away past the row limit before the statement is killed instead.
+const DRAIN_BEFORE_KILL: usize = 10_000;
+
 pub struct MysqlDriver {
     pub kind: DatabaseKind,
 }
@@ -304,6 +307,16 @@ impl MysqlConnection {
                     })
                     .collect();
                 rows.push(cells);
+            }
+            // A result only a little over the limit is cheaper to read to its end than to kill: the
+            // kill needs a second connection, and a KILL QUERY that arrives after the statement has
+            // already finished is at best wasted (TiDB 8.1 closed the session in that case).
+            let mut spare = DRAIN_BEFORE_KILL;
+            while needs_kill && spare > 0 {
+                match result.next().await {
+                    Ok(Some(_)) => spare -= 1,
+                    Ok(None) | Err(_) => needs_kill = false,
+                }
             }
             if needs_kill {
                 // Stop the server producing rows nobody will look at, then drain
