@@ -22,6 +22,10 @@ pub fn key_list(keymap: KeymapMode) -> Vec<(&'static str, &'static str)> {
     ];
     if keymap.is_modal() {
         v.push(("Insert mode / back to normal", "i  esc"));
+        match keymap {
+            KeymapMode::Vim => v.push(("Visual: characters, lines, block", "v  shift-v  ctrl-v")),
+            _ => v.push(("Select mode", "v")),
+        }
         v.push(("Command menu (which-key)", "space"));
         v.push(("Save console to a file", ":w"));
     } else {
@@ -95,6 +99,9 @@ impl Workspace {
             .child(
                 v_flex()
                     .w(px(340.))
+                    // As tall as the longest sheet, so the keymap buttons above do not move when
+                    // a shorter one is chosen.
+                    .min_h(px(268.))
                     .gap_1p5()
                     .p_3()
                     .rounded_md()
@@ -109,5 +116,21 @@ impl Workspace {
                     })),
             )
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_keymap_gets_its_own_cheat_sheet() {
+        let sheet = |k| key_list(k).into_iter().map(|(label, _)| label).collect::<Vec<_>>();
+        assert!(sheet(KeymapMode::Vim).contains(&"Visual: characters, lines, block"));
+        assert!(sheet(KeymapMode::Helix).contains(&"Select mode"));
+        assert!(!sheet(KeymapMode::Standard).iter().any(|l| l.contains("Insert mode")));
+        assert!(sheet(KeymapMode::Vim).contains(&"Command menu (which-key)"));
+        // Modal sheets are one row longer than the Standard one's list of the common rows.
+        assert_ne!(key_list(KeymapMode::Helix), key_list(KeymapMode::Vim));
     }
 }
