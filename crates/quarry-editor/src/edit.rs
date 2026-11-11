@@ -41,7 +41,7 @@ impl Editor {
     /// The (from, to) range an insertion by this selection replaces.
     fn edit_range(&self, s: &Selection) -> (usize, usize) {
         match self.keymap {
-            Keymap::Helix => {
+            Keymap::Helix | Keymap::Vim => {
                 let c = s.block_cursor(self.t());
                 (c, c)
             }
@@ -58,7 +58,7 @@ impl Editor {
         }
         let tx = Transaction::new(changes);
         let sels = match self.keymap {
-            Keymap::Helix => {
+            Keymap::Helix | Keymap::Vim => {
                 let mut mapped = self.map_selections(&tx);
                 // Auto-pair / type-over put the cursor somewhere the generic mapping can't know:
                 // place those selections explicitly (the block cursor re-widens them).

@@ -1141,7 +1141,7 @@ impl Editor {
         }
     }
 
-    fn run_fx(&mut self, kind: FxKind, cnt: usize) {
+    pub(crate) fn run_fx(&mut self, kind: FxKind, cnt: usize) {
         match kind {
             FxKind::TablePicker => self.effects.push(Effect::OpenTablePicker),
             FxKind::ConnectionPicker => self.effects.push(Effect::OpenConnectionPicker),
@@ -1510,7 +1510,7 @@ impl Editor {
         }
     }
 
-    fn indent_for_new_line(&self, line: usize) -> String {
+    pub(crate) fn indent_for_new_line(&self, line: usize) -> String {
         let t = self.rope.slice(..);
         let mut ind = text::leading_whitespace(t, line);
         let content = text::line_content(t, line);
@@ -1809,6 +1809,13 @@ impl Editor {
                 }
             }
         }
+        self.toggle_comment_lines(&lines);
+    }
+
+    /// Toggle `--` comments on the given (sorted) lines: comment them all unless all are commented.
+    pub(crate) fn toggle_comment_lines(&mut self, lines: &[usize]) {
+        let t = self.rope.slice(..);
+        let lines = lines.to_vec();
         let non_blank: Vec<usize> = lines.iter().copied().filter(|&l| !text::is_blank_line(t, l)).collect();
         if non_blank.is_empty() {
             return;

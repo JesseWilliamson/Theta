@@ -15,5 +15,8 @@ mod helix_prompt;
 mod perf;
 mod standard;
 mod syntax;
+mod vim_dsl;
+mod vim_oracle;
 
 pub(crate) use harness::*;
+pub(crate) use vim_dsl::*;

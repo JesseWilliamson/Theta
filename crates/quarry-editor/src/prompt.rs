@@ -69,6 +69,49 @@ const COMMANDS: &[&str] = &[
     "fmt",
 ];
 
+/// Command names Tab completes in the Vim keymap (Vim's long names plus the host commands).
+const VIM_COMMANDS: &[&str] = &[
+    "write",
+    "quit",
+    "quitall",
+    "wq",
+    "xit",
+    "run",
+    "run-all",
+    "explain",
+    "analyze",
+    "format",
+    "theme",
+    "connect",
+    "new",
+    "cancel",
+    "substitute",
+    "global",
+    "vglobal",
+    "delete",
+    "yank",
+    "move",
+    "copy",
+    "join",
+    "put",
+    "mark",
+    "normal",
+    "nohlsearch",
+    "sort",
+    "set",
+    "registers",
+    "marks",
+    "undo",
+    "redo",
+    "help",
+    "wa",
+    "qa",
+    "tabnew",
+    "tabnext",
+    "tabprevious",
+    "tabclose",
+];
+
 /// Compile `pattern` with smart-case: a pattern without any uppercase literal is case-insensitive.
 pub(crate) fn build_regex(pattern: &str) -> Result<Regex, String> {
     let mut has_upper = false;
@@ -276,8 +319,8 @@ impl Editor {
             Some((b, i)) => (b.clone(), i + 1),
             None => (p.text.clone(), 0),
         };
-        let cands: Vec<&str> =
-            COMMANDS.iter().copied().filter(|c| c.starts_with(&base) && c.len() > 1).collect();
+        let list: &[&str] = if self.keymap == Keymap::Vim { VIM_COMMANDS } else { COMMANDS };
+        let cands: Vec<&str> = list.iter().copied().filter(|c| c.starts_with(&base) && c.len() > 1).collect();
         if cands.is_empty() {
             return;
         }
@@ -292,6 +335,7 @@ impl Editor {
         let Some(p) = &self.prompt else { return };
         let (kind, text, saved, extend) = (p.kind, p.text.clone(), p.saved.clone(), p.extend);
         match kind {
+            PromptKind::Search { .. } if self.keymap == Keymap::Vim => {}
             PromptKind::Search { backwards } => {
                 self.set_sels(saved.clone());
                 if text.is_empty() {
@@ -331,11 +375,20 @@ impl Editor {
             PromptKind::Command => {
                 remember(&mut self.search.cmd_history, &text);
                 self.set_sels(p.saved);
-                self.exec_command(text.trim());
+                if self.keymap == Keymap::Vim {
+                    self.vim_ex(text.trim());
+                } else {
+                    self.exec_command(text.trim());
+                }
             }
             PromptKind::Goto => {
                 self.set_sels(p.saved);
                 self.goto_prompt(text.trim());
+            }
+            PromptKind::Search { backwards } if self.keymap == Keymap::Vim => {
+                self.set_sels(p.saved.clone());
+                remember(&mut self.search.history, &text);
+                self.vim_search_submit(&text, backwards, p.count);
             }
             PromptKind::Search { backwards } => {
                 self.set_sels(p.saved.clone());
@@ -611,6 +664,22 @@ impl Editor {
             self.goto_line_number(n);
             return;
         }
+        if self.exec_host_command(name, args) {
+            return;
+        }
+        match name {
+            "goto" | "g" => match args.parse::<usize>() {
+                Ok(n) => self.goto_line_number(n),
+                Err(_) => self.status("usage: goto <line>"),
+            },
+            "sort" => self.sort_command(),
+            _ => self.effects.push(Effect::HostCommand(line.to_string())),
+        }
+    }
+
+    /// The `:` commands that are plain host effects, shared by the Helix and Vim command lines.
+    /// Returns false when `name` is not one of them.
+    pub(crate) fn exec_host_command(&mut self, name: &str, args: &str) -> bool {
         match name {
             "w" | "write" => self.effects.push(Effect::Save),
             "q" | "quit" => self.effects.push(Effect::CloseTab),
@@ -628,13 +697,9 @@ impl Editor {
             "connect" if args.is_empty() => self.effects.push(Effect::OpenConnectionPicker),
             "new" => self.effects.push(Effect::NewTab),
             "cancel" => self.effects.push(Effect::CancelQuery),
-            "goto" | "g" => match args.parse::<usize>() {
-                Ok(n) => self.goto_line_number(n),
-                Err(_) => self.status("usage: goto <line>"),
-            },
-            "sort" => self.sort_command(),
-            _ => self.effects.push(Effect::HostCommand(line.to_string())),
+            _ => return false,
         }
+        true
     }
 
     fn goto_prompt(&mut self, text: &str) {
@@ -665,7 +730,7 @@ impl Editor {
         let p = self.sels.primary();
         let new = match self.keymap {
             Keymap::Helix => p.put_cursor(t, pos, extend),
-            Keymap::Standard => Selection::point(pos),
+            Keymap::Standard | Keymap::Vim => Selection::point(pos),
         };
         self.set_primary_only(new);
     }
