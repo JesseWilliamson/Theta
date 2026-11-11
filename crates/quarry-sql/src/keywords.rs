@@ -1163,6 +1163,20 @@ mod tests {
     use DatabaseKind::*;
 
     #[test]
+    fn non_ascii_and_awkward_identifiers_are_always_quoted_and_escaped() {
+        for kind in [Postgres, MySql, Sqlite] {
+            for name in ["名前", "Ünïcode", "straße", "emoji😀", "a b", "1abc", "a\"b", "a`b", "x-y"] {
+                assert!(needs_quote(name, kind), "{name} in {kind:?}");
+            }
+        }
+        assert_eq!(quote_if_needed("a\"b", Postgres), "\"a\"\"b\"");
+        assert_eq!(quote_if_needed("a`b", MySql), "`a``b`");
+        assert_eq!(qualified_name(Some("Schéma"), "名前", Postgres), "\"Schéma\".\"名前\"");
+        // A zero-length name (SQLite allows `AS ""`) must not produce an empty token.
+        assert_eq!(quote_if_needed("", Sqlite), "\"\"");
+    }
+
+    #[test]
     fn quoting_rules() {
         assert!(!needs_quote("customers", Postgres));
         assert!(needs_quote("Customers", Postgres));

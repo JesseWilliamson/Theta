@@ -348,11 +348,11 @@ impl Workspace {
                 match resolve_theme(&names, arg) {
                     Ok(name) => quarry_ui::themes::set_theme(&name, cx),
                     Err(options) if options.is_empty() => {
-                        self.notify(NoticeKind::Error, format!("No theme named “{arg}”"), window, cx)
+                        self.notify(NoticeKind::Error, format!("No theme named “{}”", shorten(arg)), window, cx)
                     }
                     Err(options) => self.notify(
                         NoticeKind::Error,
-                        format!("“{arg}” matches several themes: {}", options.join(", ")),
+                        format!("“{}” matches several themes: {}", shorten(arg), options.join(", ")),
                         window,
                         cx,
                     ),
@@ -376,7 +376,7 @@ impl Workspace {
                         self.rebind_active_console(&id, cx);
                     }
                     None => {
-                        self.notify(NoticeKind::Error, format!("No connection named “{arg}”"), window, cx)
+                        self.notify(NoticeKind::Error, format!("No connection named “{}”", shorten(arg)), window, cx)
                     }
                 }
             }
@@ -384,7 +384,7 @@ impl Workspace {
             "run" => self.run_request(self.active_tab.unwrap_or(0), RunReq::Statement, window, cx),
             "format" | "fmt" => self.format_console(self.active_tab.unwrap_or(0), false, window, cx),
             "open" | "e" => self.open_sql_file(window, cx),
-            _ => self.notify(NoticeKind::Info, format!("Unknown command: {cmd}"), window, cx),
+            _ => self.notify(NoticeKind::Info, format!("Unknown command: {}", shorten(cmd)), window, cx),
         }
     }
 
@@ -2111,4 +2111,30 @@ async fn recover_lost_session(
         return (fresh, second, Recovery::NotRerun("it lost the connection again when re-run".into()));
     }
     (fresh, second, Recovery::Reran)
+}
+
+/// Text echoed back in a toast: a pasted novel as a `:` argument must not fill the screen.
+fn shorten(text: &str) -> String {
+    const MAX: usize = 48;
+    let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one_line.chars().count() <= MAX {
+        return one_line;
+    }
+    let cut: String = one_line.chars().take(MAX).collect();
+    format!("{cut}…")
+}
+
+#[cfg(test)]
+mod shorten_tests {
+    use super::shorten;
+
+    #[test]
+    fn long_arguments_are_cut_and_whitespace_is_collapsed() {
+        assert_eq!(shorten("tokyo   night"), "tokyo night");
+        let long = "x".repeat(300);
+        let s = shorten(&long);
+        assert_eq!(s.chars().count(), 49);
+        assert!(s.ends_with('…'));
+        assert_eq!(shorten("é".repeat(60).as_str()).chars().count(), 49);
+    }
 }

@@ -224,6 +224,17 @@ mod tests {
     use super::*;
     use quarry_core::{ColumnInfo, ForeignKey, Index, TypeKind};
 
+    #[test]
+    fn unicode_and_quote_characters_in_names_are_quoted_and_escaped() {
+        use DatabaseKind::*;
+        assert_eq!(ident(Postgres, "名前"), "\"名前\"");
+        assert_eq!(ident(Postgres, "Ünï"), "\"Ünï\"");
+        assert_eq!(ident(Postgres, "we\"ird"), "\"we\"\"ird\"");
+        assert_eq!(ident(MySql, "we`ird"), "`we``ird`");
+        assert_eq!(ident(Sqlite, ""), "\"\"");
+        assert_eq!(qualified(Postgres, "Schéma", "tåble", None), "\"Schéma\".\"tåble\"");
+    }
+
     fn col(name: &str, ty: &str, nullable: bool) -> ColumnInfo {
         ColumnInfo {
             name: name.into(),
