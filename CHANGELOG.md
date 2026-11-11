@@ -53,6 +53,21 @@ Key handling
 - Messages hide a meaningless error code (SQLite's "Unknown"); *Cancel Query*, *Commit Transaction* and
   *Roll Back Transaction* are named the same in menus, palette, tooltips and docs.
 
+Connection dialog
+- The database type is a dropdown (icon and label per type, keyboard navigable) driven by one descriptor per
+  kind in `quarry-core`: label, icon, default port, URL schemes and which form sections apply. Adding a
+  database kind needs no dialog change.
+
+Map
+- Basemap registry and picker (toolbar menu, Settings › Map): OpenStreetMap Standard (default),
+  OpenTopoMap, None (graticule) and user-defined basemaps with `{s}` and `{r}` support, per-basemap
+  attribution, max zoom (overzoom beyond it), dark flag and tile cache. The old `map_tile_url` setting is
+  migrated. CARTO basemaps are not built in: their 2026 terms require an API key (see the user guide).
+- A quieter scale bar (1px rule, end ticks, haloed label) in the bottom-right corner above the attribution.
+- Hover cards, the context menu and the layers popover, and the plan flame-graph card, are drawn on the
+  window overlay layer and clamped to the window, so a short bottom panel no longer clips them. Focus rings of
+  switches in the connection and settings dialogs are no longer cut off at the edge of the scroll area.
+
 Explorer
 - Connections, schemas, tables, views, routines, sequences, columns, keys, foreign keys and indexes, with
   row estimates, a filter box and keyboard navigation.

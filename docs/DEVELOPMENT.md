@@ -144,16 +144,20 @@ A driver turns one database's wire protocol into `quarry-core`'s shapes. Everyth
 plan panel, completion) consumes those shapes, so you do not touch the UI for the data path. Using a
 hypothetical "DuckDB" as the example:
 
-1. **Teach the contract about the new kind** (`crates/quarry-core/src/config.rs:5`). `DatabaseKind` is a
-   closed enum: add a variant, then fix `ALL`, `label`, `default_port`, `is_file_based` and `quote_ident`.
-   The compiler points at every exhaustive `match`; the places that decide dialect behaviour are:
+1. **Teach the contract about the new kind** (`crates/quarry-core/src/config.rs`). `DatabaseKind` is a
+   closed enum: add a variant, add it to `ALL`, and add **one descriptor** (`KindInfo`) returned by
+   `DatabaseKind::info`: label, icon key, default port, URL schemes, filter keywords, placeholders and the
+   form `Sections` it uses (network fields, TLS, SSH, file chooser, "create if missing"). The connection
+   dialog (type dropdown, which fields appear, port defaults), the URL parser and `ConnectionConfig::new`
+   are driven by that descriptor, so the dialog needs no layout change; a test checks every descriptor for
+   consistency (`every_kind_has_a_consistent_descriptor`). Then fix `quote_ident` and let the compiler point
+   at every other exhaustive `match`; the places that decide dialect behaviour are:
    - `quarry-sql`: `keywords.rs` (keywords, functions, types), `lexer.rs` (quoting, comments), `complete.rs`,
      `format.rs`, `lint.rs`, `generate.rs` (literals, identifier quoting), `fk.rs`, `plan.rs` (insights),
      `script.rs` (statement splitting and classification), `export.rs`;
    - `quarry-plan-view/src/model.rs` and `sqlcolor.rs` (how a plan is labelled and highlighted);
-   - `quarry-ui/src/db_icon.rs` (`DbIcon`) and, in the application, `explorer/mod.rs` (`db_icon`),
-     `connections/url.rs` (URL scheme), `dialogs/connection.rs` (the kind buttons and fields),
-     `sqlgen.rs` (explorer-generated SQL), `exec/pick.rs`, `exec/fk_ui.rs` and `exec/changes.rs`.
+   - `quarry-ui/src/db_icon.rs` (`DbIcon::from_key`; a kind without a glyph gets the generic one) and, in
+     the application, `sqlgen.rs` (explorer-generated SQL), `exec/pick.rs`, `exec/fk_ui.rs` and `exec/changes.rs`.
 
    Contract changes belong to the repository owner (AGENTS.md): propose them rather than working around them.
 2. **Create the module** `crates/quarry-drivers/src/duckdb/{mod.rs,introspect.rs,types.rs}` (or a single

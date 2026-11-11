@@ -51,7 +51,8 @@ Try it without a server first: `quarry --demo` creates `demo.sqlite` in the conf
 it as *Demo (SQLite)* and connects to it.
 
 For your own database choose *New Connection…* (`mod-shift-n`, the command palette, or the **+** in the
-explorer header). Pick the kind (*PostgreSQL*, *MySQL / MariaDB* or *SQLite*), fill in the fields, then
+explorer header). Choose the **Database type** from the dropdown (*PostgreSQL*, *MySQL / MariaDB*, *SQLite*; arrow keys and
+`enter`, or type to filter), fill in the fields that type needs, then
 press *Test Connection*, *Save* or *Save & Connect*. A successful test reports the server version and the
 round-trip time ("Connection successful · PostgreSQL 16.15 · 53 ms").
 
@@ -369,21 +370,37 @@ grid.
 
 - Pan by dragging or with the arrow keys (`h j k l` in Helix), zoom with the wheel or `+` / `-`, `0` fits
   everything, double-click zooms in.
-- Coordinates in WGS 84, Web-Mercator and UTM SRIDs are placed on an OpenStreetMap basemap. Data with an
-  unknown coordinate system is drawn on a plain planar grid, without tiles.
+- Coordinates in WGS 84, Web-Mercator and UTM SRIDs are placed on a basemap (OpenStreetMap by default).
+  Data with an unknown coordinate system is drawn on a plain planar grid, without tiles.
 - Click a feature to see the other columns of its row; this also selects the row in the grid. In the grid,
   *Show on Map* selects the feature and zooms to it. Each geometry column is a layer (the **Layers**
   button).
-- The toolbar has *Fit to data*, *Zoom in*, *Zoom out*, *Hide basemap* / *Show basemap*, *Dim tiles in dark
-  themes*, *Measure distance and area*, *Layers* and *Export GeoJSON*.
+- The toolbar has *Fit to data*, *Zoom in*, *Zoom out*, the **Basemap** menu, *Dim tiles in dark themes*
+  (not offered for dark basemaps), *Measure distance and area*, *Layers* and *Export GeoJSON*.
 - `m` starts the **measure tool**: click points for a distance, double-click to close a polygon and get the
   area. `esc` leaves it.
 - Right-click for *Copy coordinates*, *Copy as WKT point* and *Copy feature WKT*.
 - Tiles are cached on disk, so panning back is instant and areas seen before still draw offline.
   "Basemap unavailable" with a **Retry** button appears when nothing can be fetched.
-- Change the tile server with Settings › Map › *Tile URL template* or `map_tile_url` in `settings.json`.
-  The default is the public OpenStreetMap server, which asks for light, interactive use; the map shows the
-  attribution.
+- **Basemaps** (toolbar menu or Settings › Map; setting `map_basemap`): *OpenStreetMap Standard* (default),
+  *OpenTopoMap* and *None (graticule)*. Each shows its own attribution while it is on the map and has its own
+  deepest zoom (OpenTopoMap 17): beyond it the last level's tiles are scaled up. Tiles are cached per
+  basemap. Dark themes dim light basemaps; a basemap marked *dark* is not dimmed.
+- **Custom basemaps** (Settings › Map › *Custom basemaps*, or `map_custom_basemaps` in `settings.json`): a
+  name, an XYZ URL with `{z}` `{x}` `{y}` and optionally `{s}` (subdomain `a`, `b` or `c`, rotated per
+  tile) and `{r}` (retina suffix; always empty, standard tiles), an attribution, a max zoom and a *dark*
+  flag. An old `map_tile_url` that was changed is migrated into a custom entry named *Custom tiles*.
+- **Why only OpenStreetMap and OpenTopoMap are built in** (checked 2026-11-11). The OpenStreetMap tile
+  policy allows interactive use by a client that identifies itself (Quarry sends `Quarry/<version>` as the
+  User-Agent), shows attribution and does not prefetch or download in bulk; availability is best-effort.
+  OpenTopoMap is CC-BY-SA with attribution. CARTO's Positron, Dark Matter and Voyager basemaps are reachable,
+  but CARTO's current terms (version 2026-09-29) require a free API key on every request (`?key=`), so they
+  are not built in and *Auto* (dark/light by theme) is not offered. To use them add a custom basemap, for
+  example `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=YOUR_KEY` with attribution
+  `© OpenStreetMap contributors © CARTO`, max zoom 20 and *dark* on. Providers that need a key or forbid
+  this use (Google, Mapbox, Esri imagery) are not offered.
+- A small **scale bar** (a 1px rule with end ticks) sits above the attribution in the bottom-right corner; it
+  is hidden on planar data.
 
 Try it: `select name, city, location_wkt from stores`, then open the Map tab.
 
@@ -425,7 +442,7 @@ immediately and are written to `settings.json`.
 | Appearance | *Theme* (opens the picker), *Follow system appearance*, *Interface font*, *Editor font*, *Editor font size*, *Editor line height* |
 | Editor | *Keymap* (*Helix* or *Standard*), *Format: indent width*, *Format: uppercase keywords* |
 | Data | *Row limit*: 100, 500, 1,000, 5,000, 10,000, 50,000, 100,000 or No limit |
-| Map | *Tile URL template* and *Reset to OpenStreetMap* |
+| Map | *Basemap* and the list of *Custom basemaps* |
 | Keymap | a searchable list of every action with its key, plus the editor keys for the current key map |
 | About | version, repository link and the licences of the bundled fonts, themes and map data |
 
@@ -442,7 +459,9 @@ with a wrong type is ignored with a warning, so one typo never resets the rest.
 | `buffer_font_family`, `buffer_font_size` | `"Lilex"`, `14` | editor and grid font (size 8 to 40) |
 | `buffer_line_height` | `1.5` | multiplier of the buffer font size (1 to 3) |
 | `row_limit` | `1000` | maximum rows fetched per query (the dialog also offers No limit, stored as `0`) |
-| `map_tile_url` | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` | XYZ tile template for the map |
+| `map_basemap` | `"osm"` | `"osm"`, `"opentopomap"`, `"none"` or the `id` of a custom basemap |
+| `map_custom_basemaps` | `[]` | list of `{ "id", "name", "url", "attribution", "max_zoom", "dark" }` |
+| `map_tile_url` | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` | legacy; a changed value is migrated into a custom basemap |
 | `format.indent` | `4` | formatter indent width |
 | `format.uppercase_keywords` | `true` | formatter keyword case |
 
@@ -491,7 +510,7 @@ info*, then *Run anyway*. Verify the download against `SHA256SUMS` if you want t
 
 **The map is grey or says "Basemap unavailable".** The tile server could not be reached (offline, proxy,
 firewall) or rejected the request. Quarry trusts the operating system's certificate store, so corporate
-proxies with their own CA normally work. Click *Retry*, or point `map_tile_url` at a server you can reach.
+proxies with their own CA normally work. Click *Retry*, or choose another basemap or add a custom one for a server you can reach.
 Geometries are still drawn without a basemap.
 
 **A connection to PostgreSQL or MySQL fails with a TLS error.** Try SSL mode *Prefer* or *Disable* for servers
