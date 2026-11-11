@@ -28,12 +28,17 @@ pub struct TileId {
 }
 
 impl TileId {
-    /// Fill a URL template, replacing `{z}`, `{x}` and `{y}`.
+    /// Fill a URL template: `{z}`, `{x}`, `{y}`; `{s}` is a subdomain (`a`, `b` or `c`, rotated
+    /// by tile so requests spread over the provider's hosts and a tile always uses the same
+    /// one); `{r}` is the retina suffix, which is empty (standard-resolution tiles only).
     pub fn url(&self, template: &str) -> String {
+        const SUBDOMAINS: [&str; 3] = ["a", "b", "c"];
         template
             .replace("{z}", &self.z.to_string())
             .replace("{x}", &self.x.to_string())
             .replace("{y}", &self.y.to_string())
+            .replace("{s}", SUBDOMAINS[(self.x as usize + self.y as usize) % SUBDOMAINS.len()])
+            .replace("{r}", "")
     }
 
     /// The tile's extent as lon/lat: `min = [west, south]`, `max = [east, north]`.
@@ -159,7 +164,14 @@ impl MapView {
     /// antimeridian; rows outside the world are dropped. If a huge viewport would need
     /// more than 64 tiles the level is lowered until it fits.
     pub fn visible_tiles(&self) -> Vec<(TileId, [f64; 2], f64)> {
-        let mut level = (self.zoom.round().clamp(0.0, f64::from(MAX_TILE_ZOOM))) as u8;
+        self.visible_tiles_capped(MAX_TILE_ZOOM)
+    }
+
+    /// Like [`visible_tiles`](Self::visible_tiles) for a basemap whose deepest level is
+    /// `max_level`: past it the tiles of that level are drawn scaled up (overzoom).
+    pub fn visible_tiles_capped(&self, max_level: u8) -> Vec<(TileId, [f64; 2], f64)> {
+        let cap = max_level.min(MAX_TILE_ZOOM);
+        let mut level = (self.zoom.round().clamp(0.0, f64::from(cap))) as u8;
         loop {
             let tiles = self.tiles_at(level);
             if tiles.len() <= MAX_TILES || level == 0 {
@@ -568,6 +580,29 @@ mod tests {
         let d =
             |t: &(TileId, [f64; 2], f64)| (t.1[0] + t.2 / 2.0 - mid[0]).hypot(t.1[1] + t.2 / 2.0 - mid[1]);
         assert!(t.windows(2).all(|w| d(&w[0]) <= d(&w[1]) + 1e-9));
+    }
+
+    #[test]
+    fn subdomain_and_retina_placeholders() {
+        let t = TileId { z: 3, x: 5, y: 2 };
+        // (5 + 2) % 3 = 1 -> "b"; the same tile always asks the same host.
+        assert_eq!(
+            t.url("https://{s}.basemaps.cartocdn.com/{style}/{z}/{x}/{y}{r}.png"),
+            "https://b.basemaps.cartocdn.com/{style}/3/5/2.png"
+        );
+        let hosts: std::collections::HashSet<String> =
+            (0..9).map(|x| TileId { z: 4, x, y: 0 }.url("{s}")).collect();
+        assert_eq!(hosts.len(), 3, "rotates over a, b and c: {hosts:?}");
+    }
+
+    #[test]
+    fn overzoom_draws_the_deepest_level_scaled_up() {
+        let v = MapView { center: [10.0, 50.0], zoom: 19.0, size: [400.0, 300.0] };
+        let (id, _, drawn) = v.visible_tiles_capped(17)[0];
+        assert_eq!(id.z, 17);
+        assert!((drawn - 256.0 * 4.0).abs() < 1e-6, "2^(19-17) times larger: {drawn}");
+        let (id, _, drawn) = v.visible_tiles()[0];
+        assert_eq!((id.z, drawn as i32), (19, 256));
     }
 
     #[test]

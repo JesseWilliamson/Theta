@@ -13,7 +13,7 @@ use gpui_kit::{
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription,
     Window, div, px,
 };
-use quarry_ui::settings::{DEFAULT_TILE_URL, KeymapMode, MAX_FONT_SIZE, MIN_FONT_SIZE};
+use quarry_ui::settings::{KeymapMode, MAX_FONT_SIZE, MIN_FONT_SIZE};
 use quarry_ui::{CHROME_TEXT_SIZE, KeyHint, Settings};
 use std::sync::OnceLock;
 
@@ -61,7 +61,13 @@ pub struct SettingsView {
     section: Section,
     ui_font: Entity<SelectState<Vec<&'static str>>>,
     buf_font: Entity<SelectState<Vec<&'static str>>>,
-    tile: Entity<InputState>,
+    basemap: Entity<SelectState<Vec<String>>>,
+    bm_name: Entity<InputState>,
+    bm_url: Entity<InputState>,
+    bm_attr: Entity<InputState>,
+    bm_zoom: Entity<InputState>,
+    bm_dark: bool,
+    bm_error: Option<String>,
     filter: Entity<InputState>,
     /// (section, label, keys) rows of the app and editor key reference.
     rows: Vec<(String, String, String)>,
@@ -71,6 +77,19 @@ pub struct SettingsView {
 pub fn open(window: &mut Window, cx: &mut App) {
     let view = cx.new(|cx| SettingsView::new(window, cx));
     window.open_dialog(cx, move |dialog, _, _| dialog.title("Settings").w(px(820.)).child(view.clone()));
+}
+
+/// The basemap dropdown: every basemap by name, the selected one preselected.
+fn basemap_select(
+    s: &quarry_ui::Settings,
+    window: &mut Window,
+    cx: &mut Context<SettingsView>,
+) -> Entity<SelectState<Vec<String>>> {
+    let all = quarry_map_view::basemap::all(s);
+    let current = quarry_map_view::basemap::selected(s).id;
+    let ix = all.iter().position(|b| b.id == current).map(IndexPath::new);
+    let names: Vec<String> = all.into_iter().map(|b| b.name).collect();
+    cx.new(|cx| SelectState::new(names, ix, window, cx))
 }
 
 fn font_select(
@@ -88,7 +107,13 @@ impl SettingsView {
         let s = Settings::get(cx).clone();
         let ui_font = font_select(&s.ui_font_family, window, cx);
         let buf_font = font_select(&s.buffer_font_family, window, cx);
-        let tile = cx.new(|cx| InputState::new(window, cx).default_value(s.map_tile_url.clone()));
+        let basemap = basemap_select(&s, window, cx);
+        let bm_name = cx.new(|cx| InputState::new(window, cx).placeholder("Name, e.g. My tiles"));
+        let bm_url =
+            cx.new(|cx| InputState::new(window, cx).placeholder("https://{s}.example.com/{z}/{x}/{y}.png"));
+        let bm_attr =
+            cx.new(|cx| InputState::new(window, cx).placeholder("\u{a9} the provider and OpenStreetMap"));
+        let bm_zoom = cx.new(|cx| InputState::new(window, cx).default_value("19"));
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search actions and keys"));
         let mut rows: Vec<(String, String, String)> = crate::palette::command_list(window);
         let mode = s.keymap;
@@ -110,12 +135,15 @@ impl SettingsView {
                     Settings::update(cx, |s| s.buffer_font_family = n);
                 }
             }),
-            cx.subscribe_in(&tile, window, |_, input, e: &InputEvent, _, cx| {
-                if matches!(e, InputEvent::Change) {
-                    let v = input.read(cx).value().to_string();
-                    if v.starts_with("http") && v.contains("{z}") {
-                        Settings::update(cx, |s| s.map_tile_url = v);
-                    }
+            cx.subscribe_in(&basemap, window, |_, _, e: &SelectEvent<Vec<String>>, _, cx| {
+                if let SelectEvent::Confirm(Some(name)) = e {
+                    let name = name.clone();
+                    Settings::update(cx, |s| {
+                        if let Some(b) = quarry_map_view::basemap::all(s).into_iter().find(|b| b.name == name)
+                        {
+                            s.map_basemap = b.id;
+                        }
+                    });
                 }
             }),
             cx.subscribe_in(&filter, window, |_, _, e: &InputEvent, _, cx| {
@@ -125,7 +153,21 @@ impl SettingsView {
             }),
             cx.observe_global::<quarry_ui::settings::SettingsStore>(|_, cx| cx.notify()),
         ];
-        Self { section: Section::Appearance, ui_font, buf_font, tile, filter, rows, _subs: subs }
+        Self {
+            section: Section::Appearance,
+            ui_font,
+            buf_font,
+            basemap,
+            bm_name,
+            bm_url,
+            bm_attr,
+            bm_zoom,
+            bm_dark: false,
+            bm_error: None,
+            filter,
+            rows,
+            _subs: subs,
+        }
     }
 
     fn row(&self, label: &str, hint: Option<&str>, control: impl IntoElement, cx: &App) -> AnyElement {
@@ -297,25 +339,130 @@ impl SettingsView {
             .into_any_element()
     }
 
+    fn add_basemap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let value = |e: &Entity<InputState>, cx: &App| e.read(cx).value().trim().to_string();
+        let (name, url, attribution) =
+            (value(&self.bm_name, cx), value(&self.bm_url, cx), value(&self.bm_attr, cx));
+        let max_zoom = value(&self.bm_zoom, cx).parse::<u8>().ok().filter(|z| (1..=22).contains(z));
+        self.bm_error = if name.is_empty() {
+            Some("Give the basemap a name.".into())
+        } else if !quarry_ui::settings::CustomBasemap::url_is_valid(&url) {
+            Some("The URL must start with http(s):// and contain {z}, {x} and {y}.".into())
+        } else if max_zoom.is_none() {
+            Some("Max zoom is a number from 1 to 22.".into())
+        } else {
+            None
+        };
+        if self.bm_error.is_none() {
+            let dark = self.bm_dark;
+            Settings::update(cx, |s| {
+                let mut id = format!("custom-{}", name.to_lowercase().replace(' ', "-"));
+                while s.map_custom_basemaps.iter().any(|b| b.id == id) {
+                    id.push('x');
+                }
+                s.map_basemap = id.clone();
+                s.map_custom_basemaps.push(quarry_ui::settings::CustomBasemap {
+                    id,
+                    name,
+                    url,
+                    attribution,
+                    max_zoom: max_zoom.unwrap_or(19),
+                    dark,
+                });
+            });
+            for e in [&self.bm_name, &self.bm_url, &self.bm_attr] {
+                e.update(cx, |i, cx| i.set_value("", window, cx));
+            }
+            self.refresh_basemaps(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// Rebuild the dropdown after the list of basemaps changed.
+    fn refresh_basemaps(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let s = Settings::get(cx).clone();
+        self.basemap = basemap_select(&s, window, cx);
+        cx.notify();
+    }
+
     fn map(&self, cx: &mut Context<Self>) -> AnyElement {
-        let tile = self.tile.clone();
         let theme = cx.theme().clone();
+        let s = Settings::get(cx).clone();
+        let current = quarry_map_view::basemap::selected(&s);
+        let note = |t: String| div().text_size(CHROME_TEXT_SIZE).text_color(theme.muted_foreground).child(t);
         v_flex()
             .gap_2()
-            .child(div().text_size(px(13.)).child("Tile URL template"))
-            .child(
-                div()
-                    .text_size(CHROME_TEXT_SIZE)
-                    .text_color(theme.muted_foreground)
-                    .child("XYZ template with {z}, {x} and {y}. Respect the tile provider's usage policy."),
-            )
-            .child(Input::new(&self.tile))
-            .child(div().pt_3().child(Button::new("tile-reset").label("Reset to OpenStreetMap").on_click(
-                move |_, window, cx| {
-                    Settings::update(cx, |s| s.map_tile_url = DEFAULT_TILE_URL.to_string());
-                    tile.update(cx, |t, cx| t.set_value(DEFAULT_TILE_URL, window, cx));
-                },
+            .child(self.row(
+                "Basemap",
+                Some("Shown under geographic results; the attribution stays on the map"),
+                div().w(px(250.)).child(Select::new(&self.basemap)),
+                cx,
+            ))
+            .child(note(format!(
+                "Attribution: {}",
+                match quarry_map_view::basemap::attribution_text(&current) {
+                    t if t.is_empty() => "none (no basemap)".to_string(),
+                    t => t,
+                }
             )))
+            .child(div().pt_3().text_size(px(13.)).font_weight(FontWeight::MEDIUM).child("Custom basemaps"))
+            .child(note(
+                "XYZ templates with {z}, {x}, {y}, and optionally {s} (a/b/c) and {r}. Respect the provider's \
+                 usage policy; providers that need an API key take it in the URL."
+                    .to_string(),
+            ))
+            .children(s.map_custom_basemaps.iter().map(|b| {
+                let id = b.id.clone();
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        v_flex().flex_1().min_w_0().child(div().text_size(px(13.)).child(b.name.clone())).child(
+                            div()
+                                .text_size(CHROME_TEXT_SIZE)
+                                .text_color(theme.muted_foreground)
+                                .overflow_hidden()
+                                .child(format!("{} \u{b7} max zoom {}{}", b.url, b.max_zoom, if b.dark { " \u{b7} dark" } else { "" })),
+                        ),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("bm-del-{id}"))).label("Remove").on_click(
+                            cx.listener(move |this, _, window, cx| {
+                                let id = id.clone();
+                                Settings::update(cx, move |s| {
+                                    s.map_custom_basemaps.retain(|b| b.id != id);
+                                    if s.map_basemap == id {
+                                        s.map_basemap = quarry_map_view::basemap::DEFAULT_ID.into();
+                                    }
+                                });
+                                this.refresh_basemaps(window, cx);
+                            }),
+                        ),
+                    )
+            }))
+            .child(Input::new(&self.bm_name))
+            .child(Input::new(&self.bm_url))
+            .child(Input::new(&self.bm_attr))
+            .child(
+                h_flex()
+                    .gap_3()
+                    .items_center()
+                    .child(div().w(px(90.)).child(Input::new(&self.bm_zoom)))
+                    .child(note("max zoom".into()))
+                    .child(
+                        Switch::new("bm-dark").label("Dark basemap").checked(self.bm_dark).on_change(
+                            cx.listener(|this, v, _, cx| {
+                                this.bm_dark = *v;
+                                cx.notify();
+                            }),
+                        ),
+                    )
+                    .child(div().flex_1())
+                    .child(Button::new("bm-add").label("Add basemap").on_click(cx.listener(
+                        |this, _, window, cx| this.add_basemap(window, cx),
+                    ))),
+            )
+            .children(self.bm_error.clone().map(|e| div().text_size(CHROME_TEXT_SIZE).text_color(theme.danger).child(e)))
             .into_any_element()
     }
 
@@ -390,7 +537,7 @@ impl SettingsView {
                     .into(),
             ))
             .child(line(
-                "Map tiles: © OpenStreetMap contributors (ODbL) when the default URL is used.".into(),
+                "Map tiles: attribution is shown on the map for the selected basemap (OpenStreetMap by default).".into(),
             ))
             .into_any_element()
     }

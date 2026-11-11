@@ -11,6 +11,7 @@ use crate::scene::{Colors, paint_map};
 use crate::world::{Mode, lon_lat_to_world, world_to_lon_lat};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _, h_flex, v_flex,
 };
@@ -57,18 +58,20 @@ pub struct MapPanel {
 
 impl EventEmitter<MapEvent> for MapPanel {}
 
-/// The tile URL in force: a test hook (`QUARRY_TILE_URL_OVERRIDE`) wins over settings.
-fn tile_template(cx: &App) -> String {
-    std::env::var("QUARRY_TILE_URL_OVERRIDE")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| Settings::get(cx).map_tile_url.clone())
+/// The basemap in force: a test hook (`QUARRY_TILE_URL_OVERRIDE`) wins over settings.
+fn current_basemap(cx: &App) -> crate::basemap::Basemap {
+    let mut b = crate::basemap::selected(Settings::get(cx));
+    if let Some(url) = std::env::var("QUARRY_TILE_URL_OVERRIDE").ok().filter(|s| !s.trim().is_empty()) {
+        b.template = Some(url);
+    }
+    b
 }
 
 impl MapPanel {
     /// A panel with no content (shows the empty state).
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let core = Rc::new(RefCell::new(Core::new(tile_template(cx))));
+        let core = Rc::new(RefCell::new(Core::new(quarry_ui::settings::DEFAULT_TILE_URL.to_string())));
+        core.borrow_mut().apply_basemap(&current_basemap(cx));
         let rx = core.borrow().tiles.loader.results.clone();
         let task = cx.spawn(async move |this, cx: &mut AsyncApp| {
             while let Ok(result) = rx.recv().await {
@@ -402,12 +405,68 @@ fn menu_item(
         .child(label)
 }
 
+/// Text with a 1px halo in the background colour, legible on any tile colour.
+fn haloed(t: &Theme, text: String, color: Hsla) -> AnyElement {
+    let halo = t.bg.opacity(0.9);
+    let copy = |dx: f32, dy: f32| {
+        div()
+            .absolute()
+            .left(px(dx))
+            .top(px(dy))
+            .whitespace_nowrap()
+            .text_size(px(10.))
+            .text_color(halo)
+            .child(text.clone())
+    };
+    div()
+        .relative()
+        .child(copy(-1., 0.))
+        .child(copy(1., 0.))
+        .child(copy(0., -1.))
+        .child(copy(0., 1.))
+        .child(div().relative().whitespace_nowrap().text_size(px(10.)).text_color(color).child(text.clone()))
+        .into_any_element()
+}
+
+/// The scale bar: label over a 1px rule with a small tick at each end, bottom-right, `above`
+/// px up from the bottom edge (clear of the attribution).
+fn scale_bar(t: &Theme, bar_px: f32, label: String, above: f32) -> AnyElement {
+    let ink = t.fg.opacity(0.8);
+    let rule = |w: f32, h: f32, x: f32, y: f32, c: Hsla| {
+        div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).bg(c)
+    };
+    let halo = t.bg.opacity(0.55);
+    v_flex()
+        .absolute()
+        .right(px(8.))
+        .bottom(px(above))
+        .items_end()
+        .gap(px(1.))
+        .child(haloed(t, label, t.fg.opacity(0.8)))
+        .child(
+            div()
+                .relative()
+                .w(px(bar_px + 2.))
+                .h(px(6.))
+                // Halo first (3px wider than the ink), then the ink on top.
+                .child(rule(bar_px + 2., 3., 0., 2., halo))
+                .child(rule(3., 6., 0., 0., halo))
+                .child(rule(3., 6., bar_px - 1., 0., halo))
+                .child(rule(bar_px, 1., 1., 3., ink))
+                .child(rule(1., 5., 1., 0., ink))
+                .child(rule(1., 5., bar_px, 0., ink)),
+        )
+        .into_any_element()
+}
+
 impl MapPanel {
     fn toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let core = self.core.borrow();
         let has_data = !core.is_empty();
         let geographic = core.prepared.mode == Mode::Geographic;
         let (basemap, dim, measuring) = (core.basemap, core.dim, core.measuring);
+        let basemap_name = core.basemap_info.name.clone();
+        let dark_basemap = core.basemap_info.dark;
         let n_visible = core.prepared.features.iter().filter(|f| core.layer_visible(f)).count();
         drop(core);
         let sep = || div().w(px(1.)).h(px(14.)).mx_1().bg(t.border);
@@ -454,19 +513,24 @@ impl MapPanel {
             )
             .child(sep())
             .child(
-                tool_button(
-                    "map-basemap",
-                    IconName::Map,
-                    if basemap { "Hide basemap" } else { "Show basemap" },
-                )
-                .disabled(!geographic)
-                .selected(basemap && geographic)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    let mut c = this.core.borrow_mut();
-                    c.basemap = !c.basemap;
-                    drop(c);
-                    cx.notify();
-                })),
+                tool_button("map-basemap", IconName::Map, format!("Basemap: {basemap_name}"))
+                    .disabled(!geographic)
+                    .selected(basemap && geographic)
+                    .dropdown_menu(move |mut menu, _, cx| {
+                        let current = crate::basemap::selected(Settings::get(cx)).id;
+                        for b in crate::basemap::all(Settings::get(cx)) {
+                            let id = b.id.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(b.name.clone()).checked(b.id == current).on_click(
+                                    move |_, _, cx| {
+                                        let id = id.clone();
+                                        Settings::update(cx, move |s| s.map_basemap = id);
+                                    },
+                                ),
+                            );
+                        }
+                        menu
+                    }),
             )
             .child(
                 tool_button(
@@ -474,8 +538,8 @@ impl MapPanel {
                     IconName::Contrast,
                     if dim { "Don't dim tiles in dark themes" } else { "Dim tiles in dark themes" },
                 )
-                .disabled(!geographic || !basemap)
-                .selected(dim && geographic && basemap)
+                .disabled(!geographic || !basemap || dark_basemap)
+                .selected(dim && geographic && basemap && !dark_basemap)
                 .on_click(cx.listener(|this, _, _, cx| {
                     let mut c = this.core.borrow_mut();
                     c.dim = !c.dim;
@@ -625,45 +689,26 @@ impl MapPanel {
             }
         }
 
-        // Scale bar and attribution.
+        // Attribution (always shown with a basemap) in the bottom-right corner, and a quiet
+        // scale bar just above it: no box, a 1px rule with end ticks and a haloed label, so
+        // it reads over light and dark tiles without drawing the eye.
+        let attribution = (core.prepared.mode == Mode::Geographic && core.basemap)
+            .then(|| crate::basemap::attribution_text(&core.basemap_info))
+            .filter(|s| !s.is_empty());
         if let Some(mpp) = core.camera.meters_per_pixel() {
-            let (bar_px, label) = quarry_geo::nice_scale_bar(mpp, 120.0);
+            let (bar_px, label) = quarry_geo::nice_scale_bar(mpp, 100.0);
             if bar_px > 1.0 {
-                out.push(
-                    v_flex()
-                        .absolute()
-                        .left(px(8.))
-                        .bottom(px(if core.grid_shown { 22. } else { 8. }))
-                        .gap_0p5()
-                        .px_1p5()
-                        .py_0p5()
-                        .rounded(px(3.))
-                        .bg(t.bg.opacity(0.72))
-                        .child(div().text_size(px(10.)).text_color(t.fg).child(label))
-                        .child(
-                            div()
-                                .w(px(bar_px as f32))
-                                .h(px(5.))
-                                .border_1()
-                                .border_t_0()
-                                .border_color(t.fg.opacity(0.85)),
-                        )
-                        .into_any_element(),
-                );
+                let above = if attribution.is_some() { 20. } else { 6. };
+                out.push(scale_bar(t, bar_px as f32, label, above));
             }
         }
-        if core.prepared.mode == Mode::Geographic && core.basemap {
-            let host = crate::tiles::host_of(&core.tiles.template);
-            let text = if host.contains("openstreetmap.org") {
-                "\u{00a9} OpenStreetMap contributors".to_string()
-            } else {
-                format!("Tiles: {host}")
-            };
+        if let Some(text) = attribution {
             out.push(
                 div()
                     .absolute()
                     .right(px(0.))
                     .bottom(px(0.))
+                    .max_w(px((size[0] - 8.0).max(80.0) as f32))
                     .px_1p5()
                     .py(px(1.))
                     .rounded_tl(px(4.))
@@ -942,8 +987,8 @@ impl Render for MapPanel {
             dark: theme.is_dark(),
         };
         let _ = window;
-        let template = tile_template(cx);
-        self.core.borrow_mut().tiles.set_template(template);
+        let basemap = current_basemap(cx);
+        self.core.borrow_mut().apply_basemap(&basemap);
 
         let empty = self.core.borrow().is_empty();
         let size = self.core.borrow().camera.size();

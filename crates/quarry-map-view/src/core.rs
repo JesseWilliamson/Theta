@@ -72,6 +72,8 @@ pub struct TileStore {
     pub loader: TileLoader,
     /// The URL template in use.
     pub template: String,
+    /// Deepest zoom level the basemap serves; the map overzooms past it.
+    pub max_zoom: u8,
     hash: u64,
     /// Tiles whose fetch failed; not retried until the user presses Retry.
     pub failed: HashSet<TileId>,
@@ -91,6 +93,7 @@ impl TileStore {
             loader: TileLoader::new(cache_root()),
             hash: template_hash(&template),
             template,
+            max_zoom: 19,
             failed: HashSet::new(),
             consecutive_failures: 0,
             last_wanted: Vec::new(),
@@ -228,8 +231,10 @@ pub struct Core {
     pub measuring: bool,
     /// Measure tool state.
     pub measure: Measurement,
-    /// Basemap tiles on.
+    /// Basemap tiles on (the selected basemap has tiles).
     pub basemap: bool,
+    /// The selected basemap: attribution, dark/light, deepest zoom.
+    pub basemap_info: crate::basemap::Basemap,
     /// Dim tiles in dark themes.
     pub dim: bool,
     /// Tile cache and loader.
@@ -241,6 +246,19 @@ pub struct Core {
 }
 
 impl Core {
+    /// Switch to `b` (a settings change or first paint); a no-op when nothing differs.
+    pub fn apply_basemap(&mut self, b: &crate::basemap::Basemap) {
+        if self.basemap_info == *b {
+            return;
+        }
+        self.basemap = b.template.is_some();
+        if let Some(t) = &b.template {
+            self.tiles.set_template(t.clone());
+        }
+        self.tiles.max_zoom = b.max_zoom;
+        self.basemap_info = b.clone();
+    }
+
     /// An empty core.
     pub fn new(template: String) -> Self {
         Core {
@@ -262,6 +280,7 @@ impl Core {
             measuring: false,
             measure: Measurement::new(Metric::Geodesic),
             basemap: true,
+            basemap_info: crate::basemap::builtins().remove(0),
             dim: true,
             tiles: TileStore::new(template),
             grid_shown: false,

@@ -11,6 +11,7 @@
 //! * [`core`] / [`scene`]: state, camera animation, hit testing and painting;
 //! * [`panel`]: the GPUI entity, [`MapPanel`].
 
+pub mod basemap;
 mod camera;
 mod clip;
 mod core;

@@ -63,12 +63,54 @@ pub struct Settings {
     pub buffer_line_height: f32,
     pub row_limit: usize,
     /// XYZ tile URL template for the map view.
+    /// Legacy single tile URL; `sanitized` migrates a changed value into a custom basemap
+    /// and puts the default back.
     pub map_tile_url: String,
+    /// Id of the selected basemap: a built-in (`osm`, `opentopomap`, `none`) or a custom id.
+    pub map_basemap: String,
+    /// User-defined basemaps.
+    pub map_custom_basemaps: Vec<CustomBasemap>,
     pub format: FormatSettings,
 }
 
 pub const DEFAULT_UI_FONT: &str = "IBM Plex Sans";
 pub const DEFAULT_BUFFER_FONT: &str = "Lilex";
+/// A basemap the user defined in settings.json or Settings > Map.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomBasemap {
+    pub id: String,
+    pub name: String,
+    /// XYZ template with `{z}`, `{x}`, `{y}` and optionally `{s}` and `{r}`.
+    pub url: String,
+    pub attribution: String,
+    /// Deepest zoom level the tiles exist at; the map scales them beyond it.
+    pub max_zoom: u8,
+    /// A dark basemap is not dimmed in dark themes.
+    pub dark: bool,
+}
+
+impl Default for CustomBasemap {
+    fn default() -> Self {
+        CustomBasemap {
+            id: String::new(),
+            name: String::new(),
+            url: String::new(),
+            attribution: String::new(),
+            max_zoom: 19,
+            dark: false,
+        }
+    }
+}
+
+impl CustomBasemap {
+    /// Whether `url` can be used as an XYZ tile template.
+    pub fn url_is_valid(url: &str) -> bool {
+        (url.starts_with("http://") || url.starts_with("https://"))
+            && ["{z}", "{x}", "{y}"].iter().all(|p| url.contains(p))
+    }
+}
+
 pub const DEFAULT_TILE_URL: &str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
 impl Default for Settings {
@@ -86,6 +128,8 @@ impl Default for Settings {
             buffer_line_height: 1.5,
             row_limit: 1000,
             map_tile_url: DEFAULT_TILE_URL.into(),
+            map_basemap: "osm".into(),
+            map_custom_basemaps: Vec::new(),
             format: FormatSettings::default(),
         }
     }
@@ -136,6 +180,31 @@ impl Settings {
         self.buffer_font_size = self.buffer_font_size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
         self.buffer_line_height = self.buffer_line_height.clamp(1.0, 3.0);
         self.row_limit = self.row_limit.max(1);
+        // The old single-URL setting becomes a custom basemap the first time it is seen changed.
+        if self.map_tile_url != DEFAULT_TILE_URL {
+            if CustomBasemap::url_is_valid(&self.map_tile_url)
+                && !self.map_custom_basemaps.iter().any(|b| b.url == self.map_tile_url)
+            {
+                self.map_custom_basemaps.push(CustomBasemap {
+                    id: "custom-migrated".into(),
+                    name: "Custom tiles".into(),
+                    url: self.map_tile_url.clone(),
+                    ..CustomBasemap::default()
+                });
+                if self.map_basemap == "osm" {
+                    self.map_basemap = "custom-migrated".into();
+                }
+            }
+            self.map_tile_url = DEFAULT_TILE_URL.into();
+        }
+        let mut seen = std::collections::HashSet::new();
+        self.map_custom_basemaps.retain_mut(|b| {
+            b.max_zoom = b.max_zoom.clamp(1, 22);
+            if b.id.is_empty() {
+                b.id = format!("custom-{}", b.name.to_lowercase().replace(' ', "-"));
+            }
+            !b.name.trim().is_empty() && CustomBasemap::url_is_valid(&b.url) && seen.insert(b.id.clone())
+        });
         self
     }
 
@@ -286,6 +355,35 @@ mod tests {
         let (s, w) = Settings::parse_lenient("[1]");
         assert_eq!(s, Settings::default());
         assert_eq!(w.len(), 1);
+    }
+
+    #[test]
+    fn a_changed_legacy_tile_url_becomes_a_selected_custom_basemap() {
+        let (s, w) =
+            Settings::parse_lenient(r#"{ "map_tile_url": "https://tiles.example/{z}/{x}/{y}.png" }"#);
+        assert!(w.is_empty());
+        assert_eq!(s.map_custom_basemaps.len(), 1);
+        assert_eq!(s.map_custom_basemaps[0].url, "https://tiles.example/{z}/{x}/{y}.png");
+        assert_eq!(s.map_basemap, "custom-migrated");
+        assert_eq!(s.map_tile_url, DEFAULT_TILE_URL, "migrated exactly once");
+        // The default URL migrates nothing, and a re-save does not duplicate the entry.
+        let (d, _) = Settings::parse_lenient("{}");
+        assert!(d.map_custom_basemaps.is_empty() && d.map_basemap == "osm");
+        let (again, _) = Settings::parse_lenient(&s.to_pretty_json());
+        assert_eq!(again.map_custom_basemaps.len(), 1);
+    }
+
+    #[test]
+    fn invalid_custom_basemaps_are_dropped() {
+        let (s, _) = Settings::parse_lenient(
+            r#"{ "map_custom_basemaps": [
+                {"name": "ok", "url": "https://t/{z}/{x}/{y}.png", "max_zoom": 99},
+                {"name": "no placeholders", "url": "https://t/tile.png"},
+                {"name": "", "url": "https://t/{z}/{x}/{y}.png"},
+                {"name": "file", "url": "file:///{z}/{x}/{y}"} ] }"#,
+        );
+        assert_eq!(s.map_custom_basemaps.len(), 1);
+        assert_eq!(s.map_custom_basemaps[0].max_zoom, 22);
     }
 
     #[test]

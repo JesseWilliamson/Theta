@@ -215,7 +215,7 @@ pub fn paint_map(
         let mut tiles_drawn = 0;
         if core.prepared.mode == Mode::Geographic && core.basemap {
             tiles_drawn = paint_tiles(core, &cx, window);
-            if colors.dark && core.dim && tiles_drawn > 0 {
+            if colors.dark && core.dim && !core.basemap_info.dark && tiles_drawn > 0 {
                 window.paint_quad(fill(bounds, colors.bg.opacity(0.35)));
             }
         }
@@ -230,7 +230,7 @@ pub fn paint_map(
 
 fn paint_tiles(core: &mut Core, cx: &Cx, window: &mut Window) -> usize {
     let crate::camera::Camera::Geo(view) = core.camera else { return 0 };
-    let visible = view.visible_tiles();
+    let visible = view.visible_tiles_capped(core.tiles.max_zoom);
     let ids: Vec<_> = visible.iter().map(|(t, _, _)| *t).collect();
     core.tiles.want(&ids);
     let mut drawn = 0;

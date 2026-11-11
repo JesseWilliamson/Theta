@@ -83,6 +83,15 @@ pub fn host_of(template: &str) -> String {
     if clean.is_empty() { "unknown".into() } else { clean }
 }
 
+/// The cache directory of one basemap: the host plus a hash of the whole template, so two
+/// basemaps on one host (CARTO's light and dark styles, say) never share tiles.
+pub fn cache_dir_name(template: &str) -> String {
+    // FNV-1a: unlike `DefaultHasher` it is specified, so the directory (and the cached tiles
+    // in it) survives a compiler upgrade.
+    let hash = template.bytes().fold(0x811c_9dc5_u32, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193));
+    format!("{}-{hash:08x}", host_of(template))
+}
+
 /// `<root>/quarry/tiles`, where root is `QUARRY_CACHE_DIR`, else the OS cache dir.
 pub fn cache_root() -> PathBuf {
     let base = std::env::var_os("QUARRY_CACHE_DIR")
@@ -96,7 +105,10 @@ pub fn cache_root() -> PathBuf {
 /// `<root>/<host>/<z>/<x>/<y>.png`. The extension is nominal: the bytes are whatever
 /// the server sent and are sniffed on decode.
 pub fn disk_path(root: &Path, template: &str, t: TileId) -> PathBuf {
-    root.join(host_of(template)).join(t.z.to_string()).join(t.x.to_string()).join(format!("{}.png", t.y))
+    root.join(cache_dir_name(template))
+        .join(t.z.to_string())
+        .join(t.x.to_string())
+        .join(format!("{}.png", t.y))
 }
 
 /// Whether a file modified at `modified` is still fresh at `now`. A modification time
@@ -163,6 +175,18 @@ pub fn template_hash(template: &str) -> u64 {
 mod tests {
     use super::*;
 
+    #[test]
+    fn basemaps_on_one_host_do_not_share_a_cache_directory() {
+        let light = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png";
+        let dark = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
+        assert_ne!(cache_dir_name(light), cache_dir_name(dark));
+        assert!(cache_dir_name(light).starts_with("{s}") == false);
+        assert_eq!(cache_dir_name(light), cache_dir_name(light));
+        let t = TileId { z: 1, x: 0, y: 1 };
+        let root = std::path::Path::new("/c");
+        assert_ne!(disk_path(root, light, t), disk_path(root, dark, t));
+    }
+
     fn t(z: u8, x: u32, y: u32) -> TileId {
         TileId { z, x, y }
     }
@@ -204,7 +228,9 @@ mod tests {
             "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
             t(5, 17, 11),
         );
-        assert_eq!(p, PathBuf::from("/c/quarry/tiles/tile.openstreetmap.org/5/17/11.png"));
+        let dir = cache_dir_name("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
+        assert!(dir.starts_with("tile.openstreetmap.org-"), "{dir}");
+        assert_eq!(p, PathBuf::from(format!("/c/quarry/tiles/{dir}/5/17/11.png")));
     }
 
     #[test]
