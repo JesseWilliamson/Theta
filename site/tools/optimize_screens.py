@@ -26,7 +26,7 @@ NAMES = {
     "04-plan-insights": "plan-insights",
     "05-editable-grid": "editable-grid",
     "06-explorer-suggested-fks-related": "explorer-suggested-fks",
-    "07-quarry-light": "theme-light",
+    "07-theta-light": "theme-light",
     "08-theme-picker": "theme-picker",
     "09-connection-ssh": "connection-ssh",
     "10-vim-visual-block": "vim-visual-block",
