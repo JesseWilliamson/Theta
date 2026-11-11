@@ -50,14 +50,11 @@ pub fn parse_connection_url(input: &str) -> Result<ParsedUrl, String> {
         .split_once("://")
         .or_else(|| input.strip_prefix("sqlite:").map(|r| ("sqlite", r)))
         .ok_or_else(|| "expected a URL such as postgres://user:password@host:5432/database".to_string())?;
-    let kind = match scheme.to_ascii_lowercase().as_str() {
-        "postgres" | "postgresql" => DatabaseKind::Postgres,
-        "mysql" | "mariadb" => DatabaseKind::MySql,
-        "sqlite" | "sqlite3" => DatabaseKind::Sqlite,
-        other => {
-            return Err(format!("unsupported scheme \"{other}\" (use postgres://, mysql:// or sqlite://)"));
-        }
-    };
+    let kind = DatabaseKind::from_url_scheme(scheme).ok_or_else(|| {
+        let known: Vec<String> =
+            DatabaseKind::ALL.iter().map(|k| format!("{}://", k.info().url_schemes[0])).collect();
+        format!("unsupported scheme \"{scheme}\" (use {})", known.join(", "))
+    })?;
 
     if kind == DatabaseKind::Sqlite {
         // `sqlite:///abs/path`, `sqlite://relative.db`, `sqlite::memory:`, `sqlite:path`.

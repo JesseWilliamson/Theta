@@ -9,6 +9,7 @@ const OWN: &[(&str, &[u8])] = &[
     ("icons/db-postgres.svg", include_bytes!("../assets/icons/db-postgres.svg")),
     ("icons/db-mysql.svg", include_bytes!("../assets/icons/db-mysql.svg")),
     ("icons/db-sqlite.svg", include_bytes!("../assets/icons/db-sqlite.svg")),
+    ("icons/db-generic.svg", include_bytes!("../assets/icons/db-generic.svg")),
 ];
 
 pub struct QuarryAssets;

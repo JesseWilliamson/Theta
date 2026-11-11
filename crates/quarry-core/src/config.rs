@@ -8,29 +8,113 @@ pub enum DatabaseKind {
     Sqlite,
 }
 
+/// Everything the application needs to know about a kind of database that is not SQL
+/// dialect behaviour: how it is presented, addressed and configured. The connection dialog,
+/// URL parser and defaults are driven by this table, so **adding a database kind is one
+/// entry here (plus the enum variant and a driver)**; no dialog layout changes.
+#[derive(Debug)]
+pub struct KindInfo {
+    pub label: &'static str,
+    /// Key of the glyph (`quarry_ui::DbIcon::from_key`); unknown keys get a generic one.
+    pub icon: &'static str,
+    pub default_port: Option<u16>,
+    /// URL schemes (lower case, without `://`) that select this kind.
+    pub url_schemes: &'static [&'static str],
+    /// Extra words the kind is found by in the type-to-filter dropdown.
+    pub keywords: &'static [&'static str],
+    /// Form sections that apply.
+    pub sections: Sections,
+    pub host_placeholder: &'static str,
+    pub user_placeholder: &'static str,
+    pub database_placeholder: &'static str,
+    pub path_placeholder: &'static str,
+}
+
+/// Which parts of the connection form a kind uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sections {
+    /// Host, port, user, password and database name.
+    pub network: bool,
+    /// TLS mode.
+    pub ssl: bool,
+    /// SSH tunnel.
+    pub ssh: bool,
+    /// A database file (path chooser) instead of a server address.
+    pub file: bool,
+    /// "Create if missing" for a file that does not exist yet.
+    pub create_file: bool,
+}
+
+const SERVER: Sections = Sections { network: true, ssl: true, ssh: true, file: false, create_file: false };
+const FILE: Sections = Sections { network: false, ssl: false, ssh: false, file: true, create_file: true };
+
+static POSTGRES: KindInfo = KindInfo {
+    label: "PostgreSQL",
+    icon: "postgres",
+    default_port: Some(5432),
+    url_schemes: &["postgres", "postgresql"],
+    keywords: &["postgis", "pg"],
+    sections: SERVER,
+    host_placeholder: "localhost",
+    user_placeholder: "postgres",
+    database_placeholder: "database name",
+    path_placeholder: "",
+};
+static MYSQL: KindInfo = KindInfo {
+    label: "MySQL / MariaDB",
+    icon: "mysql",
+    default_port: Some(3306),
+    url_schemes: &["mysql", "mariadb"],
+    keywords: &["maria"],
+    sections: SERVER,
+    host_placeholder: "localhost",
+    user_placeholder: "root",
+    database_placeholder: "database name",
+    path_placeholder: "",
+};
+static SQLITE: KindInfo = KindInfo {
+    label: "SQLite",
+    icon: "sqlite",
+    default_port: None,
+    url_schemes: &["sqlite", "sqlite3"],
+    keywords: &["file", "embedded"],
+    sections: FILE,
+    host_placeholder: "",
+    user_placeholder: "",
+    database_placeholder: "",
+    path_placeholder: "/path/to/database.sqlite",
+};
+
 impl DatabaseKind {
     pub const ALL: &'static [DatabaseKind] =
         &[DatabaseKind::Postgres, DatabaseKind::MySql, DatabaseKind::Sqlite];
 
-    pub fn label(self) -> &'static str {
+    /// The descriptor of this kind (the one place that lists per-kind facts).
+    pub fn info(self) -> &'static KindInfo {
         match self {
-            DatabaseKind::Postgres => "PostgreSQL",
-            DatabaseKind::MySql => "MySQL / MariaDB",
-            DatabaseKind::Sqlite => "SQLite",
+            DatabaseKind::Postgres => &POSTGRES,
+            DatabaseKind::MySql => &MYSQL,
+            DatabaseKind::Sqlite => &SQLITE,
         }
     }
 
+    /// The kind a URL scheme (`postgres`, `mariadb`, ...) selects.
+    pub fn from_url_scheme(scheme: &str) -> Option<DatabaseKind> {
+        let s = scheme.to_ascii_lowercase();
+        Self::ALL.iter().copied().find(|k| k.info().url_schemes.contains(&s.as_str()))
+    }
+
+    pub fn label(self) -> &'static str {
+        self.info().label
+    }
+
     pub fn default_port(self) -> Option<u16> {
-        match self {
-            DatabaseKind::Postgres => Some(5432),
-            DatabaseKind::MySql => Some(3306),
-            DatabaseKind::Sqlite => None,
-        }
+        self.info().default_port
     }
 
     /// File-based databases have a path instead of host/port/user.
     pub fn is_file_based(self) -> bool {
-        matches!(self, DatabaseKind::Sqlite)
+        self.info().sections.file
     }
 
     /// How this dialect quotes an identifier that needs quoting.
@@ -39,6 +123,30 @@ impl DatabaseKind {
             DatabaseKind::MySql => format!("`{}`", ident.replace('`', "``")),
             _ => format!("\"{}\"", ident.replace('"', "\"\"")),
         }
+    }
+}
+
+#[cfg(test)]
+mod kind_tests {
+    use super::*;
+
+    #[test]
+    fn every_kind_has_a_consistent_descriptor() {
+        let mut schemes = std::collections::HashSet::new();
+        for k in DatabaseKind::ALL {
+            let i = k.info();
+            assert!(!i.label.is_empty() && !i.url_schemes.is_empty(), "{k:?}");
+            // A server kind has a port to default; a file kind never shows network fields.
+            assert_eq!(i.sections.network, i.default_port.is_some(), "{k:?}");
+            assert!(!(i.sections.file && i.sections.network), "{k:?}");
+            assert!(!(i.sections.file && i.sections.ssh), "{k:?}: no tunnel for a local file");
+            for s in i.url_schemes {
+                assert!(schemes.insert(*s), "scheme {s} claimed twice");
+                assert_eq!(DatabaseKind::from_url_scheme(&s.to_uppercase()), Some(*k));
+            }
+        }
+        assert_eq!(DatabaseKind::from_url_scheme("mariadb"), Some(DatabaseKind::MySql));
+        assert_eq!(DatabaseKind::from_url_scheme("oracle"), None);
     }
 }
 

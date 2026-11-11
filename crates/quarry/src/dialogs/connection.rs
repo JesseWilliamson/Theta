@@ -53,11 +53,56 @@ enum TestState {
     Failed(String),
 }
 
+/// One row of the database-type dropdown, drawn from the kind's descriptor.
+#[derive(Clone)]
+pub struct KindItem(pub DatabaseKind);
+
+impl gpui_kit::component::select::SelectItem for KindItem {
+    type Value = DatabaseKind;
+
+    fn title(&self) -> SharedString {
+        self.0.info().label.into()
+    }
+
+    fn display_title(&self) -> Option<gpui_kit::AnyElement> {
+        Some(self.row(false))
+    }
+
+    fn render(&self, _: &mut Window, _: &mut gpui_kit::App) -> impl IntoElement {
+        self.row(true)
+    }
+
+    fn value(&self) -> &DatabaseKind {
+        &self.0
+    }
+
+    /// Type-to-filter finds a kind by its label, its URL schemes and its keywords.
+    fn matches(&self, query: &str) -> bool {
+        let q = query.to_lowercase();
+        let i = self.0.info();
+        i.label.to_lowercase().contains(&q)
+            || i.url_schemes.iter().any(|s| s.contains(&q))
+            || i.keywords.iter().any(|k| k.contains(&q))
+    }
+}
+
+impl KindItem {
+    fn row(&self, _in_list: bool) -> gpui_kit::AnyElement {
+        h_flex()
+            .gap_2()
+            .items_center()
+            .child(DbKindIcon::new(db_icon(self.0)).size(px(15.)))
+            .child(div().text_size(px(13.)).child(SharedString::from(self.0.info().label)))
+            .into_any_element()
+    }
+}
+
 pub struct ConnectionForm {
     store: Entity<ConnectionStore>,
     workspace: WeakEntity<Workspace>,
     config_id: String,
     kind: DatabaseKind,
+    kind_select: Entity<SelectState<Vec<KindItem>>>,
     url: Entity<InputState>,
     name: Entity<InputState>,
     host: Entity<InputState>,
@@ -130,17 +175,18 @@ impl ConnectionForm {
             Some(SshAuth::Agent) => (String::new(), String::new(), 2),
             None => (String::new(), String::new(), 0),
         };
+        let info = c.kind.info();
         let port = if c.port == 0 { String::new() } else { c.port.to_string() };
         let ssl_ix = SSL_MODES.iter().position(|m| *m == c.ssl_mode).unwrap_or(1);
 
         let url =
             input(window, cx, "Paste a connection URL, e.g. postgres://user:password@host:5432/database", "");
         let name = input(window, cx, "Production (read-only)", &c.name);
-        let host = input(window, cx, "localhost", &c.host);
+        let host = input(window, cx, info.host_placeholder, &c.host);
         let port = input(window, cx, "5432", &port);
-        let user = input(window, cx, "postgres", &c.user);
+        let user = input(window, cx, info.user_placeholder, &c.user);
         let password = secret_input(window, cx, "Password", c.password.as_deref().unwrap_or(""));
-        let database = input(window, cx, "database name", &c.database);
+        let database = input(window, cx, info.database_placeholder, &c.database);
         let path = input(window, cx, "/path/to/database.sqlite", &c.path);
         let ssh_host =
             input(window, cx, "bastion.example.com", ssh.as_ref().map(|s| s.host.as_str()).unwrap_or(""));
@@ -149,6 +195,16 @@ impl ConnectionForm {
         let ssh_user = input(window, cx, "ssh user", ssh.as_ref().map(|s| s.user.as_str()).unwrap_or(""));
         let ssh_key_path = input(window, cx, "~/.ssh/id_ed25519", &ssh_key);
         let ssh_secret = secret_input(window, cx, "Passphrase", &ssh_secret);
+        let kind_ix = DatabaseKind::ALL.iter().position(|k| *k == c.kind).unwrap_or(0);
+        let kind_select = cx.new(|cx| {
+            SelectState::new(
+                DatabaseKind::ALL.iter().map(|k| KindItem(*k)).collect::<Vec<_>>(),
+                Some(IndexPath::new(kind_ix)),
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
         let ssl =
             cx.new(|cx| SelectState::new(SSL_LABELS.to_vec(), Some(IndexPath::new(ssl_ix)), window, cx));
         let ssh_auth = cx.new(|cx| {
@@ -196,6 +252,15 @@ impl ConnectionForm {
             ));
         }
         subscriptions.push(cx.subscribe_in(
+            &kind_select,
+            window,
+            |this, _, ev: &gpui_kit::component::select::SelectEvent<Vec<KindItem>>, window, cx| {
+                if let gpui_kit::component::select::SelectEvent::Confirm(Some(item)) = ev {
+                    this.set_kind(*item, window, cx);
+                }
+            },
+        ));
+        subscriptions.push(cx.subscribe_in(
             &ssh_auth,
             window,
             |_, _, _: &gpui_kit::component::select::SelectEvent<Vec<&'static str>>, _, cx| cx.notify(),
@@ -218,6 +283,7 @@ impl ConnectionForm {
             workspace,
             config_id: c.id.clone(),
             kind: c.kind,
+            kind_select,
             url,
             name,
             host,
@@ -258,7 +324,7 @@ impl ConnectionForm {
     fn apply_url(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         match parse_connection_url(text) {
             Ok(p) => {
-                self.kind = p.kind;
+                self.set_kind(p.kind, window, cx);
                 Self::set_text(&self.host, &p.host, window, cx);
                 Self::set_text(
                     &self.port,
@@ -304,6 +370,9 @@ impl ConnectionForm {
             );
         }
         self.kind = kind;
+        if let Some(ix) = DatabaseKind::ALL.iter().position(|k| *k == kind) {
+            self.kind_select.update(cx, |s, cx| s.set_selected_index(Some(IndexPath::new(ix)), window, cx));
+        }
         self.errors.clear();
         cx.notify();
     }
@@ -341,13 +410,14 @@ impl ConnectionForm {
         let mut config = ConnectionConfig::new(self.config_id.clone(), name, self.kind);
         config.read_only = self.read_only;
         config.color = self.color.map(str::to_string);
-        if self.kind.is_file_based() {
+        let sections = self.kind.info().sections;
+        if sections.file {
             config.path = self.text(&self.path, cx);
             config.host.clear();
             config.port = 0;
             if config.path.is_empty() {
                 errors.push(("path", "Choose a database file.".into()));
-            } else if !self.create_if_missing
+            } else if !(sections.create_file && self.create_if_missing)
                 && config.path != ":memory:"
                 && !std::path::Path::new(&config.path).exists()
             {
@@ -356,7 +426,8 @@ impl ConnectionForm {
                     "This file does not exist. Turn on “Create if missing” to create it.".into(),
                 ));
             }
-        } else {
+        }
+        if sections.network {
             config.host = self.text(&self.host, cx);
             if config.host.is_empty() {
                 errors.push(("host", "Enter a host name.".into()));
@@ -371,14 +442,16 @@ impl ConnectionForm {
             let password = state_raw(&self.password, cx);
             config.password = (!password.is_empty()).then_some(password);
             config.database = self.text(&self.database, cx);
-            config.ssl_mode = self
-                .ssl
-                .read(cx)
-                .selected_index(cx)
-                .and_then(|ix| SSL_MODES.get(ix.row).copied())
-                .unwrap_or_default();
+            if sections.ssl {
+                config.ssl_mode = self
+                    .ssl
+                    .read(cx)
+                    .selected_index(cx)
+                    .and_then(|ix| SSL_MODES.get(ix.row).copied())
+                    .unwrap_or_default();
+            }
         }
-        if self.ssh_enabled && !self.kind.is_file_based() {
+        if self.ssh_enabled && sections.ssh {
             let host = self.text(&self.ssh_host, cx);
             let user = self.text(&self.ssh_user, cx);
             if host.is_empty() {
@@ -535,35 +608,8 @@ fn field(
 impl Render for ConnectionForm {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let file_based = self.kind.is_file_based();
+        let sections = self.kind.info().sections;
         let max_h = (f32::from(window.viewport_size().height) - 200.0).max(240.0);
-
-        let kind_button = |kind: DatabaseKind, cx: &mut Context<Self>| {
-            let selected = self.kind == kind;
-            let label: SharedString = kind.label().into();
-            let theme = theme.clone();
-            h_flex()
-                .id(SharedString::from(format!("kind-{kind:?}")))
-                .flex_1()
-                .h(px(34.))
-                .gap_2()
-                .items_center()
-                .justify_center()
-                .rounded(px(6.))
-                .border_1()
-                .border_color(if selected { theme.ring } else { theme.border })
-                .when(selected, |d| d.bg(theme.list_active))
-                .when(!selected, |d| d.hover(|s| s.bg(theme.list_hover)))
-                .cursor_default()
-                .on_click(cx.listener(move |this, _, window, cx| this.set_kind(kind, window, cx)))
-                .child(DbKindIcon::new(db_icon(kind)).size(px(15.)))
-                .child(
-                    div()
-                        .text_size(px(13.))
-                        .font_weight(if selected { FontWeight::MEDIUM } else { FontWeight::NORMAL })
-                        .child(label),
-                )
-        };
 
         let test_row = match &self.test {
             TestState::Idle => None,
@@ -618,7 +664,12 @@ impl Render for ConnectionForm {
             .gap_3()
             .pt_3()
             .pr_2()
-            .child(h_flex().gap_2().children(DatabaseKind::ALL.iter().map(|k| kind_button(*k, cx))))
+            .child(field(
+                "Database type",
+                Select::new(&self.kind_select).placeholder("Choose a database type"),
+                None,
+                cx,
+            ))
             .child(field(
                 "Connection URL",
                 Input::new(&self.url)
@@ -628,7 +679,7 @@ impl Render for ConnectionForm {
                 cx,
             ))
             .child(field("Name", Input::new(&self.name), self.error_for("name"), cx))
-            .when(!file_based, |d| {
+            .when(sections.network, |d| {
                 d.child(
                     h_flex()
                         .gap_3()
@@ -667,10 +718,10 @@ impl Render for ConnectionForm {
                         .gap_3()
                         .items_start()
                         .child(field("Database", Input::new(&self.database), None, cx))
-                        .child(field("SSL mode", Select::new(&self.ssl), None, cx)),
+                        .children(sections.ssl.then(|| field("SSL mode", Select::new(&self.ssl), None, cx))),
                 )
             })
-            .when(file_based, |d| {
+            .when(sections.file, |d| {
                 d.child(field(
                     "Database file",
                     h_flex().gap_2().child(div().flex_1().child(Input::new(&self.path))).child(
@@ -683,18 +734,20 @@ impl Render for ConnectionForm {
                     self.error_for("path"),
                     cx,
                 ))
-                .child(
-                    Switch::new("create-missing")
-                        .label("Create if missing")
-                        .checked(self.create_if_missing)
-                        .on_change(cx.listener(|this, v, _, cx| {
-                            this.create_if_missing = *v;
-                            cx.notify();
-                        })),
-                )
+                .when(sections.create_file, |d| {
+                    d.child(
+                        Switch::new("create-missing")
+                            .label("Create if missing")
+                            .checked(self.create_if_missing)
+                            .on_change(cx.listener(|this, v, _, cx| {
+                                this.create_if_missing = *v;
+                                cx.notify();
+                            })),
+                    )
+                })
             })
-            // SSH tunnel (network databases only)
-            .when(!file_based, |d| {
+            // SSH tunnel (kinds that connect over a network)
+            .when(sections.ssh, |d| {
                 d.child(div().h(px(1.)).bg(theme.border))
                     .child(
                         h_flex()

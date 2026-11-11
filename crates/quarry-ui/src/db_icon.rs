@@ -9,14 +9,27 @@ pub enum DbIcon {
     Postgres,
     MySql,
     Sqlite,
+    /// A kind without a glyph of its own.
+    Generic,
 }
 
 impl DbIcon {
+    /// The glyph for a descriptor's `icon` key (`quarry_core::KindInfo::icon`).
+    pub fn from_key(key: &str) -> DbIcon {
+        match key {
+            "postgres" => DbIcon::Postgres,
+            "mysql" => DbIcon::MySql,
+            "sqlite" => DbIcon::Sqlite,
+            _ => DbIcon::Generic,
+        }
+    }
+
     pub fn path(self) -> &'static str {
         match self {
             DbIcon::Postgres => "icons/db-postgres.svg",
             DbIcon::MySql => "icons/db-mysql.svg",
             DbIcon::Sqlite => "icons/db-sqlite.svg",
+            DbIcon::Generic => "icons/db-generic.svg",
         }
     }
 
@@ -27,6 +40,7 @@ impl DbIcon {
             DbIcon::Postgres => hsla(212. / 360., 0.55, 0.58, 1.),
             DbIcon::MySql => hsla(32. / 360., 0.80, 0.52, 1.),
             DbIcon::Sqlite => hsla(172. / 360., 0.45, 0.46, 1.),
+            DbIcon::Generic => hsla(220. / 360., 0.10, 0.55, 1.),
         }
     }
 }

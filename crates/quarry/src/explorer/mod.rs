@@ -88,11 +88,7 @@ impl Focusable for Explorer {
 }
 
 pub fn db_icon(kind: DatabaseKind) -> DbIcon {
-    match kind {
-        DatabaseKind::Postgres => DbIcon::Postgres,
-        DatabaseKind::MySql => DbIcon::MySql,
-        DatabaseKind::Sqlite => DbIcon::Sqlite,
-    }
+    DbIcon::from_key(kind.info().icon)
 }
 
 impl Explorer {
