@@ -206,7 +206,9 @@ This is the path from a key press to rows on screen. Every step names the functi
 - **Grid.** `finish_statement` builds a `GridMeta` with `exec::editable::grid_meta`
   (`crates/quarry/src/exec/editable.rs:8`): it decides whether the rows can be edited (one table, a primary
   key in the result, no computed columns, not a view) and which columns hold foreign keys, using the
-  catalog. The result is stored in the console and shown when its tab is active (`apply_console`).
+  catalog. The result is stored in the console, whose own `ResultGrid` shows it while the tab is active
+  (`apply_console`; every async completion is keyed by console id, so a result, plan or edit-apply that
+  finishes in a background tab never touches the grid on screen).
   `ResultGrid::set_result` (`crates/quarry-grid/src/grid.rs:179`) takes `Arc<ResultSet>` plus the meta; the
   grid never sees the connection. What the user does comes back as `GridEvent`s, handled in
   `Workspace::on_grid_event` (`run.rs:951`): `SubmitChanges` becomes SQL in `exec::changes::statements`

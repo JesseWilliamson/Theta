@@ -139,6 +139,23 @@ Packaging and docs
 - README, user guide, key binding reference, architecture and development guides, contributing guide and a
   generated third-party licence list.
 
+### Fixed
+
+- Map: the world is never drawn more than once. Zoom-out stops where one copy of the world covers the
+  viewport width (`log2(width / 256)`), "fit" centres world-spanning data at that zoom, and data on both
+  sides of the antimeridian (lon 179 and -179) is framed along the short arc instead of across the globe.
+- The database-type dropdown and the font selects filter as you type (their list delegate was a plain
+  `Vec`, which ignores the query); typing "sq" lists only SQLite.
+- Results, plans, map features, status and grid edits belong to the console that produced them. Each
+  console has its own results grid (staged edits, sort and scroll survive switching tabs), an EXPLAIN or
+  an edit-apply that finishes while another tab is active is stored with its console, and a console with
+  a running statement shows "Running…" in its own panel.
+- Helix: `ctrl-Home` / `ctrl-End` go to the start / last line in Normal and Select mode (and the document
+  ends in Insert mode).
+- Enter in a confirmation dialog (for example "Apply changes?") confirms its primary choice instead of
+  silently closing it.
+- Secondary (muted) text is pulled toward the foreground when a theme leaves it below 4:1 contrast.
+
 ### Known limitations
 
 - No soft wrap or folding in the editor; the linter is heuristic.
