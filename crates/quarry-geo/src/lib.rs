@@ -28,7 +28,7 @@ pub use crs::{
 pub use error::GeoError;
 pub use geojson::{parse_geojson, to_geojson, to_geojson_feature_collection};
 pub use geometry::{BBox, Coord, Feature, Geometry};
-pub use map::{MapView, PlanarView, TileId, min_lon_arc, min_zoom_for_width, nice_scale_bar, wrap_lon};
+pub use map::{MapView, PlanarView, TileId, min_lon_arc, min_zoom_for_size, min_zoom_for_width, nice_scale_bar, wrap_lon};
 pub use measure::{area_m2, describe, format_area, format_distance, haversine_m, length_m};
 pub use ops::{hit_test, simplify};
 pub use sniff::{parse_any_text, parse_any_text_result};

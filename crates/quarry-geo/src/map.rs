@@ -113,10 +113,30 @@ pub fn min_lon_arc(spans: impl IntoIterator<Item = [f64; 2]>) -> Option<[f64; 2]
     Some(arc)
 }
 
-/// The lowest zoom at which one copy of the world covers `width_px`: below it the map would
-/// repeat the world (and every feature) side by side. Never negative.
+/// The lowest zoom at which one copy of the world is at least `width_px` wide (never
+/// negative). Below it the map shows the world more than once side by side.
 pub fn min_zoom_for_width(width_px: f64) -> f64 {
     if width_px.is_finite() && width_px > TILE { (width_px / TILE).log2() } else { 0.0 }
+}
+
+/// How small the world may become, as a share of the viewport height: zooming out stops where
+/// the world's height is this fraction of the viewport's.
+const MIN_WORLD_HEIGHT_FILL: f64 = 0.8;
+
+/// The lowest zoom a viewport of `size` allows.
+///
+/// A short, wide panel cannot show the whole world at one world-width zoom: it is taller than
+/// the panel, so features in the far north and south fall off the top and bottom. The floor is
+/// therefore set by the *height*: the world may shrink until it is 80% as tall as the viewport
+/// (and then repeats sideways, see [`MapView::visible_tiles`]). In a tall, narrow panel the
+/// world's width is the limit instead, so the whole longitude range stays reachable.
+pub fn min_zoom_for_size(size: [f64; 2]) -> f64 {
+    let by_height = if size[1].is_finite() && size[1] > 0.0 {
+        (MIN_WORLD_HEIGHT_FILL * size[1] / TILE).log2()
+    } else {
+        0.0
+    };
+    by_height.min(min_zoom_for_width(size[0]))
 }
 
 /// A map camera. `center` is lon/lat; `zoom` is fractional; `size` is the viewport in
@@ -138,18 +158,19 @@ impl MapView {
         [(ll[0] + 180.0) / 360.0 * w, frac_from_lat(ll[1]) * w]
     }
 
-    /// The lowest zoom this viewport allows: one world copy must cover its width.
+    /// The lowest zoom this viewport allows; see [`min_zoom_for_size`]. It can be below zero.
     pub fn min_zoom(&self) -> f64 {
-        min_zoom_for_width(self.size[0])
+        min_zoom_for_size(self.size)
     }
 
-    /// Re-clamp the zoom after the viewport changed size (a wider panel raises the minimum).
+    /// Re-clamp the zoom after the viewport changed size (the floor depends on both sides).
     pub fn clamp_zoom(&mut self) {
         self.zoom = self.zoom.clamp(self.min_zoom(), MAX_ZOOM);
     }
 
     /// A camera showing `bbox_lon_lat` with `padding_px` on every side. The zoom is the
-    /// largest that fits, capped at 18 and never below [`min_zoom`](Self::min_zoom); a single
+    /// largest that fits, capped at 18 and never below [`min_zoom`](Self::min_zoom), so world-wide
+    /// data in a short panel is shown whole (the map repeats sideways); a single
     /// point (or a degenerate box) gets zoom 14. `bbox.max[0]` may exceed 180 for data that
     /// straddles the antimeridian (see [`min_lon_arc`]); the centre is wrapped.
     pub fn fit(bbox_lon_lat: BBox, size: [f64; 2], padding_px: f64) -> MapView {
@@ -163,9 +184,7 @@ impl MapView {
         let zx = if fx > 1e-12 { (usable[0] / (TILE * fx)).log2() } else { f64::INFINITY };
         let zy = if fy > 1e-12 { (usable[1] / (TILE * fy)).log2() } else { f64::INFINITY };
         let zoom = zx.min(zy);
-        let zoom = if zoom.is_finite() { zoom.clamp(0.0, 18.0) } else { 14.0 };
-        // World-spanning data fits below the minimum zoom; centring it at the minimum shows as
-        // much as the height allows instead of repeating the world.
+        let zoom = if zoom.is_finite() { zoom.min(18.0) } else { 14.0 };
         let mut v = MapView { center: [wrap_lon(center[0]), center[1]], zoom, size };
         v.clamp_zoom();
         v
@@ -463,50 +482,82 @@ mod tests {
         v.zoom_around([0.0, 0.0], 100.0);
         assert_eq!(v.zoom, 20.0);
         v.zoom_around([0.0, 0.0], -100.0);
-        // One world copy must cover the 900 px viewport: log2(900 / 256).
-        assert!((v.zoom - (900.0f64 / 256.0).log2()).abs() < 1e-12, "{}", v.zoom);
         assert_eq!(v.zoom, v.min_zoom());
+        assert_eq!(v.zoom, min_zoom_for_size(v.size));
     }
 
     #[test]
-    fn min_zoom_is_log2_of_width_over_tile() {
+    fn min_zoom_for_width_is_log2_of_width_over_tile() {
         assert_eq!(min_zoom_for_width(256.0), 0.0);
         assert_eq!(min_zoom_for_width(512.0), 1.0);
         assert!((min_zoom_for_width(1320.0) - 2.366).abs() < 1e-3);
         assert_eq!(min_zoom_for_width(100.0), 0.0);
         assert_eq!(min_zoom_for_width(f64::NAN), 0.0);
-        // At the minimum zoom the world is exactly as wide as the viewport.
-        let mut v = MapView { center: [0.0, 0.0], zoom: 0.0, size: [1320.0, 240.0] };
-        v.clamp_zoom();
-        assert!((256.0 * v.zoom.exp2() - 1320.0).abs() < 1e-6);
     }
 
     #[test]
-    fn manual_zoom_out_stops_at_one_world_copy() {
+    fn min_zoom_is_set_by_the_height_in_wide_panels_and_by_the_width_in_tall_ones() {
+        // 1320 x 240: the world may shrink to 80% of the height (192 px), far below one world width.
+        let z = min_zoom_for_size([1320.0, 240.0]);
+        assert!((256.0 * z.exp2() - 192.0).abs() < 1e-9, "world is {} px tall", 256.0 * z.exp2());
+        assert!(z < 0.0 && z < min_zoom_for_width(1320.0) - 2.0);
+        // 900 x 420: 336 px tall, 80% of the height.
+        assert!((256.0 * min_zoom_for_size([900.0, 420.0]).exp2() - 336.0).abs() < 1e-9);
+        // 500 x 800: 80% of the height would be 640 px, but then the world is wider than the
+        // viewport and its far longitudes unreachable: the width limits instead.
+        assert_eq!(min_zoom_for_size([500.0, 800.0]), min_zoom_for_width(500.0));
+        // Degenerate sizes stay finite.
+        assert_eq!(min_zoom_for_size([f64::NAN, f64::NAN]), 0.0);
+        assert!(min_zoom_for_size([0.0, 0.0]).is_finite());
+    }
+
+    #[test]
+    fn manual_zoom_out_stops_at_the_height_floor() {
         for size in [[1320.0, 240.0], [900.0, 420.0], [500.0, 800.0]] {
             let mut v = MapView { center: [10.0, 20.0], zoom: 6.0, size };
-            for _ in 0..20 {
+            for _ in 0..30 {
                 v.zoom_around([size[0] / 2.0, size[1] / 2.0], -1.0);
             }
-            assert!(256.0 * v.zoom.exp2() >= size[0] - 1e-6, "{size:?}: {}", v.zoom);
-            // A resize to a wider viewport raises the floor.
+            assert_eq!(v.zoom, v.min_zoom(), "{size:?}");
+            let world = 256.0 * v.zoom.exp2();
+            // Never smaller than 80% of the height, unless the width needs the room.
+            assert!(world >= (0.8 * size[1]).min(size[0]) - 1e-6, "{size:?}: world {world}px");
+            // A resize re-clamps against the new floor.
             let mut w = v;
-            w.size[0] *= 2.0;
+            w.size = [size[0], size[1] * 2.0];
             w.clamp_zoom();
-            assert!(256.0 * w.zoom.exp2() >= w.size[0] - 1e-6);
+            assert!(w.zoom >= w.min_zoom());
         }
     }
 
     #[test]
-    fn fit_world_spanning_data_is_centred_at_min_zoom() {
-        // 25 stores around the globe in a 1320x240 panel: fit would pick zoom 1, which repeats
-        // the world; the clamp keeps one copy and centres the data.
+    fn fit_world_spanning_data_shows_all_of_it_in_a_short_panel() {
+        // 25 stores around the globe in a 1320x240 panel: the old floor (one world width, zoom
+        // 2.37) put the northern and southern ones off the edge.
         let bbox = BBox { min: [-170.0, -40.0], max: [175.0, 60.0] };
         let v = MapView::fit(bbox, [1320.0, 240.0], 40.0);
-        assert!((v.zoom - v.min_zoom()).abs() < 1e-12);
+        assert!(v.zoom < min_zoom_for_width(1320.0), "zoom {} is below one world width", v.zoom);
+        assert!(v.zoom >= v.min_zoom());
+        for c in [bbox.min, bbox.max, [bbox.min[0], bbox.max[1]], [bbox.max[0], bbox.min[1]]] {
+            let p = v.project(c);
+            assert!(p[0] >= 40.0 - 1e-6 && p[0] <= 1280.0 + 1e-6, "{c:?} -> {p:?}");
+            assert!(p[1] >= 40.0 - 1e-6 && p[1] <= 200.0 + 1e-6, "{c:?} -> {p:?}");
+        }
         assert!((v.center[0] - 2.5).abs() < 1e-9);
-        let mid = v.project(bbox.center());
-        assert!((mid[0] - 660.0).abs() < 1.0, "{mid:?}");
+        // The world is narrower than the panel here: tiles repeat sideways.
+        assert!(256.0 * v.zoom.exp2() < 1320.0);
+        let columns: std::collections::HashSet<i64> =
+            v.visible_tiles().iter().map(|(_, p, _)| (p[0] / 8.0).floor() as i64).collect();
+        assert!(columns.len() > 2);
+    }
+
+    #[test]
+    fn fit_in_a_tall_panel_keeps_the_whole_width() {
+        let bbox = BBox { min: [-170.0, -40.0], max: [175.0, 60.0] };
+        let v = MapView::fit(bbox, [500.0, 800.0], 40.0);
+        assert_eq!(v.zoom, v.min_zoom());
+        let (a, b) = (v.project([-170.0, 0.0]), v.project([175.0, 0.0]));
+        assert!(a[0] >= -1e-6 && b[0] <= 500.0 + 1e-6, "{a:?} {b:?}");
     }
 
     #[test]
@@ -586,7 +637,9 @@ mod tests {
         let v = MapView::fit(BBox { min: [10.0, 20.0], max: [10.000_001, 20.000_001] }, [800.0, 600.0], 20.0);
         assert_eq!(v.zoom, 18.0);
         let v = MapView::fit(BBox { min: [-180.0, -85.0], max: [180.0, 85.0] }, [100.0, 100.0], 0.0);
-        assert!(v.zoom >= 0.0 && v.zoom < 0.5);
+        // The whole world in a 100 px square: below zoom 0, still above the floor.
+        assert!(v.zoom < 0.0 && v.zoom >= v.min_zoom());
+        assert!((256.0 * v.zoom.exp2() - 100.0).abs() < 1.0, "{}", v.zoom);
     }
 
     #[test]
@@ -599,6 +652,21 @@ mod tests {
     fn fit_horizontal_line() {
         let v = MapView::fit(BBox { min: [0.0, 10.0], max: [1.0, 10.0] }, [800.0, 600.0], 0.0);
         assert!(v.zoom > 5.0 && v.zoom <= 18.0);
+    }
+
+    #[test]
+    fn tiles_cover_a_viewport_wider_than_the_world() {
+        for size in [[1320.0, 240.0], [900.0, 420.0]] {
+            for lon in [0.0, 100.0, -179.0] {
+                let mut v = MapView { center: [lon, 20.0], zoom: 0.0, size };
+                v.clamp_zoom();
+                assert!(256.0 * v.zoom.exp2() < size[0], "{size:?}: more than one world fits");
+                assert_covers(&v);
+                // the repeated columns refer to the same tile ids (the world wraps)
+                let xs: std::collections::HashSet<u32> = v.visible_tiles().iter().map(|(t, _, _)| t.x).collect();
+                assert!(xs.len() <= 1 << (v.zoom.round().max(0.0) as u32));
+            }
+        }
     }
 
     fn assert_covers(v: &MapView) {

@@ -218,6 +218,9 @@ pub fn paint_map(
             if colors.dark && core.dim && !core.basemap_info.dark && tiles_drawn > 0 {
                 window.paint_quad(fill(bounds, colors.bg.opacity(0.35)));
             }
+            if tiles_drawn > 0 {
+                dim_repeated_worlds(&cx, sz, window);
+            }
         }
         core.grid_shown = tiles_drawn == 0;
         if core.grid_shown {
@@ -227,6 +230,38 @@ pub fn paint_map(
         paint_measure(core, &cx, window);
     });
 }
+
+/// Zoomed out in a wide panel, the basemap repeats sideways. Features are drawn only on the
+/// world copy centred on the camera (`core::copy_window`); tinting the repeats with the
+/// background makes that copy read as the live area, so nobody looks for data out there.
+fn dim_repeated_worlds(cx: &Cx, sz: [f64; 2], window: &mut Window) {
+    let world_w = cx.t.scale[0].abs();
+    let (left, right) = (cx.t.half[0] - 0.5 * world_w, cx.t.half[0] + 0.5 * world_w);
+    if left <= 0.0 && right >= sz[0] {
+        return;
+    }
+    // Only the world's own height carries tiles; above and below it is plain background.
+    let (top, bottom) = (cx.t.apply([0.0, 0.0])[1].max(0.0), cx.t.apply([0.0, 1.0])[1].min(sz[1]));
+    if bottom <= top {
+        return;
+    }
+    let tint = cx.colors.bg.opacity(REPEAT_DIM);
+    let band = |x0: f64, x1: f64, window: &mut Window| {
+        let (x0, x1) = (x0.max(0.0), x1.min(sz[0]));
+        if x1 > x0 {
+            let b = Bounds {
+                origin: point(cx.origin.x + px(x0 as f32), cx.origin.y + px(top as f32)),
+                size: size(px((x1 - x0) as f32), px((bottom - top) as f32)),
+            };
+            window.paint_quad(fill(b, tint));
+        }
+    };
+    band(0.0, left, window);
+    band(right, sz[0], window);
+}
+
+/// Background tint over the repeated copies of the basemap.
+const REPEAT_DIM: f32 = 0.35;
 
 fn paint_tiles(core: &mut Core, cx: &Cx, window: &mut Window) -> usize {
     let crate::camera::Camera::Geo(view) = core.camera else { return 0 };
@@ -429,8 +464,7 @@ fn paint_features(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window) {
     let dark = cx.colors.dark;
     let layers = core.layers.len().max(1);
     let level = cx.t.lod_level();
-    let offsets = core.wrap_offsets(&cx.t, sz);
-    let world = cx.t.world_rect(sz, MARGIN);
+    let queries = core.copy_queries(&cx.t, sz, MARGIN);
     let layer_col = |l: usize| to_hsla(layer_color(l, dark), 1.0);
     let mut buf: Vec<P> = Vec::new();
     let mut ids: Vec<u32> = Vec::new();
@@ -445,10 +479,9 @@ fn paint_features(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window) {
     // Cull every world copy first so the circle-vs-square decision sees the whole picture
     // (otherwise a sparse edge copy would draw circles beside a dense squares-only centre).
     let mut copies: Vec<(f64, Vec<usize>)> = Vec::new();
-    for &k in &offsets {
-        let q =
-            quarry_geo::BBox { min: [world.min[0] - k, world.min[1]], max: [world.max[0] - k, world.max[1]] };
-        core.index.query_into(&q, &mut ids);
+    for (k, q) in &queries {
+        let k = *k;
+        core.index.query_into(q, &mut ids);
         let visible: Vec<usize> = ids
             .iter()
             .map(|i| *i as usize)

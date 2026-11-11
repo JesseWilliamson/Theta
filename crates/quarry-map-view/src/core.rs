@@ -427,16 +427,35 @@ impl Core {
         self.anim.active()
     }
 
-    /// World copies (whole-world offsets) of the data that can intersect the viewport.
-    pub fn wrap_offsets(&self, t: &Transform, size: [f64; 2]) -> Vec<f64> {
-        match self.prepared.mode {
-            Mode::Planar => vec![0.0],
-            Mode::Geographic => {
-                let r = t.world_rect(size, 24.0);
-                let (a, b) = (r.min[0].floor() as i64, r.max[0].floor() as i64);
-                (a.max(-3)..=b.min(3)).map(|k| k as f64).collect()
-            }
+    /// The world copies (whole-world offsets `k`: the data's x range is `[k, k + 1]`) in which
+    /// features are drawn, each with the query rectangle in *data* space that finds the features
+    /// to paint there.
+    ///
+    /// Zoomed out far enough, the viewport is wider than one world and the basemap repeats
+    /// sideways. Features do not: each is drawn once, in the copy centred on the camera (see
+    /// [`copy_window`]). A feature that straddles an edge of that window (a polygon over the
+    /// antimeridian) can show at both ends of it, which is how it stays in one piece.
+    pub fn copy_queries(&self, t: &Transform, size: [f64; 2], margin_px: f64) -> Vec<(f64, BBox)> {
+        if self.prepared.mode == Mode::Planar {
+            let r = t.world_rect(size, margin_px);
+            return vec![(0.0, r)];
         }
+        let r = t.world_rect(size, margin_px);
+        let w = copy_window(t);
+        let (x0, x1) = (r.min[0].max(w[0]), r.max[0].min(w[1]));
+        if x0 > x1 {
+            return Vec::new();
+        }
+        let (a, b) = ((x0.floor() as i64 - 1).max(-4), (x1.floor() as i64 + 1).min(4));
+        (a..=b)
+            .filter_map(|k| {
+                let k = k as f64;
+                // Data space is `[0, 1]` wide: copies that cannot reach it hold nothing.
+                (x1 - k >= 0.0 && x0 - k <= 1.0).then(|| {
+                    (k, BBox { min: [x0 - k, r.min[1]], max: [x1 - k, r.max[1]] })
+                })
+            })
+            .collect()
     }
 
     /// The top-most feature under `p` (viewport px), if any.
@@ -444,11 +463,17 @@ impl Core {
         let t = self.camera.transform();
         let level = t.lod_level();
         let w = t.invert(p);
-        let ks = match self.prepared.mode {
-            Mode::Planar => vec![0.0],
-            Mode::Geographic => vec![-1.0, 0.0, 1.0],
-        };
         let reach = 8.0 / t.scale[0].abs();
+        let window = copy_window(&t);
+        let ks: Vec<f64> = match self.prepared.mode {
+            Mode::Planar => vec![0.0],
+            Mode::Geographic => {
+                // The copies under the pointer (it may be a few worlds from the camera when the
+                // map is zoomed far out); `drawn_at` then keeps only those that are painted.
+                let (a, b) = ((w[0] - reach).floor() as i64 - 1, (w[0] + reach).ceil() as i64);
+                (a.max(-6)..=b.min(6)).map(|k| k as f64).collect()
+            }
+        };
         let mut best: Option<(u8, usize)> = None;
         let mut ids = Vec::new();
         for k in ks {
@@ -460,6 +485,9 @@ impl Core {
                 let f = &self.prepared.features[id];
                 if !self.layer_visible(f) {
                     continue;
+                }
+                if self.prepared.mode == Mode::Geographic && !drawn_at(&f.bbox, k, window) {
+                    continue; // that copy is not painted: nothing to hit there
                 }
                 let (rank, tol): (u8, f64) = if f.kinds.points {
                     (2, 7.0)
@@ -527,6 +555,18 @@ impl Core {
     pub fn measure_coord_at(&self, p: [f64; 2]) -> Coord {
         self.camera.unproject(p)
     }
+}
+
+/// The half-open world-x window `[start, end)` holding the single copy of the data that is
+/// drawn and hit-tested: one world width centred on the camera.
+pub fn copy_window(t: &Transform) -> [f64; 2] {
+    [t.center[0] - 0.5, t.center[0] + 0.5 - 1e-9]
+}
+
+/// Whether the copy of a feature with `bbox` shifted by `k` worlds reaches into `window`.
+/// A point is in exactly one copy; the window is half open so one on its edge is not in two.
+pub fn drawn_at(bbox: &BBox, k: f64, window: [f64; 2]) -> bool {
+    bbox.max[0] + k >= window[0] && bbox.min[0] + k <= window[1]
 }
 
 /// One graticule / grid line with its label.
@@ -626,10 +666,14 @@ mod tests {
     }
 
     fn core_with(features: Vec<MapFeature>) -> Core {
+        core_with_size(features, [800.0, 600.0])
+    }
+
+    fn core_with_size(features: Vec<MapFeature>, size: [f64; 2]) -> Core {
         let mut c = Core::new("http://127.0.0.1:9/{z}/{x}/{y}.png".into());
         c.set_features(vec![MapLayer { name: "geom".into(), visible: true }], features);
-        c.camera.set_size([800.0, 600.0]);
-        c.camera = Camera::fit(c.prepared.mode, c.prepared.bbox, [800.0, 600.0]);
+        c.camera.set_size(size);
+        c.camera = Camera::fit(c.prepared.mode, c.prepared.bbox, size);
         c
     }
 
@@ -770,16 +814,132 @@ mod tests {
         assert_eq!(c.tiles.last_plan, vec![TileId { z: 2, x: 1, y: 1 }]);
     }
 
+    /// How many times a feature is painted: the copies from `copy_queries` that find it.
+    fn painted_copies(c: &Core, id: usize, size: [f64; 2]) -> Vec<f64> {
+        let t = c.camera.transform();
+        let mut ids = Vec::new();
+        let mut out = Vec::new();
+        for (k, q) in c.copy_queries(&t, size, 24.0) {
+            c.index.query_into(&q, &mut ids);
+            if ids.contains(&(id as u32)) {
+                out.push(k);
+            }
+        }
+        out
+    }
+
     #[test]
-    fn world_copies_cover_a_zoomed_out_viewport() {
-        let mut c = core_with(vec![pt(0.0, 0.0, 0)]);
-        c.camera = Camera::Geo(quarry_geo::MapView { center: [0.0, 0.0], zoom: 0.0, size: [1000.0, 300.0] });
+    fn a_feature_is_painted_once_however_many_worlds_fit_the_viewport() {
+        let pts: Vec<_> = [(-170.0, 10.0), (-90.0, 40.0), (0.0, 0.0), (100.0, -30.0), (175.0, 60.0)]
+            .iter()
+            .enumerate()
+            .map(|(i, p)| pt(p.0, p.1, i))
+            .collect();
+        for size in [[1320.0, 240.0], [900.0, 420.0], [500.0, 800.0]] {
+            let mut c = core_with(pts.clone());
+            // zoomed out to the floor, centred anywhere
+            for center_lon in [0.0, 40.0, -150.0, 179.0] {
+                c.camera = Camera::Geo(quarry_geo::MapView { center: [center_lon, 20.0], zoom: -5.0, size });
+                if let Camera::Geo(v) = &mut c.camera {
+                    v.clamp_zoom();
+                }
+                for id in 0..pts.len() {
+                    let at = painted_copies(&c, id, size);
+                    // every point whose copy lies in the viewport is painted exactly once
+                    let t = c.camera.transform();
+                    let x = c.prepared.features[id].bbox.min[0];
+                    let visible_copy = at.iter().filter(|k| {
+                        let s = t.apply([x + **k, 0.0])[0];
+                        (-24.0..=size[0] + 24.0).contains(&s)
+                    });
+                    assert!(visible_copy.count() <= 1, "{size:?} centre {center_lon}: point {id} copies {at:?}");
+                    assert!(at.len() <= 1, "{size:?} centre {center_lon}: point {id} copies {at:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_world_point_is_visible_when_the_world_is_narrower_than_the_panel() {
+        // 25 points all around the globe, a 1320x240 panel fitted to them: all inside, none twice.
+        let pts: Vec<_> = (0..25)
+            .map(|i| {
+                let f = f64::from(i);
+                pt(-170.0 + f * 14.0, -35.0 + (f * 37.0) % 90.0, i as usize)
+            })
+            .collect();
+        let size = [1320.0, 240.0];
+        let c = core_with_size(pts.clone(), size);
         let t = c.camera.transform();
-        let offs = c.wrap_offsets(&t, [1000.0, 300.0]);
-        assert!(offs.contains(&-2.0) && offs.contains(&0.0) && offs.contains(&1.0), "{offs:?}");
-        c.camera = Camera::Geo(quarry_geo::MapView { center: [0.0, 0.0], zoom: 8.0, size: [1000.0, 300.0] });
+        assert!(t.scale[0] < size[0], "more than one world fits the panel");
+        for id in 0..pts.len() {
+            let at = painted_copies(&c, id, size);
+            assert_eq!(at.len(), 1, "point {id} is painted once: {at:?}");
+            let b = c.prepared.features[id].bbox;
+            let s = t.apply([b.min[0] + at[0], b.min[1]]);
+            assert!(s[0] >= 0.0 && s[0] <= size[0] && s[1] >= 0.0 && s[1] <= size[1], "point {id} at {s:?}");
+        }
+    }
+
+    #[test]
+    fn hit_testing_uses_the_painted_copy_only() {
+        let mut c = core_with(vec![pt(0.0, 0.0, 0), pt(100.0, 30.0, 1)]);
+        let size = [1320.0, 240.0];
+        c.camera = Camera::Geo(quarry_geo::MapView { center: [0.0, 15.0], zoom: -5.0, size });
+        if let Camera::Geo(v) = &mut c.camera {
+            v.clamp_zoom();
+        }
         let t = c.camera.transform();
-        assert_eq!(c.wrap_offsets(&t, [1000.0, 300.0]), vec![0.0]);
+        let w = t.scale[0]; // pixels per world
+        // On the painted copy (the one centred on the camera) the point is found ...
+        let s = c.camera.project([100.0, 30.0]);
+        assert_eq!(c.hit_at(s).map(|i| c.prepared.features[i].row), Some(1));
+        // ... and one world to the right or left, where only the dimmed basemap repeats, it is not.
+        for dir in [-1.0, 1.0] {
+            let other = [s[0] + dir * w, s[1]];
+            if (0.0..size[0]).contains(&other[0]) {
+                assert_eq!(c.hit_at(other), None, "no feature on a repeated copy of the basemap");
+            }
+        }
+        // The measure tool sees the same copy: a click on a repeated copy reads as the real lon/lat.
+        let click = [s[0] + w, s[1]];
+        let ll = c.measure_coord_at(click);
+        assert!((ll[0] - 100.0).abs() < 1e-6 || (ll[0] + 260.0).abs() < 1e-6, "{ll:?}");
+        let back = c.measure_screen(ll);
+        assert!((back[0] - s[0]).abs() < 1e-6, "stored coordinates are drawn on the central copy: {back:?} {s:?}");
+    }
+
+    #[test]
+    fn a_feature_on_the_window_edge_is_in_one_copy_not_two() {
+        let window = copy_window(&Transform { half: [0.0, 0.0], center: [0.5, 0.5], scale: [1.0, 1.0] });
+        let at = |x: f64| BBox { min: [x, 0.0], max: [x, 0.0] };
+        for x in [0.0, 1.0] {
+            let n = (-3..=3).filter(|k| drawn_at(&at(x), f64::from(*k), window)).count();
+            assert_eq!(n, 1, "x = {x}");
+        }
+        // A polygon spanning the seam is in both copies next to it.
+        let wide = BBox { min: [0.9, 0.0], max: [1.0, 0.0] };
+        let span = BBox { min: [0.0, 0.0], max: [1.0, 0.0] };
+        assert!(drawn_at(&wide, 0.0, window) && !drawn_at(&wide, 1.0, window));
+        assert!((-1..=1).filter(|k| drawn_at(&span, f64::from(*k), window)).count() >= 1);
+    }
+
+    #[test]
+    fn planar_data_is_never_repeated() {
+        let mut c = Core::new("http://127.0.0.1:9/{z}/{x}/{y}.png".into());
+        c.set_features(
+            vec![MapLayer { name: "geom".into(), visible: true }],
+            vec![MapFeature {
+                feature: Feature::new(Geometry::Point(Some([5000.0, 4000.0])), None),
+                row: 0,
+                label: None,
+                properties: vec![],
+                layer: 0,
+            }],
+        );
+        c.camera.set_size([800.0, 600.0]);
+        let t = c.camera.transform();
+        assert_eq!(c.copy_queries(&t, [800.0, 600.0], 24.0).len(), 1);
     }
 
     #[test]

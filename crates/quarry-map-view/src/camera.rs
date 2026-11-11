@@ -248,14 +248,20 @@ mod tests {
     }
 
     #[test]
-    fn geo_limits_follow_viewport_width() {
+    fn geo_limits_follow_the_viewport_size() {
+        // A short wide panel may zoom out until the world is 80% as tall as it: well below one world width.
         let mut cam = Camera::Geo(MapView { center: [0.0, 0.0], zoom: 0.0, size: [256.0, 100.0] });
-        assert_eq!(cam.level_limits().0, 0.0);
+        let low = cam.level_limits().0;
+        assert!((256.0 * low.exp2() - 80.0).abs() < 1e-9, "{low}");
         cam.set_size([1024.0, 100.0]);
-        assert_eq!(cam.level_limits().0, 2.0);
-        assert_eq!(cam.level(), 2.0, "set_size re-clamps the zoom");
-        cam.zoom_around([512.0, 50.0], -5.0);
-        assert_eq!(cam.level(), 2.0);
+        assert_eq!(cam.level_limits().0, low, "the height decides, not the width");
+        assert!(cam.level() >= low);
+        cam.zoom_around([512.0, 50.0], -9.0);
+        assert_eq!(cam.level(), low);
+        // A taller panel raises the floor and set_size re-clamps the zoom to it.
+        cam.set_size([1024.0, 400.0]);
+        assert!(cam.level_limits().0 > low);
+        assert!(cam.level() >= cam.level_limits().0);
     }
 
     #[test]
@@ -270,9 +276,11 @@ mod tests {
         assert!((v.center[0].abs() - 180.0).abs() < 1e-9, "{:?}", v.center);
         let (a, b) = (cam.project([179.0, 11.0]), cam.project([-179.0, 11.0]));
         assert!(a[0] > 0.0 && b[0] < 900.0 && (b[0] - a[0] - 820.0).abs() < 1e-6, "{a:?} {b:?}");
-        // The plain union would have been the whole world on the other side.
+        // The plain union would have been the whole world on the other side: shown whole, far
+        // further out than the short-arc camera.
         let wide = Camera::fit(Mode::Geographic, Some(at(179.0).union(at(-179.0))), [900.0, 420.0]);
-        assert_eq!(wide.level(), wide.level_limits().0, "world-wide data sits at the minimum zoom");
+        assert!(wide.level() < cam.level() - 4.0, "{} vs {}", wide.level(), cam.level());
+        assert!(256.0 * wide.level().exp2() <= 900.0, "the whole world fits the width");
     }
 
     #[test]
