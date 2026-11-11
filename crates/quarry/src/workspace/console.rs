@@ -68,6 +68,20 @@ pub fn verb(sql: &str) -> String {
     if w.is_empty() { "Statement".into() } else { w.to_uppercase() }
 }
 
+/// Sub-tab title for result number `number` of a statement. The origin table is named only when
+/// the statement is a plain query and every column comes from that one table; a join, an
+/// expression column or `SHOW TABLES` gets the neutral "Result N".
+pub fn result_title(number: usize, sql: &str, columns: &[quarry_core::Column]) -> String {
+    let queryish = matches!(verb(sql).as_str(), "SELECT" | "WITH" | "TABLE" | "VALUES");
+    let table = columns.first().and_then(|c| c.origin.as_ref()).map(|o| o.table.as_str());
+    let shared = queryish
+        && table.is_some_and(|t| columns.iter().all(|c| c.origin.as_ref().is_some_and(|o| o.table == t)));
+    match table {
+        Some(t) if shared => format!("Result {number} · {t}"),
+        _ => format!("Result {number}"),
+    }
+}
+
 pub fn plural(n: u64, one: &str, many: &str) -> String {
     format!("{} {}", fmt_int(n), if n == 1 { one } else { many })
 }
@@ -104,6 +118,31 @@ mod tests {
         assert_eq!(verb("-- hi\n  update t set a=1"), "UPDATE");
         assert_eq!(verb("/* x */ select 1"), "SELECT");
         assert_eq!(verb("(select 1)"), "Statement");
+    }
+
+    fn col(name: &str, table: Option<&str>) -> quarry_core::Column {
+        quarry_core::Column {
+            name: name.into(),
+            type_name: "text".into(),
+            kind: quarry_core::TypeKind::Text,
+            origin: table.map(|t| quarry_core::ColumnOrigin {
+                schema: None,
+                table: t.into(),
+                column: name.into(),
+            }),
+        }
+    }
+
+    #[test]
+    fn result_titles_name_a_table_only_when_all_columns_share_it() {
+        let one = [col("id", Some("orders")), col("total", Some("orders"))];
+        assert_eq!(result_title(1, "select * from orders", &one), "Result 1 · orders");
+        let joined = [col("id", Some("orders")), col("name", Some("customers"))];
+        assert_eq!(result_title(2, "select * from orders join customers", &joined), "Result 2");
+        let computed = [col("id", Some("orders")), col("n", None)];
+        assert_eq!(result_title(3, "select id, 1 n from orders", &computed), "Result 3");
+        assert_eq!(result_title(1, "show tables", &[col("Tables_in_x", Some("TABLES"))]), "Result 1");
+        assert_eq!(result_title(1, "select 1", &[]), "Result 1");
     }
 
     #[test]

@@ -36,9 +36,43 @@ pub struct HistoryPanel {
 
 impl EventEmitter<HistoryEvent> for HistoryPanel {}
 
+/// Local time of a history entry: just the clock for today, the date too for older ones.
 fn clock(ms: u64) -> String {
-    let t = (ms / 1000) as i64 % 86_400;
-    format!("{:02}:{:02}:{:02}", t / 3600, (t / 60) % 60, t % 60)
+    use chrono::{Local, TimeZone as _};
+    let Some(at) = Local.timestamp_millis_opt(ms as i64).single() else { return String::new() };
+    format_local(at, Local::now())
+}
+
+fn format_local<Tz: chrono::TimeZone>(at: chrono::DateTime<Tz>, now: chrono::DateTime<Tz>) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    use chrono::Datelike as _;
+    if at.date_naive() == now.date_naive() {
+        at.format("%H:%M:%S").to_string()
+    } else if at.year() == now.year() {
+        at.format("%b %-d %H:%M").to_string()
+    } else {
+        at.format("%Y-%m-%d %H:%M").to_string()
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::format_local;
+    use chrono::{FixedOffset, TimeZone as _};
+
+    #[test]
+    fn today_shows_the_clock_older_entries_the_date() {
+        let tz = FixedOffset::east_opt(2 * 3600).unwrap();
+        let now = tz.with_ymd_and_hms(2026, 11, 10, 15, 0, 0).unwrap();
+        let today = tz.with_ymd_and_hms(2026, 11, 10, 14, 32, 7).unwrap();
+        assert_eq!(format_local(today, now), "14:32:07");
+        let earlier = tz.with_ymd_and_hms(2026, 3, 4, 9, 5, 0).unwrap();
+        assert_eq!(format_local(earlier, now), "Mar 4 09:05");
+        let last_year = tz.with_ymd_and_hms(2025, 12, 31, 23, 59, 0).unwrap();
+        assert_eq!(format_local(last_year, now), "2025-12-31 23:59");
+    }
 }
 
 impl HistoryPanel {
@@ -106,7 +140,9 @@ impl HistoryPanel {
                     .size(px(12.))
                     .text_color(if e.ok { theme.success } else { theme.danger }),
             )
-            .child(div().w(px(58.)).text_color(theme.muted_foreground).child(clock(e.at)))
+            .child(
+                div().w(px(96.)).flex_shrink_0().whitespace_nowrap().text_color(theme.muted_foreground).child(clock(e.at)),
+            )
             .child(
                 div()
                     .w(px(170.))

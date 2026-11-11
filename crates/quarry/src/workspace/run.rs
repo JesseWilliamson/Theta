@@ -556,13 +556,8 @@ impl Workspace {
                         .with_elapsed(out.elapsed)
                         .with_statement(p.sql.clone());
                     let truncated = rs.truncated;
-                    let table_hint =
-                        rs.columns.iter().find_map(|c| c.origin.as_ref().map(|o| o.table.clone()));
                     let number = self.consoles.get(&id).map_or(0, |c| c.results.len()) + 1;
-                    let title = match table_hint {
-                        Some(t) => format!("Result {number} · {t}"),
-                        None => format!("Result {number}"),
-                    };
+                    let title = super::console::result_title(number, &p.sql, &rs.columns);
                     let rs = Arc::new(rs);
                     let item_index = {
                         let Some(c) = self.consoles.get_mut(&id) else { return false };

@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 gpui-kit = { version = "=0.9.1", features = ["tree-sitter-sql"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 anyhow = "1"
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
