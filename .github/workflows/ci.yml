@@ -43,7 +43,44 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       RUSTFLAGS: -C debuginfo=0 -C link-arg=-fuse-ld=mold
+      # The live tests of the products that need a server of their own (crates/theta-drivers/tests/
+      # kinds_live.rs). A test whose variable is unset prints SKIPPED and passes, so these lines are the
+      # whole switch. Redshift and YugabyteDB have no CI service (Redshift is AWS only; a YugabyteDB
+      # cluster is too heavy for a hosted runner) and stay unverified.
+      THETA_TEST_COCKROACH_URL: postgresql://root@127.0.0.1:26257/defaultdb?sslmode=disable
+      THETA_TEST_TIMESCALE_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
+      THETA_TEST_TIDB_URL: mysql://root@127.0.0.1:4000/test
+      THETA_TEST_SQLSERVER_URL: sqlserver://sa:Theta_Test_1@127.0.0.1:1433/master?encrypt=true&trustServerCertificate=true
+      THETA_TEST_CLICKHOUSE_URL: clickhouse://theta:theta@127.0.0.1:8123/default
     services:
+      timescale:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+      # SQL Server takes the better part of a minute to accept logins on a cold runner.
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Theta_Test_1
+        ports: ["1433:1433"]
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Theta_Test_1 -Q 'SELECT 1' || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Theta_Test_1 -Q 'SELECT 1'"
+          --health-interval 10s --health-timeout 10s --health-retries 30 --health-start-period 20s
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.8
+        env:
+          CLICKHOUSE_USER: theta
+          CLICKHOUSE_PASSWORD: theta
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports: ["8123:8123"]
+        options: >-
+          --health-cmd "wget --spider -q http://localhost:8123/ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
       postgres:
         image: postgis/postgis:16-3.4
         env:
@@ -83,6 +120,29 @@ jobs:
           id=$(docker ps --filter "ancestor=mariadb:10.11" --format '{{.ID}}' | head -n1)
           docker exec "$id" mariadb -uroot -proot \
             -e "GRANT ALL ON *.* TO 'quarry'@'%'; FLUSH PRIVILEGES;"
+      # CockroachDB and TiDB need a start command, which service containers cannot pass, so they are
+      # started here and waited for explicitly. Both run as a single in-memory node.
+      - name: Start CockroachDB and TiDB
+        run: |
+          docker run -d --name crdb -p 26257:26257 cockroachdb/cockroach:v24.3.4 start-single-node --insecure
+          docker run -d --name tidb -p 4000:4000 pingcap/tidb:v8.1.1
+          for i in $(seq 1 60); do
+            docker exec crdb ./cockroach sql --insecure -e 'SELECT 1' >/dev/null 2>&1 && break
+            sleep 2
+          done
+          for i in $(seq 1 60); do
+            (exec 3<>/dev/tcp/127.0.0.1/4000) >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker exec crdb ./cockroach sql --insecure -e 'SELECT version()'
+      - name: Wait for the database servers
+        run: |
+          for port in 1433 8123 5433; do
+            for i in $(seq 1 60); do
+              (exec 3<>/dev/tcp/127.0.0.1/$port) >/dev/null 2>&1 && break
+              sleep 2
+            done
+          done
       - run: >
           cargo clippy -p theta-core -p theta-sql -p theta-geo -p theta-editor -p theta-drivers -p theta-import
           --all-targets -- -D warnings

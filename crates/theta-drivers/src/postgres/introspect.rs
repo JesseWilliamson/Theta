@@ -10,6 +10,29 @@ use tokio_postgres::Client;
 const SYSTEM_SCHEMAS: &str = "n.nspname NOT IN ('pg_catalog', 'information_schema') \
      AND n.nspname NOT LIKE 'pg\\_toast%' AND n.nspname NOT LIKE 'pg\\_temp\\_%'";
 
+/// The schemas a product keeps for itself, on top of the PostgreSQL ones. TimescaleDB's internals
+/// (chunks live in `_timescaledb_internal`) would bury the user's tables; CockroachDB's `crdb_internal`
+/// and `pg_extension` are virtual schemas.
+fn system_schemas(kind: DatabaseKind) -> String {
+    let extra: &[&str] = match kind {
+        DatabaseKind::TimescaleDb | DatabaseKind::Postgres => &[
+            "_timescaledb_internal",
+            "_timescaledb_cache",
+            "_timescaledb_config",
+            "_timescaledb_catalog",
+            "timescaledb_information",
+            "timescaledb_experimental",
+        ],
+        DatabaseKind::CockroachDb => &["crdb_internal", "pg_extension"],
+        _ => &[],
+    };
+    if extra.is_empty() {
+        return SYSTEM_SCHEMAS.to_string();
+    }
+    let list = extra.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(", ");
+    format!("{SYSTEM_SCHEMAS} AND n.nspname NOT IN ({list})")
+}
+
 async fn q(client: &Client, sql: &str) -> Result<Vec<tokio_postgres::Row>> {
     client.query(sql, &[]).await.map_err(|e| query_error(e, sql, 0))
 }
@@ -89,9 +112,13 @@ fn kind_of_formatted(formatted: &str) -> TypeKind {
     kind_from_type_name(&unqualified)
 }
 
-pub async fn introspect(client: &Client) -> Result<Catalog> {
+pub async fn introspect(client: &Client, kind: DatabaseKind) -> Result<Catalog> {
+    if kind == DatabaseKind::Redshift {
+        return super::redshift::introspect(client).await;
+    }
+    let schemas_filter = system_schemas(kind);
     let schema_rows =
-        q(client, &format!("SELECT n.nspname::text FROM pg_namespace n WHERE {SYSTEM_SCHEMAS} ORDER BY 1"))
+        q(client, &format!("SELECT n.nspname::text FROM pg_namespace n WHERE {schemas_filter} ORDER BY 1"))
             .await?;
     let mut schemas: Vec<Schema> =
         schema_rows.iter().map(|r| Schema { name: r.get(0), ..Default::default() }).collect();
@@ -106,7 +133,7 @@ pub async fn introspect(client: &Client) -> Result<Catalog> {
                     obj_description(c.oid, 'pg_class'), \
                     CASE WHEN c.relkind IN ('v','m') THEN pg_get_viewdef(c.oid, true) END \
              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
-             WHERE c.relkind IN ('r','v','m','f','p') AND {SYSTEM_SCHEMAS} \
+             WHERE c.relkind IN ('r','v','m','f','p') AND {schemas_filter} \
              ORDER BY n.nspname, c.relname"
         ),
     )
@@ -156,7 +183,7 @@ pub async fn introspect(client: &Client) -> Result<Catalog> {
              JOIN pg_namespace n ON n.oid = c.relnamespace \
              JOIN pg_type t ON t.oid = a.atttypid \
              LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum \
-             WHERE a.attnum > 0 AND NOT a.attisdropped AND c.relkind IN ('r','v','m','f','p') AND {SYSTEM_SCHEMAS} \
+             WHERE a.attnum > 0 AND NOT a.attisdropped AND c.relkind IN ('r','v','m','f','p') AND {schemas_filter} \
              ORDER BY a.attrelid, a.attnum"
         ),
     )
@@ -220,7 +247,7 @@ pub async fn introspect(client: &Client) -> Result<Catalog> {
              JOIN pg_namespace n ON n.oid = c.relnamespace \
              LEFT JOIN pg_class fc ON fc.oid = con.confrelid \
              LEFT JOIN pg_namespace fn ON fn.oid = fc.relnamespace \
-             WHERE con.contype IN ('p','f','u','c') AND {SYSTEM_SCHEMAS} \
+             WHERE con.contype IN ('p','f','u','c') AND {schemas_filter} \
              ORDER BY con.conrelid, con.contype DESC, con.conname"
         ),
     )
@@ -268,7 +295,7 @@ pub async fn introspect(client: &Client) -> Result<Catalog> {
              JOIN pg_class c ON c.oid = i.indrelid \
              JOIN pg_namespace n ON n.oid = c.relnamespace \
              JOIN pg_am am ON am.oid = ic.relam \
-             WHERE {SYSTEM_SCHEMAS} \
+             WHERE {schemas_filter} \
              ORDER BY i.indrelid, ic.relname"
         ),
     )
@@ -287,21 +314,52 @@ pub async fn introspect(client: &Client) -> Result<Catalog> {
         });
     }
 
+    // CockroachDB's `pg_proc` does not carry everything the query below reads (`prokind`, `pg_depend`
+    // ownership by an extension), so its user-defined functions come from the standard
+    // `information_schema.routines`, which its documentation lists.
+    if kind == DatabaseKind::CockroachDb {
+        let rows = q(
+            client,
+            "SELECT routine_schema::text, routine_name::text, routine_type::text, data_type::text \
+             FROM information_schema.routines \
+             WHERE routine_schema NOT IN ('pg_catalog', 'information_schema', 'crdb_internal', 'pg_extension') \
+             ORDER BY 1, 2",
+        )
+        .await?;
+        for r in &rows {
+            let Some(&si) = schema_index.get(&r.get::<_, String>(0)) else { continue };
+            let kind = if r.get::<_, String>(2) == "PROCEDURE" {
+                RoutineKind::Procedure
+            } else {
+                RoutineKind::Function
+            };
+            schemas[si].routines.push(Routine {
+                name: r.get(1),
+                kind,
+                signature: "(…)".into(),
+                return_type: r.get(3),
+            });
+        }
+    }
     // Extension-owned routines (PostGIS alone ships thousands) are hidden: they are
     // not something the user wrote and would drown the explorer.
-    let routines = q(
-        client,
-        &format!(
-            "SELECT n.nspname::text, p.proname::text, p.prokind::text, pg_get_function_arguments(p.oid), \
+    let routines = if kind == DatabaseKind::CockroachDb {
+        Vec::new()
+    } else {
+        q(
+            client,
+            &format!(
+                "SELECT n.nspname::text, p.proname::text, p.prokind::text, pg_get_function_arguments(p.oid), \
                     pg_get_function_result(p.oid) \
              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace \
-             WHERE {SYSTEM_SCHEMAS} \
+             WHERE {schemas_filter} \
                AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass \
                                AND d.objid = p.oid AND d.deptype = 'e') \
              ORDER BY n.nspname, p.proname, p.oid"
-        ),
-    )
-    .await?;
+            ),
+        )
+        .await?
+    };
     for r in &routines {
         let Some(&si) = schema_index.get(&r.get::<_, String>(0)) else { continue };
         let kind = match r.get::<_, String>(2).as_str() {
@@ -322,13 +380,46 @@ pub async fn introspect(client: &Client) -> Result<Catalog> {
         &format!(
             "SELECT n.nspname::text, c.relname::text FROM pg_class c \
              JOIN pg_namespace n ON n.oid = c.relnamespace \
-             WHERE c.relkind = 'S' AND {SYSTEM_SCHEMAS} ORDER BY 1, 2"
+             WHERE c.relkind = 'S' AND {schemas_filter} ORDER BY 1, 2"
         ),
     )
     .await?;
     for r in &seqs {
         if let Some(&si) = schema_index.get(&r.get::<_, String>(0)) {
             schemas[si].sequences.push(r.get(1));
+        }
+    }
+
+    // TimescaleDB: say which tables are hypertables (their chunks are hidden with the internal schemas).
+    // `to_regclass` answers NULL for a missing view instead of failing, so a server without the extension
+    // costs one cheap statement and cannot abort an open transaction.
+    let has_timescale = matches!(kind, DatabaseKind::TimescaleDb | DatabaseKind::Postgres)
+        && q(client, "SELECT to_regclass('timescaledb_information.hypertables') IS NOT NULL")
+            .await?
+            .first()
+            .is_some_and(|r| r.get::<_, bool>(0));
+    if has_timescale {
+        let hyper = client
+            .query(
+                "SELECT hypertable_schema::text, hypertable_name::text, num_dimensions::int4, \
+                        compression_enabled::bool FROM timescaledb_information.hypertables",
+                &[],
+            )
+            .await;
+        if let Ok(rows) = hyper {
+            for r in &rows {
+                let Some(&si) = schema_index.get(&r.get::<_, String>(0)) else { continue };
+                let name: String = r.get(1);
+                if let Some(t) = schemas[si].tables.iter_mut().find(|t| t.name == name) {
+                    t.options.push(TableOption {
+                        name: "hypertable".into(),
+                        value: format!("{} dimension(s)", r.get::<_, i32>(2)),
+                    });
+                    if r.get::<_, bool>(3) {
+                        t.options.push(TableOption { name: "compression".into(), value: "enabled".into() });
+                    }
+                }
+            }
         }
     }
 

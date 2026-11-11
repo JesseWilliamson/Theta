@@ -7,6 +7,76 @@ pub enum DatabaseKind {
     Postgres,
     MySql,
     Sqlite,
+    /// PostgreSQL wire protocol, its own SQL layer and catalogs (`crdb_internal`).
+    CockroachDb,
+    /// PostgreSQL 8.0 wire protocol with a very different catalog and DDL surface.
+    Redshift,
+    /// PostgreSQL with the TimescaleDB extension.
+    TimescaleDb,
+    /// PostgreSQL 11 compatible distributed SQL (YSQL).
+    YugabyteDb,
+    /// MySQL wire protocol, distributed storage engine.
+    TiDb,
+    DuckDb,
+    SqlServer,
+    ClickHouse,
+}
+
+/// The SQL dialect and wire family a kind belongs to. Lexing, formatting, completion and most
+/// generated SQL depend on this, not on the product: CockroachDB, Redshift, TimescaleDB and
+/// YugabyteDB are `Postgres`, TiDB is `MySql`. Code that must tell two products of one family apart
+/// (a DDL restriction, a catalog difference) matches on [`DatabaseKind`] itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Family {
+    Postgres,
+    MySql,
+    Sqlite,
+    DuckDb,
+    SqlServer,
+    ClickHouse,
+}
+
+impl Family {
+    /// Dialects that lex and parse like PostgreSQL (dollar quoting, `::` casts, `ILIKE`, `RETURNING`,
+    /// `\x` bytea...). DuckDB copied PostgreSQL's grammar on purpose.
+    pub fn pg_like(self) -> bool {
+        matches!(self, Family::Postgres | Family::DuckDb)
+    }
+}
+
+/// A capability a kind may lack. [`DatabaseKind::unsupported`] answers with the reason shown to the
+/// user, so a menu entry or button can be disabled with an explanation instead of sending SQL that
+/// the server would reject.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Feature {
+    /// `Connection::explain` without ANALYZE.
+    Explain,
+    ExplainAnalyze,
+    /// Aborting a running statement.
+    Cancel,
+    /// Modify Table on an existing table.
+    ModifyTable,
+    /// New Table in the table editor.
+    CreateTable,
+    /// CSV import into a table.
+    Import,
+    /// Editing result rows in the grid.
+    EditRows,
+    /// BEGIN / COMMIT across statements.
+    Transactions,
+}
+
+/// Why each feature is missing, `None` when it works. One row per kind keeps the answer in one place.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Features {
+    pub explain: Option<&'static str>,
+    pub explain_analyze: Option<&'static str>,
+    pub cancel: Option<&'static str>,
+    pub modify_table: Option<&'static str>,
+    pub create_table: Option<&'static str>,
+    pub import: Option<&'static str>,
+    pub edit_rows: Option<&'static str>,
+    pub transactions: Option<&'static str>,
 }
 
 /// Everything the application needs to know about a kind of database that is not SQL
@@ -29,6 +99,15 @@ pub struct KindInfo {
     pub user_placeholder: &'static str,
     pub database_placeholder: &'static str,
     pub path_placeholder: &'static str,
+    pub family: Family,
+    pub features: Features,
+    /// Labels of the connection dialog's TLS dropdown, in [`SslMode`] order (disable, prefer, require,
+    /// verify-full); `None` hides the entry. Products spell this differently (SQL Server "Encrypt",
+    /// ClickHouse "HTTPS").
+    pub ssl_labels: [Option<&'static str>; 4],
+    /// Port to suggest when the user switches the dialog to this kind with TLS on, when it differs
+    /// (ClickHouse HTTPS is 8443).
+    pub tls_port: Option<u16>,
 }
 
 /// Which parts of the connection form a kind uses.
@@ -46,6 +125,19 @@ pub struct Sections {
     pub create_file: bool,
 }
 
+const PG_SSL: [Option<&str>; 4] =
+    [Some("Disable"), Some("Prefer"), Some("Require"), Some("Verify certificate and host")];
+const NO_FEATURES: Features = Features {
+    explain: None,
+    explain_analyze: None,
+    cancel: None,
+    modify_table: None,
+    create_table: None,
+    import: None,
+    edit_rows: None,
+    transactions: None,
+};
+
 const SERVER: Sections = Sections { network: true, ssl: true, ssh: true, file: false, create_file: false };
 const FILE: Sections = Sections { network: false, ssl: false, ssh: false, file: true, create_file: true };
 
@@ -60,6 +152,10 @@ static POSTGRES: KindInfo = KindInfo {
     user_placeholder: "postgres",
     database_placeholder: "database name",
     path_placeholder: "",
+    family: Family::Postgres,
+    features: NO_FEATURES,
+    ssl_labels: PG_SSL,
+    tls_port: None,
 };
 static MYSQL: KindInfo = KindInfo {
     label: "MySQL / MariaDB",
@@ -72,6 +168,10 @@ static MYSQL: KindInfo = KindInfo {
     user_placeholder: "root",
     database_placeholder: "database name",
     path_placeholder: "",
+    family: Family::MySql,
+    features: NO_FEATURES,
+    ssl_labels: PG_SSL,
+    tls_port: None,
 };
 static SQLITE: KindInfo = KindInfo {
     label: "SQLite",
@@ -84,11 +184,214 @@ static SQLITE: KindInfo = KindInfo {
     user_placeholder: "",
     database_placeholder: "",
     path_placeholder: "/path/to/database.sqlite",
+    family: Family::Sqlite,
+    features: NO_FEATURES,
+    ssl_labels: [None; 4],
+    tls_port: None,
+};
+
+static COCKROACH: KindInfo = KindInfo {
+    label: "CockroachDB",
+    icon: "cockroachdb",
+    default_port: Some(26257),
+    url_schemes: &["cockroachdb", "cockroach", "crdb"],
+    keywords: &["cockroach", "crdb", "distributed", "postgres wire"],
+    sections: SERVER,
+    host_placeholder: "localhost",
+    user_placeholder: "root",
+    database_placeholder: "defaultdb",
+    path_placeholder: "",
+    family: Family::Postgres,
+    features: Features {
+        modify_table: Some(
+            "CockroachDB runs schema changes as online jobs and refuses some of them (such as ALTER COLUMN TYPE) \
+             inside a transaction, which is how the table editor applies a script; not supported yet",
+        ),
+        create_table: Some(
+            "the generated CREATE TABLE (identity columns, types) is not verified against CockroachDB yet",
+        ),
+        ..NO_FEATURES
+    },
+    ssl_labels: PG_SSL,
+    tls_port: None,
+};
+static REDSHIFT: KindInfo = KindInfo {
+    label: "Amazon Redshift",
+    icon: "redshift",
+    default_port: Some(5439),
+    url_schemes: &["redshift"],
+    keywords: &["aws", "amazon", "warehouse"],
+    sections: SERVER,
+    host_placeholder: "cluster.xxxx.region.redshift.amazonaws.com",
+    user_placeholder: "awsuser",
+    database_placeholder: "dev",
+    path_placeholder: "",
+    family: Family::Postgres,
+    features: Features {
+        explain_analyze: Some(
+            "Redshift has no EXPLAIN ANALYZE; run the query and read SVL_QUERY_REPORT instead",
+        ),
+        modify_table: Some(
+            "Redshift cannot alter a column's type (except widening a VARCHAR), nullability or default, \
+             so a table is changed with console statements",
+        ),
+        create_table: Some(
+            "Redshift needs its own column attributes (IDENTITY, DISTKEY, SORTKEY, ENCODE); write CREATE TABLE in a console",
+        ),
+        import: Some("Redshift has no savepoints and loads data with COPY from S3; use COPY in a console"),
+        edit_rows: Some(
+            "primary keys are informational on Redshift (not enforced), so a row has no reliable identity",
+        ),
+        ..NO_FEATURES
+    },
+    ssl_labels: PG_SSL,
+    tls_port: None,
+};
+static TIMESCALE: KindInfo = KindInfo {
+    label: "TimescaleDB",
+    icon: "timescaledb",
+    default_port: Some(5432),
+    url_schemes: &["timescaledb", "timescale", "tsdb"],
+    keywords: &["timescale", "time series", "hypertable", "postgis"],
+    sections: SERVER,
+    host_placeholder: "localhost",
+    user_placeholder: "postgres",
+    database_placeholder: "database name",
+    path_placeholder: "",
+    family: Family::Postgres,
+    features: NO_FEATURES,
+    ssl_labels: PG_SSL,
+    tls_port: None,
+};
+static YUGABYTE: KindInfo = KindInfo {
+    label: "YugabyteDB",
+    icon: "yugabytedb",
+    default_port: Some(5433),
+    url_schemes: &["yugabytedb", "yugabyte", "ysql"],
+    keywords: &["yugabyte", "ysql", "distributed"],
+    sections: SERVER,
+    host_placeholder: "localhost",
+    user_placeholder: "yugabyte",
+    database_placeholder: "yugabyte",
+    path_placeholder: "",
+    family: Family::Postgres,
+    features: Features {
+        modify_table: Some(
+            "YugabyteDB (YSQL) does not support every ALTER TABLE a PostgreSQL table editor emits (ALTER COLUMN TYPE \
+             rewrites in particular); not supported yet",
+        ),
+        create_table: Some("the generated CREATE TABLE is not verified against YugabyteDB yet"),
+        ..NO_FEATURES
+    },
+    ssl_labels: PG_SSL,
+    tls_port: None,
+};
+static TIDB: KindInfo = KindInfo {
+    label: "TiDB",
+    icon: "tidb",
+    default_port: Some(4000),
+    url_schemes: &["tidb"],
+    keywords: &["pingcap", "mysql wire", "distributed"],
+    sections: SERVER,
+    host_placeholder: "localhost",
+    user_placeholder: "root",
+    database_placeholder: "database name",
+    path_placeholder: "",
+    family: Family::MySql,
+    features: NO_FEATURES,
+    ssl_labels: PG_SSL,
+    tls_port: None,
+};
+static DUCKDB: KindInfo = KindInfo {
+    label: "DuckDB",
+    icon: "duckdb",
+    default_port: None,
+    url_schemes: &["duckdb"],
+    keywords: &["file", "embedded", "parquet", "analytics", "olap"],
+    sections: FILE,
+    host_placeholder: "",
+    user_placeholder: "",
+    database_placeholder: "",
+    path_placeholder: "/path/to/database.duckdb  (or :memory:)",
+    family: Family::DuckDb,
+    features: Features {
+        import: Some(
+            "DuckDB has no savepoints, which the import's per-batch recovery needs; use COPY or read_csv() in a console",
+        ),
+        ..NO_FEATURES
+    },
+    ssl_labels: [None; 4],
+    tls_port: None,
+};
+static SQLSERVER: KindInfo = KindInfo {
+    label: "SQL Server",
+    icon: "sqlserver",
+    default_port: Some(1433),
+    url_schemes: &["sqlserver", "mssql"],
+    keywords: &["microsoft", "mssql", "tsql", "t-sql", "azure"],
+    sections: SERVER,
+    host_placeholder: "localhost",
+    user_placeholder: "sa",
+    database_placeholder: "master",
+    path_placeholder: "",
+    family: Family::SqlServer,
+    features: Features {
+        modify_table: Some("the table editor does not generate T-SQL ALTER TABLE yet"),
+        create_table: Some("the table editor does not generate T-SQL CREATE TABLE yet"),
+        import: Some("the CSV import uses savepoints, which T-SQL spells differently; not supported yet"),
+        ..NO_FEATURES
+    },
+    ssl_labels: [
+        Some("Encrypt off"),
+        None,
+        Some("Encrypt on, trust server certificate"),
+        Some("Encrypt on, verify certificate"),
+    ],
+    tls_port: None,
+};
+static CLICKHOUSE: KindInfo = KindInfo {
+    label: "ClickHouse",
+    icon: "clickhouse",
+    default_port: Some(8123),
+    url_schemes: &["clickhouse", "ch", "clickhouses"],
+    keywords: &["olap", "columnar", "analytics", "http"],
+    sections: SERVER,
+    host_placeholder: "localhost",
+    user_placeholder: "default",
+    database_placeholder: "default",
+    path_placeholder: "",
+    family: Family::ClickHouse,
+    features: Features {
+        explain_analyze: Some("ClickHouse has no EXPLAIN ANALYZE; run the query and read system.query_log"),
+        modify_table: Some("ClickHouse ALTERs are mutations with engine-specific rules; not supported yet"),
+        create_table: Some(
+            "a ClickHouse table needs an ENGINE and ORDER BY; write CREATE TABLE in a console",
+        ),
+        import: Some("ClickHouse has no transactions or savepoints; use INSERT ... FORMAT CSV in a console"),
+        edit_rows: Some(
+            "ClickHouse tables have no row identity (a primary key is not unique), so rows cannot be edited here",
+        ),
+        transactions: Some("ClickHouse over HTTP has no transactions"),
+        ..NO_FEATURES
+    },
+    ssl_labels: [Some("HTTP"), None, None, Some("HTTPS")],
+    tls_port: Some(8443),
 };
 
 impl DatabaseKind {
-    pub const ALL: &'static [DatabaseKind] =
-        &[DatabaseKind::Postgres, DatabaseKind::MySql, DatabaseKind::Sqlite];
+    pub const ALL: &'static [DatabaseKind] = &[
+        DatabaseKind::Postgres,
+        DatabaseKind::MySql,
+        DatabaseKind::Sqlite,
+        DatabaseKind::CockroachDb,
+        DatabaseKind::Redshift,
+        DatabaseKind::TimescaleDb,
+        DatabaseKind::YugabyteDb,
+        DatabaseKind::TiDb,
+        DatabaseKind::DuckDb,
+        DatabaseKind::SqlServer,
+        DatabaseKind::ClickHouse,
+    ];
 
     /// The descriptor of this kind (the one place that lists per-kind facts).
     pub fn info(self) -> &'static KindInfo {
@@ -96,13 +399,101 @@ impl DatabaseKind {
             DatabaseKind::Postgres => &POSTGRES,
             DatabaseKind::MySql => &MYSQL,
             DatabaseKind::Sqlite => &SQLITE,
+            DatabaseKind::CockroachDb => &COCKROACH,
+            DatabaseKind::Redshift => &REDSHIFT,
+            DatabaseKind::TimescaleDb => &TIMESCALE,
+            DatabaseKind::YugabyteDb => &YUGABYTE,
+            DatabaseKind::TiDb => &TIDB,
+            DatabaseKind::DuckDb => &DUCKDB,
+            DatabaseKind::SqlServer => &SQLSERVER,
+            DatabaseKind::ClickHouse => &CLICKHOUSE,
         }
+    }
+
+    /// The SQL dialect family (see [`Family`]).
+    pub fn family(self) -> Family {
+        self.info().family
+    }
+
+    /// Why `feature` is unavailable for this kind, or `None` when it works.
+    pub fn unsupported(self, feature: Feature) -> Option<&'static str> {
+        let f = &self.info().features;
+        match feature {
+            Feature::Explain => f.explain,
+            Feature::ExplainAnalyze => f.explain_analyze,
+            Feature::Cancel => f.cancel,
+            Feature::ModifyTable => f.modify_table,
+            Feature::CreateTable => f.create_table,
+            Feature::Import => f.import,
+            Feature::EditRows => f.edit_rows,
+            Feature::Transactions => f.transactions,
+        }
+    }
+
+    /// Work out which product answered, from `version()` / the server banner. `None` when nothing
+    /// recognisable is in the text. TimescaleDB is an extension of a stock PostgreSQL, so it is
+    /// never detected here (the Postgres driver checks `pg_extension` and appends `TimescaleDB` to
+    /// the banner it reports).
+    pub fn detect(banner: &str) -> Option<DatabaseKind> {
+        let b = banner.to_ascii_lowercase();
+        let has = |w: &str| b.contains(w);
+        Some(if has("cockroachdb") {
+            DatabaseKind::CockroachDb
+        } else if has("redshift") {
+            DatabaseKind::Redshift
+        } else if has("-yb-") || has("yugabyte") {
+            DatabaseKind::YugabyteDb
+        } else if has("timescaledb") {
+            DatabaseKind::TimescaleDb
+        } else if has("tidb") {
+            DatabaseKind::TiDb
+        } else if has("mariadb") || has("mysql") {
+            DatabaseKind::MySql
+        } else if has("clickhouse") {
+            DatabaseKind::ClickHouse
+        } else if has("microsoft sql server") {
+            DatabaseKind::SqlServer
+        } else if has("duckdb") {
+            DatabaseKind::DuckDb
+        } else if has("postgresql") {
+            DatabaseKind::Postgres
+        } else {
+            return None;
+        })
+    }
+
+    /// A sentence for the user when the server is not the product the connection says, `None` when
+    /// they agree (or the banner says nothing). A plain `Postgres` connection to a TimescaleDB server
+    /// is fine and silent (it is PostgreSQL); the other way round is not.
+    pub fn mismatch(self, banner: &str) -> Option<String> {
+        let found = Self::detect(banner)?;
+        if found == self || (self == DatabaseKind::Postgres && found == DatabaseKind::TimescaleDb) {
+            return None;
+        }
+        Some(format!(
+            "This connection is set up as {}, but the server identifies as {}. Edit the connection and pick {} so \
+             Theta uses the right catalogs and SQL.",
+            self.label(),
+            found.label(),
+            found.label()
+        ))
     }
 
     /// The kind a URL scheme (`postgres`, `mariadb`, ...) selects.
     pub fn from_url_scheme(scheme: &str) -> Option<DatabaseKind> {
         let s = scheme.to_ascii_lowercase();
         Self::ALL.iter().copied().find(|k| k.info().url_schemes.contains(&s.as_str()))
+    }
+
+    /// The TLS choice a new connection of this kind starts with: plain HTTP for ClickHouse (8123), an
+    /// encrypted session that trusts the server's own certificate for SQL Server (its images ship a
+    /// self-signed one), "prefer" elsewhere.
+    pub fn default_ssl_mode(self) -> SslMode {
+        match self {
+            DatabaseKind::ClickHouse => SslMode::Disable,
+            DatabaseKind::SqlServer => SslMode::Require,
+            _ => SslMode::Prefer,
+        }
     }
 
     pub fn label(self) -> &'static str {
@@ -120,8 +511,9 @@ impl DatabaseKind {
 
     /// How this dialect quotes an identifier that needs quoting.
     pub fn quote_ident(self, ident: &str) -> String {
-        match self {
-            DatabaseKind::MySql => format!("`{}`", ident.replace('`', "``")),
+        match self.family() {
+            Family::MySql | Family::ClickHouse => format!("`{}`", ident.replace('`', "``")),
+            Family::SqlServer => format!("[{}]", ident.replace(']', "]]")),
             _ => format!("\"{}\"", ident.replace('"', "\"\"")),
         }
     }
@@ -148,6 +540,49 @@ mod kind_tests {
         }
         assert_eq!(DatabaseKind::from_url_scheme("mariadb"), Some(DatabaseKind::MySql));
         assert_eq!(DatabaseKind::from_url_scheme("oracle"), None);
+        assert_eq!(DatabaseKind::from_url_scheme("cockroachdb"), Some(DatabaseKind::CockroachDb));
+        assert_eq!(DatabaseKind::from_url_scheme("redshift"), Some(DatabaseKind::Redshift));
+    }
+
+    #[test]
+    fn banners_identify_the_product() {
+        use DatabaseKind::*;
+        // Banners as the products document them (version() output shapes).
+        let cases = [
+            ("CockroachDB CCL v24.1.0 (x86_64-pc-linux-gnu, built 2024/05/15, go1.22.2)", CockroachDb),
+            (
+                "PostgreSQL 8.0.2 on i686-pc-linux-gnu, compiled by GCC gcc (GCC) 3.4.2, Redshift 1.0.77467",
+                Redshift,
+            ),
+            (
+                "PostgreSQL 11.2-YB-2.18.1.0-b0 on x86_64-pc-linux-gnu, compiled by clang version 15.0.3",
+                YugabyteDb,
+            ),
+            ("PostgreSQL 16.4 (Debian 16.4-1) on x86_64-pc-linux-gnu", Postgres),
+            ("8.0.11-TiDB-v7.5.0", TiDb),
+            ("10.11.6-MariaDB-0ubuntu0.23.10.2", MySql),
+            ("8.0.36", MySql),
+            ("Microsoft SQL Server 2022 (RTM-CU12) (KB5033663) - 16.0.4115.5 (X64)", SqlServer),
+            ("ClickHouse 24.3.1", ClickHouse),
+        ];
+        for (banner, want) in cases {
+            if banner == "8.0.36" {
+                assert_eq!(DatabaseKind::detect(banner), None);
+                continue;
+            }
+            assert_eq!(DatabaseKind::detect(banner), Some(want), "{banner}");
+        }
+    }
+
+    #[test]
+    fn mismatch_message_names_both_products() {
+        let m = DatabaseKind::Postgres.mismatch("CockroachDB CCL v24.1.0").unwrap();
+        assert!(m.contains("PostgreSQL") && m.contains("CockroachDB"));
+        assert!(DatabaseKind::CockroachDb.mismatch("CockroachDB CCL v24.1.0").is_none());
+        // A plain PostgreSQL connection to TimescaleDB is still PostgreSQL.
+        assert!(DatabaseKind::Postgres.mismatch("PostgreSQL 16.4, TimescaleDB 2.15").is_none());
+        assert!(DatabaseKind::TimescaleDb.mismatch("PostgreSQL 16.4").is_some());
+        assert!(DatabaseKind::Postgres.mismatch("something else").is_none());
     }
 }
 
@@ -242,7 +677,7 @@ impl ConnectionConfig {
             password: None,
             database: String::new(),
             path: String::new(),
-            ssl_mode: SslMode::default(),
+            ssl_mode: kind.default_ssl_mode(),
             ssh: None,
             read_only: false,
             color: None,

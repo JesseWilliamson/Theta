@@ -1203,12 +1203,23 @@ pub fn format(sql: &str, kind: DatabaseKind, options: &FormatOptions) -> String 
     let raw = tokenize(sql, kind);
     let segs = segments(sql, &raw, kind);
     let mut parts: Vec<String> = Vec::new();
-    for seg in &segs {
+    for (i, seg) in segs.iter().enumerate() {
         if let Some(s) = format_segment(sql, &raw, seg, options) {
             parts.push(s);
         } else if seg.has_semi {
             // A lone `;` (empty statement): keep it so no token disappears.
             parts.push(";".into());
+        }
+        // T-SQL's `GO [n]` sits between two segments and belongs to neither; dropping it would change
+        // what the script does, so it is written back on a line of its own.
+        if kind.family() == theta_core::Family::SqlServer
+            && let Some(next) = segs.get(i + 1)
+            && let Some(gap) = sql.get(seg.end..next.start)
+        {
+            let gap = gap.trim_start_matches(';').trim();
+            if gap.len() >= 2 && gap[..2].eq_ignore_ascii_case("go") {
+                parts.push(gap.lines().next().unwrap_or("GO").trim().to_string());
+            }
         }
     }
     parts.join("\n\n")

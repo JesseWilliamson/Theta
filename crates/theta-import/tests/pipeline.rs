@@ -72,6 +72,7 @@ impl Fx {
                 c.path = ":memory:".into();
                 (theta_drivers::connect(&c).await.expect("sqlite"), None, vec![])
             }
+            _ => unreachable!("the pipeline tests cover the three base kinds"),
         };
         Fx { conn, kind, schema, cleanup }
     }
@@ -372,6 +373,7 @@ async fn make_source(fx: &Fx, name: &str, rows: usize, composite: bool) {
         DatabaseKind::MySql => ("VARCHAR(200)", "INT", "DECIMAL(12,2)", "DATETIME", "TINYINT(1)"),
         DatabaseKind::Postgres => ("text", "integer", "numeric(12,2)", "timestamp", "boolean"),
         DatabaseKind::Sqlite => ("text", "integer", "numeric", "timestamp", "integer"),
+        _ => unreachable!("the pipeline tests cover the three base kinds"),
     };
     let pk = if composite { "PRIMARY KEY (a, id)" } else { "PRIMARY KEY (id)" };
     q(
@@ -437,6 +439,7 @@ async fn export_then_import_round_trips_exactly() {
                 DatabaseKind::MySql => ("VARCHAR(200)", "INT", "DECIMAL(12,2)", "DATETIME", "TINYINT(1)"),
                 DatabaseKind::Postgres => ("text", "integer", "numeric(12,2)", "timestamp", "boolean"),
                 DatabaseKind::Sqlite => ("text", "integer", "numeric", "timestamp", "integer"),
+                _ => unreachable!("the pipeline tests cover the three base kinds"),
             };
             q(fx.conn.as_ref(), &format!("CREATE TABLE {} (a {int}, id {int}, name {txt}, note {txt}, amount {num}, ts {ts}, flag {flag})", fx.qual("dst"))).await;
             let job = fx.job(
@@ -619,6 +622,7 @@ async fn throughput() {
             DatabaseKind::MySql => ("VARCHAR(200)", "INT", "DECIMAL(12,2)", "DATETIME"),
             DatabaseKind::Postgres => ("text", "integer", "numeric(12,2)", "timestamp"),
             DatabaseKind::Sqlite => ("text", "integer", "numeric", "timestamp"),
+            _ => unreachable!("the pipeline tests cover the three base kinds"),
         };
         let mut j = fx.job(
             "big",

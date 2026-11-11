@@ -15,6 +15,7 @@ use crate::scope::{
 use crate::script::{Segment, segment_content, segments};
 use std::collections::HashSet;
 use std::ops::Range;
+use theta_core::Family;
 use theta_core::{Catalog, DatabaseKind, Table};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -316,7 +317,7 @@ fn syntax_checks(p: &Parsed, kind: DatabaseKind, out: &mut Vec<Diagnostic>) {
         if p.is_word(i, "IN")
             && p.is_punct(i + 1, "(")
             && p.is_punct(i + 2, ")")
-            && kind != DatabaseKind::Sqlite
+            && kind.family() != Family::Sqlite
         {
             out.push(diag(
                 p.toks[i].start..p.toks[i + 2].end,
@@ -326,14 +327,18 @@ fn syntax_checks(p: &Parsed, kind: DatabaseKind, out: &mut Vec<Diagnostic>) {
         }
     }
     // Postgres requires ON/USING after a non-natural, non-cross JOIN.
-    if kind == DatabaseKind::Postgres {
+    if kind.family().pg_like() {
         join_conditions(p, out);
     }
     // UPDATE without SET, DELETE without FROM (all but MySQL).
     if p.first_word() == "UPDATE" && !(0..n).any(|i| p.is_word(i, "SET")) && n > 1 {
         out.push(diag(p.range(0), Severity::Critical, "UPDATE statement has no SET clause"));
     }
-    if p.first_word() == "DELETE" && kind != DatabaseKind::MySql && n > 1 && !p.is_word(1, "FROM") {
+    if p.first_word() == "DELETE"
+        && !matches!(kind.family(), Family::MySql | Family::SqlServer)
+        && n > 1
+        && !p.is_word(1, "FROM")
+    {
         out.push(diag(p.range(0), Severity::Critical, "Expected FROM after DELETE"));
     }
 }

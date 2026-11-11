@@ -51,6 +51,7 @@ impl ConnState {
 pub enum NoticeKind {
     Info,
     Success,
+    Warning,
     Error,
 }
 
@@ -420,11 +421,17 @@ impl ConnectionStore {
                             cx.emit(StoreEvent::Notice { kind: NoticeKind::Info, message });
                         }
                         let name = this.config(&id).map(|c| c.name.clone()).unwrap_or_default();
+                        // A connection set up as the wrong product still works (the wire protocol is the
+                        // same), but with the wrong catalogs and EXPLAIN; say so once, on connect.
+                        let mismatch = this.config(&id).and_then(|c| c.kind.mismatch(&server.banner));
                         this.set_state(
                             &id,
                             ConnState::Connected { connection, server, catalog: None, catalog_loading: true },
                             cx,
                         );
+                        if let Some(message) = mismatch {
+                            cx.emit(StoreEvent::Notice { kind: NoticeKind::Warning, message });
+                        }
                         cx.emit(StoreEvent::Notice {
                             kind: NoticeKind::Success,
                             message: format!("Connected to {name}"),
@@ -522,6 +529,7 @@ impl ConnectionStore {
                     version: "synthetic".into(),
                     current_database: None,
                     current_user: None,
+                    banner: String::new(),
                 },
                 catalog: Some(Arc::new(catalog)),
                 catalog_loading: false,

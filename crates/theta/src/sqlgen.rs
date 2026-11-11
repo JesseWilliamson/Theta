@@ -1,6 +1,7 @@
 //! SQL text generated from catalog metadata (explorer context menu: "Generate
 //! SELECT / INSERT / UPDATE / DELETE", "Show DDL"). Pure functions, no UI.
 
+use theta_core::Family;
 use theta_core::{DatabaseKind, Table, TableKind};
 
 const RESERVED: &[&str] = &[
@@ -83,7 +84,7 @@ pub fn ident(kind: DatabaseKind, name: &str) -> String {
 
 /// `schema.table`, omitting the schema when it is the connection's default.
 pub fn qualified(kind: DatabaseKind, schema: &str, table: &str, default_schema: Option<&str>) -> String {
-    if schema.is_empty() || default_schema.is_some_and(|d| d == schema) && kind == DatabaseKind::Sqlite {
+    if schema.is_empty() || default_schema.is_some_and(|d| d == schema) && kind.family() == Family::Sqlite {
         ident(kind, table)
     } else {
         format!("{}.{}", ident(kind, schema), ident(kind, table))
@@ -96,10 +97,13 @@ fn column_list(kind: DatabaseKind, t: &Table, indent: &str) -> String {
 
 pub fn select(kind: DatabaseKind, schema: &str, t: &Table, default_schema: Option<&str>) -> String {
     let name = qualified(kind, schema, &t.name, default_schema);
+    // T-SQL has no LIMIT: TOP goes right after SELECT.
+    let (top, limit) =
+        if kind.family() == Family::SqlServer { (" TOP 100", "") } else { ("", "\nLIMIT 100") };
     if t.columns.is_empty() {
-        return format!("SELECT *\nFROM {name}\nLIMIT 100;\n");
+        return format!("SELECT{top} *\nFROM {name}{limit};\n");
     }
-    format!("SELECT\n{}\nFROM {name}\nLIMIT 100;\n", column_list(kind, t, "    "))
+    format!("SELECT{top}\n{}\nFROM {name}{limit};\n", column_list(kind, t, "    "))
 }
 
 pub fn insert(kind: DatabaseKind, schema: &str, t: &Table, default_schema: Option<&str>) -> String {

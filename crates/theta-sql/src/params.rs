@@ -14,6 +14,7 @@
 
 use crate::lexer::{Token, TokenKind, tokenize};
 use std::ops::Range;
+use theta_core::Family;
 use theta_core::{DatabaseKind, Value};
 
 /// What identifies a placeholder: two occurrences with equal keys receive the same value.
@@ -63,8 +64,7 @@ impl Detected {
 /// `$n` / named keys are shared, so "Run All" can ask once for the union.
 pub fn detect(statements: &[&str], kind: DatabaseKind) -> Detected {
     let lexed: Vec<Vec<Token>> = statements.iter().map(|s| tokenize(s, kind)).collect();
-    let assigned =
-        if kind == DatabaseKind::MySql { assigned_variables(statements, &lexed) } else { Vec::new() };
+    let assigned = if session_vars(kind) { assigned_variables(statements, &lexed) } else { Vec::new() };
     let mut out = Detected::default();
     let mut positional = 0usize;
     for (sql, tokens) in statements.iter().zip(&lexed) {
@@ -96,6 +96,11 @@ enum Raw {
     Key(ParamKey),
 }
 
+/// MySQL's `@x` and T-SQL's `@x` (after DECLARE or SET) are session variables, not parameters to ask for.
+fn session_vars(kind: DatabaseKind) -> bool {
+    matches!(kind.family(), Family::MySql | Family::SqlServer)
+}
+
 fn candidates(
     sql: &str,
     tokens: &[Token],
@@ -103,7 +108,8 @@ fn candidates(
     assigned: &[String],
 ) -> Vec<(Range<usize>, Raw)> {
     let mut out = Vec::new();
-    let in_set = kind == DatabaseKind::MySql && first_word_is(sql, tokens, "set");
+    let in_set =
+        session_vars(kind) && (first_word_is(sql, tokens, "set") || first_word_is(sql, tokens, "declare"));
     let significant: Vec<usize> = (0..tokens.len()).filter(|&i| !tokens[i].is_trivia()).collect();
     for (pos, &i) in significant.iter().enumerate() {
         let t = tokens[i];
@@ -115,7 +121,7 @@ fn candidates(
                         out.push((t.range(), Raw::Key(ParamKey::Numbered(n))));
                     }
                 } else if let Some(rest) = text.strip_prefix('?') {
-                    if kind == DatabaseKind::Postgres {
+                    if kind.family().pg_like() {
                         continue;
                     }
                     out.push((
@@ -132,9 +138,7 @@ fn candidates(
                         && name
                             .bytes()
                             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b >= 0x80);
-                    if !plain
-                        || (kind == DatabaseKind::MySql && (in_set || assigned.iter().any(|a| a == name)))
-                    {
+                    if !plain || (session_vars(kind) && (in_set || assigned.iter().any(|a| a == name))) {
                         continue;
                     }
                     out.push((t.range(), Raw::Key(ParamKey::Named { sigil: '@', name: name.into() })));
@@ -144,7 +148,7 @@ fn candidates(
             // when glued to the following word and not in operand position (`a @b` is not valid SQL for
             // abs, and `x =@id` is how people write it).
             TokenKind::Operator
-                if kind == DatabaseKind::Postgres && text.ends_with('@') && !text.ends_with("@@") =>
+                if kind.family().pg_like() && text.ends_with('@') && !text.ends_with("@@") =>
             {
                 let Some(&next) = significant.get(pos + 1).map(|&j| &tokens[j]) else { continue };
                 if next.kind == TokenKind::Word && next.start == t.end {
@@ -196,7 +200,7 @@ fn first_word_is(sql: &str, tokens: &[Token], word: &str) -> bool {
 fn assigned_variables(statements: &[&str], lexed: &[Vec<Token>]) -> Vec<String> {
     let mut names = Vec::new();
     for (sql, tokens) in statements.iter().zip(lexed) {
-        let is_set = first_word_is(sql, tokens, "set");
+        let is_set = first_word_is(sql, tokens, "set") || first_word_is(sql, tokens, "declare");
         let sig: Vec<&Token> = tokens.iter().filter(|t| !t.is_trivia()).collect();
         for (i, t) in sig.iter().enumerate() {
             if t.kind != TokenKind::Param {

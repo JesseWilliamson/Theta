@@ -17,6 +17,7 @@ use crate::parser::{CsvReader, ParseError, Record};
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
+use theta_core::Family;
 use theta_core::{Connection, ExecOptions, Value};
 use theta_sql::keywords::{qualified_name, quote_if_needed};
 use theta_sql::sql_literal;
@@ -258,7 +259,7 @@ async fn rollback_all(conn: &dyn Connection, job: &ImportJob, began: bool, rep: 
             }
         }
     }
-    if rep.created_table && job.kind == theta_core::DatabaseKind::MySql {
+    if rep.created_table && job.kind.family() == Family::MySql {
         // CREATE TABLE committed implicitly on MySQL, so the rollback cannot remove it.
         let name = qualified_name(job.schema.as_deref(), &job.table, job.kind);
         let _ = exec(conn, &format!("DROP TABLE {name}"), rep).await;
@@ -288,7 +289,7 @@ pub async fn run_import<R: Read + Send>(
             return rep;
         }
     };
-    let mysql_ddl = job.create_sql.is_some() && job.kind == theta_core::DatabaseKind::MySql;
+    let mysql_ddl = job.create_sql.is_some() && job.kind.family() == Family::MySql;
 
     macro_rules! fail {
         ($began:expr, $msg:expr) => {{

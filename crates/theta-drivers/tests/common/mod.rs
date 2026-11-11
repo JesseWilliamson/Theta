@@ -103,3 +103,35 @@ impl MyFx {
         let _ = self.conn.close().await;
     }
 }
+
+/// A connection config from a URL held in an environment variable, or `None` (after printing why the test
+/// is being skipped) when the variable is unset. The server products that cannot run on every developer
+/// machine (CockroachDB, TiDB, SQL Server, ClickHouse...) are tested this way: CI sets the variables, a
+/// local run stays green and says so.
+pub fn env_config(var: &str, kind: DatabaseKind) -> Option<ConnectionConfig> {
+    let Ok(raw) = std::env::var(var) else {
+        eprintln!("SKIPPED ({kind:?}): {var} is not set, so no {} server is tested", kind.label());
+        return None;
+    };
+    let url = url::Url::parse(&raw).unwrap_or_else(|e| panic!("{var} is not a URL: {e}"));
+    let mut c = ConnectionConfig::new(format!("t-{var}"), kind.label(), kind);
+    c.host = url.host_str().unwrap_or("127.0.0.1").to_string();
+    if let Some(p) = url.port() {
+        c.port = p;
+    }
+    c.user = url.username().to_string();
+    c.password = url.password().map(str::to_string);
+    c.database = url.path().trim_start_matches('/').to_string();
+    for (k, v) in url.query_pairs() {
+        match (k.as_ref(), v.as_ref()) {
+            ("sslmode", "disable") | ("encrypt", "false") | ("secure", "false") => {
+                c.ssl_mode = SslMode::Disable
+            }
+            ("sslmode", "require") | ("encrypt", "true") => c.ssl_mode = SslMode::Require,
+            ("sslmode", "verify-full") => c.ssl_mode = SslMode::VerifyFull,
+            ("secure", "true") => c.ssl_mode = SslMode::VerifyFull,
+            _ => {}
+        }
+    }
+    Some(c)
+}

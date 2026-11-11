@@ -25,4 +25,5 @@ webpki-roots = "1"
 
 [dev-dependencies]
 theta-sql.workspace = true
+url.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process"] }

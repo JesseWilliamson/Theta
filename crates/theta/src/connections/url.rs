@@ -1,6 +1,7 @@
 //! Parse `postgres://user:pass@host:5432/db?sslmode=require`-style URLs into
 //! connection fields (used by `--connect` and the dialog's "paste URL" field).
 
+use theta_core::Family;
 use theta_core::{ConnectionConfig, DatabaseKind, SslMode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +50,7 @@ pub fn parse_connection_url(input: &str) -> Result<ParsedUrl, String> {
     let (scheme, rest) = input
         .split_once("://")
         .or_else(|| input.strip_prefix("sqlite:").map(|r| ("sqlite", r)))
+        .or_else(|| input.strip_prefix("duckdb:").map(|r| ("duckdb", r)))
         .ok_or_else(|| "expected a URL such as postgres://user:password@host:5432/database".to_string())?;
     let kind = DatabaseKind::from_url_scheme(scheme).ok_or_else(|| {
         let known: Vec<String> =
@@ -56,12 +58,12 @@ pub fn parse_connection_url(input: &str) -> Result<ParsedUrl, String> {
         format!("unsupported scheme \"{scheme}\" (use {})", known.join(", "))
     })?;
 
-    if kind == DatabaseKind::Sqlite {
-        // `sqlite:///abs/path`, `sqlite://relative.db`, `sqlite::memory:`, `sqlite:path`.
+    if kind.is_file_based() {
+        // `sqlite:///abs/path`, `sqlite://relative.db`, `sqlite::memory:`, `sqlite:path`; DuckDB the same.
         let path = rest.split('?').next().unwrap_or("");
         let path = percent_decode(path);
         if path.is_empty() {
-            return Err("the SQLite URL has no file path (sqlite:///path/to/file.db)".into());
+            return Err(format!("the {} URL has no file path ({scheme}:///path/to/file)", kind.label()));
         }
         return Ok(ParsedUrl {
             kind,
@@ -80,17 +82,55 @@ pub fn parse_connection_url(input: &str) -> Result<ParsedUrl, String> {
     if host.is_empty() {
         return Err("the URL has no host".into());
     }
-    let ssl_mode = url
-        .query_pairs()
-        .find(|(k, _)| k == "sslmode" || k == "ssl-mode" || k == "ssl_mode")
-        .and_then(|(_, v)| parse_ssl(&v));
+    let query = |names: &[&str]| {
+        url.query_pairs()
+            .find(|(k, _)| names.iter().any(|n| k.eq_ignore_ascii_case(n)))
+            .map(|(_, v)| v.into_owned())
+    };
+    let mut ssl_mode = query(&["sslmode", "ssl-mode", "ssl_mode"]).and_then(|v| parse_ssl(&v));
+    let mut port = url.port().or(kind.default_port()).unwrap_or(0);
+    let mut database = percent_decode(url.path().trim_start_matches('/'));
+    match kind.family() {
+        Family::SqlServer => {
+            // ADO/JDBC spellings: `encrypt=true|false`, `trustServerCertificate=true`, `database=name`.
+            if let Some(e) = query(&["encrypt"]) {
+                let on = matches!(e.to_ascii_lowercase().as_str(), "true" | "yes" | "strict" | "mandatory");
+                let trust = query(&["trustServerCertificate"])
+                    .is_some_and(|t| matches!(t.to_ascii_lowercase().as_str(), "true" | "yes"));
+                ssl_mode = Some(match (on, trust) {
+                    (false, _) => SslMode::Disable,
+                    (true, true) => SslMode::Require,
+                    (true, false) => SslMode::VerifyFull,
+                });
+            }
+            if database.is_empty() {
+                database = query(&["database", "databaseName", "initial catalog"]).unwrap_or_default();
+            }
+        }
+        Family::ClickHouse => {
+            // `clickhouses://` and `?secure=true` mean HTTPS; the HTTPS port differs.
+            let secure = scheme.eq_ignore_ascii_case("clickhouses")
+                || query(&["secure", "ssl"])
+                    .is_some_and(|v| matches!(v.to_ascii_lowercase().as_str(), "true" | "1" | "yes"));
+            if secure && ssl_mode.is_none() {
+                ssl_mode = Some(SslMode::VerifyFull);
+            }
+            if url.port().is_none() && ssl_mode.is_some_and(|m| m != SslMode::Disable) {
+                port = kind.info().tls_port.unwrap_or(port);
+            }
+            if database.is_empty() {
+                database = query(&["database"]).unwrap_or_default();
+            }
+        }
+        _ => {}
+    }
     Ok(ParsedUrl {
         kind,
         host,
-        port: url.port().or(kind.default_port()).unwrap_or(0),
+        port,
         user: percent_decode(url.username()),
         password: url.password().map(percent_decode),
-        database: percent_decode(url.path().trim_start_matches('/')),
+        database,
         path: String::new(),
         ssl_mode,
     })
@@ -99,8 +139,8 @@ pub fn parse_connection_url(input: &str) -> Result<ParsedUrl, String> {
 impl ParsedUrl {
     /// A suggested display name: database @ host, or the file name.
     pub fn suggested_name(&self) -> String {
-        match self.kind {
-            DatabaseKind::Sqlite => std::path::Path::new(&self.path)
+        match self.kind.family() {
+            Family::Sqlite | Family::DuckDb => std::path::Path::new(&self.path)
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| self.path.clone()),
@@ -132,6 +172,36 @@ impl ParsedUrl {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn new_kinds_parse() {
+        let c = parse_connection_url("cockroachdb://root@h:26257/defaultdb?sslmode=verify-full").unwrap();
+        assert_eq!(
+            (c.kind, c.port, c.ssl_mode),
+            (DatabaseKind::CockroachDb, 26257, Some(SslMode::VerifyFull))
+        );
+        let r =
+            parse_connection_url("redshift://awsuser:pw@c.x.eu-west-1.redshift.amazonaws.com/dev").unwrap();
+        assert_eq!((r.kind, r.port, r.database.as_str()), (DatabaseKind::Redshift, 5439, "dev"));
+        assert_eq!(parse_connection_url("timescaledb://h/db").unwrap().kind, DatabaseKind::TimescaleDb);
+        assert_eq!(parse_connection_url("yugabytedb://h/db").unwrap().port, 5433);
+        assert_eq!(parse_connection_url("tidb://root@h/test").unwrap().port, 4000);
+        let d = parse_connection_url("duckdb:///tmp/a.duckdb").unwrap();
+        assert_eq!((d.kind, d.path.as_str()), (DatabaseKind::DuckDb, "/tmp/a.duckdb"));
+        assert_eq!(parse_connection_url("duckdb::memory:").unwrap().path, ":memory:");
+        let m =
+            parse_connection_url("sqlserver://sa:pw@h:1433/master?encrypt=true&trustServerCertificate=true")
+                .unwrap();
+        assert_eq!(
+            (m.kind, m.database.as_str(), m.ssl_mode),
+            (DatabaseKind::SqlServer, "master", Some(SslMode::Require))
+        );
+        let m = parse_connection_url("mssql://sa@h?encrypt=false&database=app").unwrap();
+        assert_eq!((m.database.as_str(), m.ssl_mode), ("app", Some(SslMode::Disable)));
+        let c = parse_connection_url("clickhouses://default@h/db").unwrap();
+        assert_eq!((c.kind, c.port, c.ssl_mode), (DatabaseKind::ClickHouse, 8443, Some(SslMode::VerifyFull)));
+        assert_eq!(parse_connection_url("clickhouse://h").unwrap().port, 8123);
+    }
+
     use super::*;
 
     #[test]

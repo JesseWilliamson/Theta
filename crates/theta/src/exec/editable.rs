@@ -5,8 +5,19 @@ use theta_core::{Catalog, ResultSet};
 use theta_grid::{EditTarget, GridMeta};
 
 /// What the grid should be told about editability for `result`.
-pub fn grid_meta(result: &ResultSet, catalog: Option<&Catalog>, read_only_connection: bool) -> GridMeta {
+pub fn grid_meta(
+    result: &ResultSet,
+    catalog: Option<&Catalog>,
+    read_only_connection: bool,
+    kind: theta_core::DatabaseKind,
+) -> GridMeta {
     let mut meta = GridMeta::new();
+    // A product without row identity (ClickHouse) never edits, whatever the catalog says; the reason
+    // comes from its descriptor so it reads the same everywhere.
+    if let Some(reason) = kind.unsupported(theta_core::Feature::EditRows) {
+        meta.read_only_reason = Some(format!("{}: {reason}", kind.label()));
+        return meta;
+    }
     match analyze(result, catalog) {
         Ok(target) => {
             meta.reference_columns = reference_columns(result, catalog, &target);
@@ -149,7 +160,12 @@ mod tests {
     #[test]
     fn read_only_connection_keeps_reason() {
         let cat = fixtures::shop();
-        let m = grid_meta(&rs(vec![col("id", "customers", "id")]), Some(&cat), true);
+        let m = grid_meta(
+            &rs(vec![col("id", "customers", "id")]),
+            Some(&cat),
+            true,
+            theta_core::DatabaseKind::Postgres,
+        );
         assert!(m.editable.is_none() && m.read_only_reason.is_some());
     }
 
@@ -157,7 +173,7 @@ mod tests {
     fn fk_columns_are_references() {
         let cat = fixtures::shop();
         let r = rs(vec![col("id", "orders", "id"), col("customer_id", "orders", "customer_id")]);
-        let m = grid_meta(&r, Some(&cat), false);
+        let m = grid_meta(&r, Some(&cat), false, theta_core::DatabaseKind::Postgres);
         assert_eq!(m.reference_columns, vec![1]);
     }
 }

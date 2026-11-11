@@ -10,8 +10,8 @@
 mod introspect;
 mod types;
 
-use crate::plan_mysql;
 use crate::util::{has_multiple_statements, reports_rows_affected};
+use crate::{plan_mysql, plan_text};
 use async_trait::async_trait;
 use mysql_async::consts::StatusFlags;
 use mysql_async::prelude::*;
@@ -21,12 +21,15 @@ use std::time::{Duration, Instant};
 use theta_core::*;
 use tokio::sync::Mutex;
 
-pub struct MysqlDriver;
+/// MySQL, MariaDB and TiDB (MySQL wire protocol; `kind` says which product the user chose).
+pub struct MysqlDriver {
+    pub kind: DatabaseKind,
+}
 
 #[async_trait]
 impl Driver for MysqlDriver {
     fn kind(&self) -> DatabaseKind {
-        DatabaseKind::MySql
+        self.kind
     }
 
     async fn connect(&self, config: &ConnectionConfig) -> Result<Box<dyn Connection>> {
@@ -35,6 +38,7 @@ impl Driver for MysqlDriver {
 }
 
 pub struct MysqlConnection {
+    kind: DatabaseKind,
     conn: Mutex<Option<Conn>>,
     opts: Opts,
     conn_id: u32,
@@ -119,7 +123,11 @@ fn build_opts(config: &ConnectionConfig, via: Option<&LocalEndpoint>, ssl: SslCh
         } else {
             &config.host
         })
-        .tcp_port(via.map(|v| v.port).unwrap_or(if config.port == 0 { 3306 } else { config.port }))
+        .tcp_port(via.map(|v| v.port).unwrap_or(if config.port == 0 {
+            config.kind.default_port().unwrap_or(3306)
+        } else {
+            config.port
+        }))
         .user(Some(config.user.clone()).filter(|u| !u.is_empty()))
         .pass(config.password.clone())
         .db_name(Some(config.database.clone()).filter(|d| !d.is_empty()))
@@ -189,12 +197,19 @@ impl MysqlConnection {
         let (version, db, user) = row.unwrap_or_default();
         let is_mariadb = version.to_ascii_lowercase().contains("mariadb");
         let short = version.split('-').next().unwrap_or(&version).to_string();
+        // TiDB answers `8.0.11-TiDB-v7.5.0`: the part before the dash is the MySQL level it imitates.
+        let tidb_version = version.split_once("-TiDB-").map(|(_, v)| v.to_string());
         let info = ServerInfo {
-            version: format!("{} {}", if is_mariadb { "MariaDB" } else { "MySQL" }, short),
+            version: match &tidb_version {
+                Some(v) => format!("TiDB {v} (MySQL {short} protocol)"),
+                None => format!("{} {}", if is_mariadb { "MariaDB" } else { "MySQL" }, short),
+            },
             current_database: db,
             current_user: Some(user),
+            banner: version.clone(),
         };
         Ok(Self {
+            kind: config.kind,
             conn: Mutex::new(Some(conn)),
             opts,
             conn_id,
@@ -331,7 +346,7 @@ async fn query_in_transaction(conn: &mut Conn) -> Option<bool> {
 #[async_trait]
 impl Connection for MysqlConnection {
     fn kind(&self) -> DatabaseKind {
-        DatabaseKind::MySql
+        self.kind
     }
 
     async fn server_info(&self) -> Result<ServerInfo> {
@@ -360,8 +375,8 @@ impl Connection for MysqlConnection {
     }
 
     async fn introspect(&self) -> Result<Catalog> {
-        let is_mariadb = self.is_mariadb;
-        self.run_guarded(async |conn| introspect::introspect(conn, is_mariadb).await).await
+        let (is_mariadb, tidb) = (self.is_mariadb, self.kind == DatabaseKind::TiDb);
+        self.run_guarded(async |conn| introspect::introspect(conn, is_mariadb, tidb).await).await
     }
 
     async fn explain(&self, sql: &str, analyze: bool) -> Result<Plan> {
@@ -371,7 +386,12 @@ impl Connection for MysqlConnection {
         }
         self.run_guarded(async |conn| {
             let m = |e| map_error(e, sql);
+            // TiDB has no FORMAT=JSON in the MySQL shape: its EXPLAIN is a table (id, estRows, task,
+            // access object, operator info; with ANALYZE also actRows, execution info, memory, disk).
+            let tidb = self.kind == DatabaseKind::TiDb;
             let (stmt, text_plan) = match (analyze, is_mariadb) {
+                (false, _) if tidb => (format!("EXPLAIN {sql}"), false),
+                (true, _) if tidb => (format!("EXPLAIN ANALYZE {sql}"), false),
                 (false, _) => (format!("EXPLAIN FORMAT=JSON {sql}"), false),
                 (true, true) => (format!("ANALYZE FORMAT=JSON {sql}"), false),
                 (true, false) => (format!("EXPLAIN ANALYZE {sql}"), true),
@@ -396,6 +416,21 @@ impl Connection for MysqlConnection {
                 // Errors name the original statement, not our `EXPLAIN` prefix.
                 map_error(e, sql)
             })?;
+            if tidb {
+                let names: Vec<String> = match rows.first() {
+                    Some(r) => r.columns_ref().iter().map(|c| c.name_str().into_owned()).collect(),
+                    None => return Err(Error::other("EXPLAIN returned no rows")),
+                };
+                let table: Vec<Vec<String>> = rows
+                    .iter()
+                    .map(|r| {
+                        (0..names.len())
+                            .map(|i| r.get::<Option<String>, _>(i).flatten().unwrap_or_default())
+                            .collect()
+                    })
+                    .collect();
+                return plan_text::parse_tidb(&names, &table, analyze);
+            }
             let raw = rows
                 .first()
                 .and_then(|r| r.get::<String, _>(0))

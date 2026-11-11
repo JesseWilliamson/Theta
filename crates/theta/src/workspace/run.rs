@@ -808,9 +808,14 @@ impl Workspace {
                 if let Some(rs) = out.result {
                     let n = rs.rows.len() as u64;
                     let catalog = self.store.read(cx).catalog(conn_id);
-                    let meta = editable::grid_meta(&rs, catalog.as_deref(), read_only)
-                        .with_elapsed(out.elapsed)
-                        .with_statement(p.sql.clone());
+                    let meta = editable::grid_meta(
+                        &rs,
+                        catalog.as_deref(),
+                        read_only,
+                        self.store.read(cx).config(conn_id).map_or(DatabaseKind::Postgres, |c| c.kind),
+                    )
+                    .with_elapsed(out.elapsed)
+                    .with_statement(p.sql.clone());
                     let truncated = rs.truncated;
                     let number = self.consoles.get(&id).map_or(0, |c| c.results.len()) + 1;
                     let title = super::console::result_title(number, &p.sql, &rs.columns);
@@ -1565,6 +1570,15 @@ impl Workspace {
     ) {
         let Some((text, cursor, _)) = self.editor_snapshot(id, cx) else { return };
         let kind = self.console_kind(id, cx);
+        let missing = kind.unsupported(if analyze {
+            theta_core::Feature::ExplainAnalyze
+        } else {
+            theta_core::Feature::Explain
+        });
+        if let Some(reason) = missing {
+            self.notify(NoticeKind::Info, format!("{}: {reason}", kind.label()), window, cx);
+            return;
+        }
         let Some(p) = pick::at_cursor(&text, cursor, kind) else {
             self.notify(NoticeKind::Info, "There is no statement to explain here", window, cx);
             return;

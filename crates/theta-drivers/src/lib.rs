@@ -9,6 +9,7 @@ pub mod demo;
 mod mysql;
 mod plan_mysql;
 mod plan_pg;
+mod plan_text;
 mod postgres;
 mod sqlite;
 pub mod ssh;
@@ -57,9 +58,16 @@ pub fn parse_sqlite_plan(raw: &str) -> Result<Plan> {
 /// The driver for a database kind.
 pub fn driver_for(kind: DatabaseKind) -> Box<dyn Driver> {
     match kind {
-        DatabaseKind::Postgres => Box::new(postgres::PostgresDriver),
-        DatabaseKind::MySql => Box::new(mysql::MysqlDriver),
+        DatabaseKind::Postgres
+        | DatabaseKind::CockroachDb
+        | DatabaseKind::Redshift
+        | DatabaseKind::TimescaleDb
+        | DatabaseKind::YugabyteDb => Box::new(postgres::PostgresDriver { kind }),
+        DatabaseKind::MySql | DatabaseKind::TiDb => Box::new(mysql::MysqlDriver { kind }),
         DatabaseKind::Sqlite => Box::new(sqlite::SqliteDriver),
+        DatabaseKind::DuckDb | DatabaseKind::SqlServer | DatabaseKind::ClickHouse => {
+            unreachable!("driver arrives with its own commit")
+        }
     }
 }
 
@@ -81,17 +89,17 @@ pub async fn connect_with_notices(config: &ConnectionConfig) -> Result<(Box<dyn 
     let local = tunnel.local_port();
     let notices = tunnel.notices().to_vec();
     let inner: Result<Box<dyn Connection>> = match config.kind {
-        DatabaseKind::Postgres => {
+        k if k.family() == Family::Postgres => {
             postgres::PgConnection::connect(config, Some(postgres::LocalEndpoint { port: local }))
                 .await
                 .map(|c| Box::new(c) as Box<dyn Connection>)
         }
-        DatabaseKind::MySql => {
+        k if k.family() == Family::MySql => {
             mysql::MysqlConnection::connect(config, Some(mysql::LocalEndpoint { port: local }))
                 .await
                 .map(|c| Box::new(c) as Box<dyn Connection>)
         }
-        DatabaseKind::Sqlite => unreachable!("file-based databases never tunnel"),
+        _ => unreachable!("file-based databases never tunnel"),
     };
     match inner {
         Ok(inner) => Ok((Box::new(Tunneled { inner, tunnel: Mutex::new(Some(tunnel)) }), notices)),

@@ -7,7 +7,7 @@
 //! before the first statement that needs one, with the configured isolation level, and leaves it open
 //! until the user commits or rolls back.
 
-use crate::DatabaseKind;
+use crate::{DatabaseKind, Family};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -84,18 +84,31 @@ impl TransactionConfig {
     /// The statements that start a transaction in manual mode, in the order to execute them. `read_only`
     /// asks for a read-only transaction where the database has one (Postgres and MySQL; SQLite does not).
     pub fn begin_statements(&self, kind: DatabaseKind, read_only: bool) -> Vec<String> {
-        match kind {
-            DatabaseKind::Postgres => {
+        match kind.family() {
+            Family::Postgres | Family::DuckDb => {
                 let mut s = String::from("BEGIN");
                 if let Some(level) = self.isolation.sql() {
                     s.push_str(&format!(" ISOLATION LEVEL {level}"));
                 }
-                if read_only {
+                if read_only && kind.family() == Family::Postgres {
                     s.push_str(" READ ONLY");
                 }
                 vec![s]
             }
-            DatabaseKind::MySql => {
+            Family::SqlServer => {
+                // T-SQL's isolation level is a session setting that outlives the transaction; it is
+                // set right before BEGIN so the chosen level is the one this transaction runs at.
+                let mut out = Vec::new();
+                if let Some(level) = self.isolation.sql() {
+                    out.push(format!("SET TRANSACTION ISOLATION LEVEL {level}"));
+                }
+                out.push("BEGIN TRANSACTION".into());
+                out
+            }
+            // ClickHouse over HTTP has no transactions (see `Feature::Transactions`); the application
+            // never asks, and a plain BEGIN would only produce a server error.
+            Family::ClickHouse => Vec::new(),
+            Family::MySql => {
                 let mut out = Vec::new();
                 // `SET TRANSACTION` applies to the next transaction only, which is the one started below.
                 if let Some(level) = self.isolation.sql() {
@@ -108,7 +121,7 @@ impl TransactionConfig {
                 });
                 out
             }
-            DatabaseKind::Sqlite => {
+            Family::Sqlite => {
                 vec![format!("BEGIN {}", self.sqlite_begin.label().to_ascii_uppercase())]
             }
         }
@@ -119,8 +132,8 @@ impl TransactionConfig {
         if !self.manual {
             return "Auto-commit".into();
         }
-        match kind {
-            DatabaseKind::Sqlite => format!("Manual · {}", self.sqlite_begin.label()),
+        match kind.family() {
+            Family::Sqlite => format!("Manual · {}", self.sqlite_begin.label()),
             _ if self.isolation == Isolation::ServerDefault => "Manual".into(),
             _ => format!("Manual · {}", self.isolation.label()),
         }
@@ -131,10 +144,21 @@ impl TransactionConfig {
 pub fn isolation_levels(kind: DatabaseKind) -> &'static [Isolation] {
     use Isolation::*;
     match kind {
-        // Postgres accepts READ UNCOMMITTED but runs it as READ COMMITTED, so offering it would mislead.
-        DatabaseKind::Postgres => &[ServerDefault, ReadCommitted, RepeatableRead, Serializable],
-        DatabaseKind::MySql => &[ServerDefault, ReadUncommitted, ReadCommitted, RepeatableRead, Serializable],
-        DatabaseKind::Sqlite => &[],
+        // CockroachDB and Redshift run everything SERIALIZABLE; the other levels are accepted
+        // syntax at best, so offering them would mislead.
+        DatabaseKind::CockroachDb | DatabaseKind::Redshift => &[ServerDefault, Serializable],
+        // TiDB implements READ COMMITTED and REPEATABLE READ; SERIALIZABLE is accepted and ignored.
+        DatabaseKind::TiDb => &[ServerDefault, ReadCommitted, RepeatableRead],
+        DatabaseKind::DuckDb | DatabaseKind::ClickHouse => &[],
+        DatabaseKind::SqlServer => {
+            &[ServerDefault, ReadUncommitted, ReadCommitted, RepeatableRead, Serializable]
+        }
+        _ => match kind.family() {
+            // Postgres accepts READ UNCOMMITTED but runs it as READ COMMITTED, so offering it would mislead.
+            Family::Postgres => &[ServerDefault, ReadCommitted, RepeatableRead, Serializable],
+            Family::MySql => &[ServerDefault, ReadUncommitted, ReadCommitted, RepeatableRead, Serializable],
+            _ => &[],
+        },
     }
 }
 
@@ -164,7 +188,7 @@ pub fn implicit_commit_note(
     now_open: bool,
     class: StatementKind,
 ) -> Option<&'static str> {
-    (was_open && !now_open && class == StatementKind::Ddl && kind == DatabaseKind::MySql).then_some(
+    (was_open && !now_open && class == StatementKind::Ddl && kind.family() == Family::MySql).then_some(
         "MySQL ended the open transaction by itself: a DDL statement commits implicitly, so the changes made before it are committed and cannot be rolled back.",
     )
 }

@@ -7,6 +7,7 @@
 use crate::infer::ColumnType;
 use crate::parser::Field;
 use crate::scalar::{NumberKind, is_uuid, parse_bool, parse_date, parse_number, parse_time, parse_timestamp};
+use theta_core::Family;
 use theta_core::{ColumnInfo, DatabaseKind, TypeKind, Value};
 
 /// What a column accepts. Derived from the catalog (existing table) or from an inferred type (new table).
@@ -37,7 +38,7 @@ impl Target {
     pub fn from_column(info: &ColumnInfo, db: DatabaseKind) -> Self {
         let ty = info.data_type.to_ascii_lowercase();
         let p = parens(&ty);
-        let bits = if db == DatabaseKind::Sqlite {
+        let bits = if db.family() == Family::Sqlite {
             64
         } else if ty.contains("tinyint") {
             8
@@ -81,12 +82,12 @@ impl Target {
         let sql = ty.sql_type(db);
         // The new column's own type decides, not the sample: a VARCHAR(255) picked for a short sample
         // must reject the 300-character value in row 9000 now, not at the server.
-        let max_len = if db == DatabaseKind::MySql && matches!(ty, ColumnType::Text { .. }) {
+        let max_len = if db.family() == Family::MySql && matches!(ty, ColumnType::Text { .. }) {
             parens(&sql).first().map(|&n| n as usize)
         } else {
             None
         };
-        let precision = if db == DatabaseKind::MySql && matches!(ty, ColumnType::Numeric { .. }) {
+        let precision = if db.family() == Family::MySql && matches!(ty, ColumnType::Numeric { .. }) {
             let p = parens(&sql);
             Some((p[0], p[1]))
         } else {
@@ -280,7 +281,7 @@ fn timestamp(v: &str, t: &Target) -> Result<Value, ConvertError> {
             None => return err(format!("{} is not a timestamp (expected YYYY-MM-DD HH:MM:SS)", shown(v))),
         },
     };
-    if tz && t.db == DatabaseKind::MySql {
+    if tz && t.db.family() == Family::MySql {
         // MySQL and MariaDB DATETIME literals cannot carry an offset (MariaDB rejects it, MySQL only
         // accepts it from 8.0.19), and converting silently would change the instant.
         if let Some(stripped) = text.strip_suffix("+00:00") {

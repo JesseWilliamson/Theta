@@ -13,6 +13,7 @@
 
 use std::ops::Range;
 use theta_core::DatabaseKind;
+use theta_core::Family;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
@@ -81,11 +82,22 @@ fn is_ident_part(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b >= 0x80
 }
 
+/// PostgreSQL's lexical rules (dollar quoting, nested block comments, `E''` strings, `?` and `@` as
+/// operators). DuckDB deliberately copies them, and so do the Postgres-wire products.
+fn pg_like(kind: DatabaseKind) -> bool {
+    matches!(kind.family(), Family::Postgres | Family::DuckDb)
+}
+
+/// Strings that treat a backslash as an escape: MySQL, and ClickHouse (`'it\'s'`).
+fn backslash_strings(kind: DatabaseKind) -> bool {
+    matches!(kind.family(), Family::MySql | Family::ClickHouse)
+}
+
 fn is_op_char(b: u8, kind: DatabaseKind) -> bool {
     match b {
         b'+' | b'-' | b'*' | b'/' | b'<' | b'>' | b'=' | b'~' | b'!' | b'%' | b'^' | b'&' | b'|' => true,
-        b'@' | b'?' => kind == DatabaseKind::Postgres,
-        b'#' => kind != DatabaseKind::MySql,
+        b'@' | b'?' => pg_like(kind),
+        b'#' => !matches!(kind.family(), Family::MySql | Family::ClickHouse),
         _ => false,
     }
 }
@@ -109,17 +121,19 @@ pub fn tokenize(sql: &str, kind: DatabaseKind) -> Vec<Token> {
             b'-' if i + 1 < n && b[i + 1] == b'-' && line_comment_ok(b, i, kind) => {
                 (TokenKind::LineComment, line_end(b, i), true)
             }
-            b'#' if kind == DatabaseKind::MySql => (TokenKind::LineComment, line_end(b, i), true),
+            b'#' if matches!(kind.family(), Family::MySql | Family::ClickHouse) => {
+                (TokenKind::LineComment, line_end(b, i), true)
+            }
             b'/' if i + 1 < n && b[i + 1] == b'*' => {
-                let (e, t) = block_comment_end(b, i, kind == DatabaseKind::Postgres);
+                let (e, t) = block_comment_end(b, i, pg_like(kind));
                 (TokenKind::BlockComment, e, t)
             }
             b'\'' => {
-                let (e, t) = quoted_end(b, i, b'\'', kind == DatabaseKind::MySql);
+                let (e, t) = quoted_end(b, i, b'\'', backslash_strings(kind));
                 (TokenKind::String, e, t)
             }
             b'"' => {
-                if kind == DatabaseKind::MySql {
+                if kind.family() == Family::MySql {
                     let (e, t) = quoted_end(b, i, b'"', true);
                     (TokenKind::String, e, t)
                 } else {
@@ -131,9 +145,9 @@ pub fn tokenize(sql: &str, kind: DatabaseKind) -> Vec<Token> {
                 let (e, t) = quoted_end(b, i, b'`', false);
                 (TokenKind::QuotedIdent, e, t)
             }
-            b'[' if kind == DatabaseKind::Sqlite => {
+            b'[' if matches!(kind.family(), Family::Sqlite | Family::SqlServer) => {
                 let mut j = i + 1;
-                // SQLite's own tokenizer lets `[...]` span lines.
+                // SQLite's own tokenizer lets `[...]` span lines; T-SQL's `[a b]` is the same shape.
                 while j < n && b[j] != b']' {
                     j += 1;
                 }
@@ -143,7 +157,7 @@ pub fn tokenize(sql: &str, kind: DatabaseKind) -> Vec<Token> {
                     (TokenKind::Punct, i + 1, true)
                 }
             }
-            b'$' if kind == DatabaseKind::Postgres => lex_dollar(b, i),
+            b'$' if pg_like(kind) => lex_dollar(b, i),
             b'0'..=b'9' => (TokenKind::Number, number_end(b, i), true),
             b'.' if i + 1 < n && b[i + 1].is_ascii_digit() && !prev_is_operand_end(b, i) => {
                 (TokenKind::Number, number_end(b, i), true)
@@ -162,14 +176,14 @@ pub fn tokenize(sql: &str, kind: DatabaseKind) -> Vec<Token> {
                     (TokenKind::Operator, i + 1, true)
                 }
             }
-            b'?' if kind != DatabaseKind::Postgres => {
+            b'?' if !pg_like(kind) => {
                 let mut j = i + 1;
                 while j < n && b[j].is_ascii_digit() {
                     j += 1;
                 }
                 (TokenKind::Param, j, true)
             }
-            b'@' if kind != DatabaseKind::Postgres => {
+            b'@' if !pg_like(kind) => {
                 let mut j = i + 1;
                 if j < n && b[j] == b'@' {
                     j += 1;
@@ -184,16 +198,16 @@ pub fn tokenize(sql: &str, kind: DatabaseKind) -> Vec<Token> {
                 }
                 (TokenKind::Param, j, true)
             }
-            _ if is_ident_start(c) || (c == b'$' && kind != DatabaseKind::Postgres) => {
+            _ if is_ident_start(c) || (c == b'$' && !pg_like(kind)) => {
                 let mut j = i + 1;
                 while j < n && is_ident_part(b[j]) {
                     j += 1;
                 }
                 if j < n && b[j] == b'\'' && string_prefix(&b[i..j], kind) {
-                    let backslash = kind == DatabaseKind::MySql || matches!(b[i], b'e' | b'E');
+                    let backslash = backslash_strings(kind) || matches!(b[i], b'e' | b'E');
                     let (e, t) = quoted_end(b, j, b'\'', backslash);
                     (TokenKind::String, e, t)
-                } else if kind == DatabaseKind::Postgres
+                } else if pg_like(kind)
                     && j + 1 < n
                     && (b[i] == b'U' || b[i] == b'u')
                     && j == i + 1
@@ -239,7 +253,7 @@ pub fn tokenize(sql: &str, kind: DatabaseKind) -> Vec<Token> {
 
 fn line_comment_ok(b: &[u8], i: usize, kind: DatabaseKind) -> bool {
     // MySQL requires whitespace/control after `--`; otherwise `5--1` is arithmetic.
-    kind != DatabaseKind::MySql || i + 2 >= b.len() || b[i + 2].is_ascii_whitespace() || b[i + 2] < 0x20
+    kind.family() != Family::MySql || i + 2 >= b.len() || b[i + 2].is_ascii_whitespace() || b[i + 2] < 0x20
 }
 
 fn line_end(b: &[u8], mut i: usize) -> usize {
@@ -299,14 +313,19 @@ fn quoted_end(b: &[u8], start: usize, q: u8, backslash: bool) -> (usize, bool) {
 
 fn string_prefix(p: &[u8], kind: DatabaseKind) -> bool {
     if p.len() == 1 {
-        return match kind {
-            DatabaseKind::Postgres => matches!(p[0], b'e' | b'E' | b'b' | b'B' | b'x' | b'X' | b'n' | b'N'),
-            DatabaseKind::MySql => matches!(p[0], b'b' | b'B' | b'x' | b'X' | b'n' | b'N'),
-            DatabaseKind::Sqlite => matches!(p[0], b'x' | b'X'),
+        return match kind.family() {
+            Family::Postgres | Family::DuckDb => {
+                matches!(p[0], b'e' | b'E' | b'b' | b'B' | b'x' | b'X' | b'n' | b'N')
+            }
+            Family::MySql => matches!(p[0], b'b' | b'B' | b'x' | b'X' | b'n' | b'N'),
+            Family::Sqlite => matches!(p[0], b'x' | b'X'),
+            // N'..' is T-SQL's national string; ClickHouse has no string prefixes.
+            Family::SqlServer => matches!(p[0], b'n' | b'N'),
+            Family::ClickHouse => false,
         };
     }
     // MySQL charset introducers: _utf8'..', _binary'..'
-    kind == DatabaseKind::MySql && p[0] == b'_'
+    kind.family() == Family::MySql && p[0] == b'_'
 }
 
 fn prev_is_operand_end(b: &[u8], i: usize) -> bool {

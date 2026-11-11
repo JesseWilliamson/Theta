@@ -2,6 +2,7 @@
 
 use crate::runtime;
 use std::path::PathBuf;
+use theta_core::Family;
 use theta_core::{ConnectionConfig, DatabaseKind, Error};
 
 pub fn demo_path() -> PathBuf {
@@ -23,7 +24,7 @@ pub fn find_existing<'a>(
     path: &std::path::Path,
 ) -> Option<&'a ConnectionConfig> {
     configs.iter().find(|c| {
-        c.name == DEMO_NAME || (c.kind == DatabaseKind::Sqlite && std::path::Path::new(&c.path) == path)
+        c.name == DEMO_NAME || (c.kind.family() == Family::Sqlite && std::path::Path::new(&c.path) == path)
     })
 }
 

@@ -184,6 +184,10 @@ pub struct ServerInfo {
     pub version: String,
     pub current_database: Option<String>,
     pub current_user: Option<String>,
+    /// The server's own `version()` text, used to notice a connection set up as the wrong product
+    /// ([`crate::DatabaseKind::mismatch`]). Empty when the driver has nothing better than `version`.
+    #[serde(default)]
+    pub banner: String,
 }
 
 impl Catalog {

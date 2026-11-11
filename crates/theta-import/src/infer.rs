@@ -1,7 +1,7 @@
 //! Column type inference from a sample, and the per-dialect type names for `CREATE TABLE`.
 
 use crate::scalar::{NumberKind, parse_bool, parse_date, parse_number, parse_timestamp};
-use theta_core::DatabaseKind;
+use theta_core::{DatabaseKind, Family};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ColumnType {
@@ -39,47 +39,59 @@ impl ColumnType {
 
     /// The type to write in `CREATE TABLE` for `kind`.
     pub fn sql_type(&self, kind: DatabaseKind) -> String {
-        use DatabaseKind::*;
-        match (self, kind) {
-            (ColumnType::Integer, Postgres) => "integer".into(),
-            (ColumnType::Integer, MySql) => "INT".into(),
-            (ColumnType::Integer, Sqlite) => "INTEGER".into(),
-            (ColumnType::BigInt, Postgres) => "bigint".into(),
-            (ColumnType::BigInt, MySql) => "BIGINT".into(),
-            (ColumnType::BigInt, Sqlite) => "INTEGER".into(),
+        enum Base {
+            Pg,
+            My,
+            Lite,
+        }
+        use Base::*;
+        // Wire-compatible products share their base dialect's types. The import is disabled for kinds
+        // without a base dialect here (see `DatabaseKind::unsupported(Feature::Import)`).
+        let base = match kind.family() {
+            Family::MySql => My,
+            Family::Sqlite => Lite,
+            _ => Pg,
+        };
+        match (self, base) {
+            (ColumnType::Integer, Pg) => "integer".into(),
+            (ColumnType::Integer, My) => "INT".into(),
+            (ColumnType::Integer, Lite) => "INTEGER".into(),
+            (ColumnType::BigInt, Pg) => "bigint".into(),
+            (ColumnType::BigInt, My) => "BIGINT".into(),
+            (ColumnType::BigInt, Lite) => "INTEGER".into(),
             // Unconstrained NUMERIC keeps every digit later rows may bring; MySQL has no such type, so it
             // gets headroom instead.
-            (ColumnType::Numeric { .. }, Postgres) => "numeric".into(),
-            (ColumnType::Numeric { precision, scale }, MySql) => {
+            (ColumnType::Numeric { .. }, Pg) => "numeric".into(),
+            (ColumnType::Numeric { precision, scale }, My) => {
                 let scale = (*scale).min(30);
                 let p = (precision + 6).clamp(scale + 1, 65);
                 format!("DECIMAL({p},{scale})")
             }
-            (ColumnType::Numeric { .. }, Sqlite) => "NUMERIC".into(),
-            (ColumnType::Float, Postgres) => "double precision".into(),
-            (ColumnType::Float, MySql) => "DOUBLE".into(),
-            (ColumnType::Float, Sqlite) => "REAL".into(),
-            (ColumnType::Boolean, Postgres) => "boolean".into(),
-            (ColumnType::Boolean, MySql) => "TINYINT(1)".into(),
+            (ColumnType::Numeric { .. }, Lite) => "NUMERIC".into(),
+            (ColumnType::Float, Pg) => "double precision".into(),
+            (ColumnType::Float, My) => "DOUBLE".into(),
+            (ColumnType::Float, Lite) => "REAL".into(),
+            (ColumnType::Boolean, Pg) => "boolean".into(),
+            (ColumnType::Boolean, My) => "TINYINT(1)".into(),
             // SQLite has no boolean type, but a declared BOOLEAN gets NUMERIC affinity and Theta reads it back as a
             // boolean, which is what the file said.
-            (ColumnType::Boolean, Sqlite) => "BOOLEAN".into(),
-            (ColumnType::Date, Postgres) => "date".into(),
-            (ColumnType::Date, MySql) => "DATE".into(),
-            (ColumnType::Date, Sqlite) => "DATE".into(),
-            (ColumnType::Timestamp { tz: true }, Postgres) => "timestamptz".into(),
-            (ColumnType::Timestamp { tz: false }, Postgres) => "timestamp".into(),
-            (ColumnType::Timestamp { .. }, MySql) => "DATETIME(6)".into(),
-            (ColumnType::Timestamp { .. }, Sqlite) => "TIMESTAMP".into(),
-            (ColumnType::Text { max_len }, MySql) => {
+            (ColumnType::Boolean, Lite) => "BOOLEAN".into(),
+            (ColumnType::Date, Pg) => "date".into(),
+            (ColumnType::Date, My) => "DATE".into(),
+            (ColumnType::Date, Lite) => "DATE".into(),
+            (ColumnType::Timestamp { tz: true }, Pg) => "timestamptz".into(),
+            (ColumnType::Timestamp { tz: false }, Pg) => "timestamp".into(),
+            (ColumnType::Timestamp { .. }, My) => "DATETIME(6)".into(),
+            (ColumnType::Timestamp { .. }, Lite) => "TIMESTAMP".into(),
+            (ColumnType::Text { max_len }, My) => {
                 if *max_len <= 100 {
                     "VARCHAR(255)".into()
                 } else {
                     "TEXT".into()
                 }
             }
-            (ColumnType::Text { .. }, Postgres) => "text".into(),
-            (ColumnType::Text { .. }, Sqlite) => "TEXT".into(),
+            (ColumnType::Text { .. }, Pg) => "text".into(),
+            (ColumnType::Text { .. }, Lite) => "TEXT".into(),
         }
     }
 }

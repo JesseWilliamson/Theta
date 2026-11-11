@@ -15,6 +15,7 @@ use crate::runtime;
 use gpui_kit::{Context, Window};
 use std::rc::Rc;
 use std::sync::Arc;
+use theta_core::Family;
 use theta_core::{Catalog, DatabaseKind, Table, TableKind};
 use theta_sql::ddl::{self, Flag, Statement, TableDraft};
 use theta_sql::keywords::qualified_name;
@@ -71,7 +72,7 @@ impl Workspace {
         cx: &gpui_kit::App,
     ) -> String {
         let mut lines = vec![ddl::summarize(stmts)];
-        if kind == DatabaseKind::MySql {
+        if kind.family() == Family::MySql {
             lines.push(
                 "MySQL commits each DDL statement by itself: this cannot be rolled back, and it also commits any transaction that is open."
                     .into(),
@@ -166,13 +167,13 @@ impl Workspace {
             return;
         }
         let name = qualified_name(
-            (t.kind != DatabaseKind::Sqlite).then_some(t.schema.as_str()),
+            (t.kind.family() != Family::Sqlite).then_some(t.schema.as_str()),
             &t.table.name,
             t.kind,
         );
         // SQLite has no TRUNCATE; DELETE without a WHERE is its (equally complete) spelling.
-        let (sql, why) = match t.kind {
-            DatabaseKind::Sqlite => (format!("DELETE FROM {name}"), "Delete every row"),
+        let (sql, why) = match t.kind.family() {
+            Family::Sqlite => (format!("DELETE FROM {name}"), "Delete every row"),
             _ => (format!("TRUNCATE TABLE {name}"), "Remove every row at once"),
         };
         let mut s = Statement {
@@ -180,7 +181,7 @@ impl Workspace {
             flags: vec![Flag::Destructive],
             explanation: format!("{why} of {}", t.table.name),
         };
-        if t.kind == DatabaseKind::MySql {
+        if t.kind.family() == Family::MySql {
             s.flags.push(Flag::ImplicitCommit);
         }
         self.confirm_ddl(
@@ -208,7 +209,7 @@ impl Workspace {
             return;
         }
         let name = qualified_name(
-            (t.kind != DatabaseKind::Sqlite).then_some(t.schema.as_str()),
+            (t.kind.family() != Family::Sqlite).then_some(t.schema.as_str()),
             &t.table.name,
             t.kind,
         );

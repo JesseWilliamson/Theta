@@ -13,6 +13,7 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{App, Context, IntoElement, SharedString, Window};
+use theta_core::Family;
 use theta_core::txn::{Isolation, SqliteBegin, TransactionConfig, isolation_levels};
 use theta_core::{ConnectionConfig, DatabaseKind};
 use theta_ui::picker::{PickerDelegate, PickerItem};
@@ -50,11 +51,11 @@ impl Workspace {
         let label = match (cfg.manual, open) {
             (_, false) => cfg.summary(kind),
             (true, true) => {
-                let level = match kind {
-                    DatabaseKind::Sqlite => cfg.sqlite_begin.label(),
+                let level = match kind.family() {
+                    Family::Sqlite => cfg.sqlite_begin.label(),
                     _ => cfg.isolation.label(),
                 };
-                if kind != DatabaseKind::Sqlite && cfg.isolation == Isolation::ServerDefault {
+                if kind.family() != Family::Sqlite && cfg.isolation == Isolation::ServerDefault {
                     "Manual · TXN open".to_string()
                 } else {
                     format!("Manual · TXN open · {level}")
@@ -88,8 +89,8 @@ impl Workspace {
                     ))
                     .item(item("Manual", cfg.manual, Box::new(|w, win, cx| w.set_txn_manual(true, win, cx))))
                     .separator();
-                match kind {
-                    DatabaseKind::Sqlite => {
+                match kind.family() {
+                    Family::Sqlite => {
                         for m in SqliteBegin::ALL {
                             menu = menu.item(item(
                                 &format!("BEGIN {}", m.label().to_uppercase()),
@@ -98,7 +99,7 @@ impl Workspace {
                             ));
                         }
                     }
-                    kind => {
+                    _ => {
                         for l in isolation_levels(kind) {
                             let l = *l;
                             menu = menu.item(item(
@@ -190,14 +191,14 @@ struct IsolationPicker {
 
 impl PickerDelegate for IsolationPicker {
     fn placeholder(&self) -> SharedString {
-        match self.kind {
-            DatabaseKind::Sqlite => "SQLite transaction mode…".into(),
+        match self.kind.family() {
+            Family::Sqlite => "SQLite transaction mode…".into(),
             _ => "Transaction isolation level…".into(),
         }
     }
     fn items(&mut self, _: &mut App) -> Vec<PickerItem> {
-        match self.kind {
-            DatabaseKind::Sqlite => SqliteBegin::ALL
+        match self.kind.family() {
+            Family::Sqlite => SqliteBegin::ALL
                 .into_iter()
                 .map(|m| {
                     PickerItem::new(m.label(), format!("BEGIN {}", m.label().to_uppercase()))
@@ -209,7 +210,7 @@ impl PickerDelegate for IsolationPicker {
                         .checked(self.current.sqlite_begin == m)
                 })
                 .collect(),
-            kind => isolation_levels(kind)
+            _ => isolation_levels(self.kind)
                 .iter()
                 .map(|l| PickerItem::new(l.label(), l.label()).checked(self.current.isolation == *l))
                 .collect(),
@@ -221,13 +222,13 @@ impl PickerDelegate for IsolationPicker {
     fn confirm(&mut self, item: &PickerItem, window: &mut Window, cx: &mut App) {
         let id = item.id.to_string();
         let kind = self.kind;
-        let _ = self.workspace.update(cx, |ws, cx| match kind {
-            DatabaseKind::Sqlite => {
+        let _ = self.workspace.update(cx, |ws, cx| match kind.family() {
+            Family::Sqlite => {
                 if let Some(m) = SqliteBegin::ALL.into_iter().find(|m| m.label() == id) {
                     ws.set_sqlite_begin(m, window, cx);
                 }
             }
-            kind => {
+            _ => {
                 if let Some(l) = isolation_levels(kind).iter().find(|l| l.label() == id) {
                     ws.set_isolation(*l, window, cx);
                 }

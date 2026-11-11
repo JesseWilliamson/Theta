@@ -541,6 +541,7 @@ impl Workspace {
         let note = match kind {
             NoticeKind::Info => Notification::info(message),
             NoticeKind::Success => Notification::success(message),
+            NoticeKind::Warning => Notification::warning(message),
             NoticeKind::Error => Notification::error(message),
         };
         window.push_notification(note, cx);
@@ -586,6 +587,33 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Entries the connection's product cannot do say so instead of sending SQL it would reject.
+        let gate = match event {
+            ExplorerEvent::ModifyTable { connection_id, .. }
+            | ExplorerEvent::RenameTable { connection_id, .. }
+            | ExplorerEvent::RenameColumn { connection_id, .. }
+            | ExplorerEvent::DropColumn { connection_id, .. }
+            | ExplorerEvent::NewIndex { connection_id, .. }
+            | ExplorerEvent::NewForeignKey { connection_id, .. }
+            | ExplorerEvent::DropIndex { connection_id, .. }
+            | ExplorerEvent::DropForeignKey { connection_id, .. } => {
+                Some((connection_id, theta_core::Feature::ModifyTable))
+            }
+            ExplorerEvent::NewTable { connection_id, .. }
+            | ExplorerEvent::DuplicateStructure { connection_id, .. } => {
+                Some((connection_id, theta_core::Feature::CreateTable))
+            }
+            ExplorerEvent::ImportData { connection_id, .. }
+            | ExplorerEvent::ImportNewTable { connection_id } => {
+                Some((connection_id, theta_core::Feature::Import))
+            }
+            _ => None,
+        };
+        if let Some((conn, feature)) = gate
+            && self.refuse_unsupported(conn, feature, window, cx)
+        {
+            return;
+        }
         match event.clone() {
             ExplorerEvent::OpenTable { connection_id, schema, table } => {
                 self.open_table(connection_id, schema, table, window, cx)

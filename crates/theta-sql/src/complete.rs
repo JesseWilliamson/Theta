@@ -20,6 +20,7 @@ use crate::scope::{
 use crate::script::segments;
 use std::collections::HashSet;
 use std::ops::Range;
+use theta_core::Family;
 use theta_core::{Catalog, DatabaseKind, RoutineKind, Table, TableKind, TypeKind};
 
 pub struct CompletionRequest<'a> {
@@ -791,7 +792,7 @@ fn determine(
         "ON" if scan.stmt == StmtKind::Insert
             && matches!(clause, Clause::Values | Clause::Other | Clause::None | Clause::Into) =>
         {
-            return Ctx::Exclusive(if kind == DatabaseKind::MySql {
+            return Ctx::Exclusive(if kind.family() == Family::MySql {
                 vec!["DUPLICATE KEY UPDATE"]
             } else {
                 vec!["CONFLICT"]
@@ -805,8 +806,36 @@ fn determine(
             });
         }
         "CREATE" if last == 0 => {
-            return Ctx::Exclusive(match kind {
-                DatabaseKind::Postgres => vec![
+            return Ctx::Exclusive(match kind.family() {
+                Family::SqlServer => vec![
+                    "TABLE",
+                    "VIEW",
+                    "INDEX",
+                    "UNIQUE INDEX",
+                    "CLUSTERED INDEX",
+                    "NONCLUSTERED INDEX",
+                    "SCHEMA",
+                    "DATABASE",
+                    "FUNCTION",
+                    "PROCEDURE",
+                    "TRIGGER",
+                    "SEQUENCE",
+                    "TYPE",
+                    "OR ALTER",
+                ],
+                Family::ClickHouse => vec![
+                    "TABLE",
+                    "VIEW",
+                    "MATERIALIZED VIEW",
+                    "DATABASE",
+                    "DICTIONARY",
+                    "FUNCTION",
+                    "USER",
+                    "ROLE",
+                    "TEMPORARY TABLE",
+                    "OR REPLACE",
+                ],
+                Family::Postgres | Family::DuckDb => vec![
                     "TABLE",
                     "VIEW",
                     "MATERIALIZED VIEW",
@@ -821,7 +850,7 @@ fn determine(
                     "TEMPORARY TABLE",
                     "OR REPLACE",
                 ],
-                DatabaseKind::MySql => vec![
+                Family::MySql => vec![
                     "TABLE",
                     "VIEW",
                     "INDEX",
@@ -834,7 +863,7 @@ fn determine(
                     "TEMPORARY TABLE",
                     "OR REPLACE",
                 ],
-                DatabaseKind::Sqlite => vec![
+                Family::Sqlite => vec![
                     "TABLE",
                     "VIEW",
                     "INDEX",
@@ -908,7 +937,7 @@ fn determine(
             "VIEW" => matches!(first, "DROP" | "ALTER") || matches!(prev_up, "MATERIALIZED"),
             "TRUNCATE" | "DESCRIBE" | "DESC" if last == 0 => true,
             "COPY" | "ANALYZE" | "VACUUM" | "OPTIMIZE" | "REINDEX" | "CLUSTER"
-                if last == 0 && kind != DatabaseKind::MySql || (last == 0 && lu == "OPTIMIZE") =>
+                if last == 0 && kind.family() != Family::MySql || (last == 0 && lu == "OPTIMIZE") =>
             {
                 true
             }
@@ -1070,7 +1099,7 @@ pub fn complete(request: &CompletionRequest) -> CompletionList {
             if matches!(clause, Clause::Values) {
                 cands.extend(keyword_items(&env, &["DEFAULT"], 150));
             }
-            if *clause == Clause::Set && scan.stmt == StmtKind::Insert && kind != DatabaseKind::MySql {
+            if *clause == Clause::Set && scan.stmt == StmtKind::Insert && kind.family() != Family::MySql {
                 cands.push(raw(
                     "excluded",
                     CompletionKind::Alias,

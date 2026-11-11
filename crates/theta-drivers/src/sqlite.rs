@@ -106,6 +106,7 @@ impl Connection for SqliteConnection {
                 version: format!("SQLite {version}"),
                 current_database: Some(file.unwrap_or_else(|| ":memory:".into())),
                 current_user: None,
+                banner: format!("SQLite {version}"),
             }
         })
         .await

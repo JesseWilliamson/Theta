@@ -4,6 +4,7 @@
 use crate::lexer::{Token, TokenKind, tokenize};
 use std::ops::Range;
 use theta_core::DatabaseKind;
+use theta_core::Family;
 
 /// A statement inside a script. `range` is a byte range, trimmed of surrounding
 /// whitespace and excluding the terminating `;`.
@@ -55,6 +56,35 @@ fn is_routine_header(sql: &str, toks: &[Token], first_sig: usize) -> Option<bool
     None
 }
 
+/// When the `GO` word at token `i` is a batch separator line (alone on its line, with at most a repeat
+/// count and a comment after it), the token index and byte offset just past that line.
+fn go_line_end(sql: &str, toks: &[Token], i: usize) -> Option<(usize, usize)> {
+    let go = toks[i];
+    let line_start = sql[..go.start].rfind('\n').map_or(0, |p| p + 1);
+    if !sql[line_start..go.start].trim().is_empty() {
+        return None;
+    }
+    let mut j = i + 1;
+    let mut seen_count = false;
+    while j < toks.len() {
+        let t = toks[j];
+        let text = t.text(sql);
+        match t.kind {
+            TokenKind::Whitespace if text.contains('\n') => break,
+            TokenKind::Whitespace | TokenKind::BlockComment => {}
+            TokenKind::LineComment => {
+                j += 1;
+                break;
+            }
+            TokenKind::Number if !seen_count => seen_count = true,
+            _ => return None,
+        }
+        j += 1;
+    }
+    let end = toks.get(j).map_or(sql.len(), |t| t.start);
+    Some((j, end))
+}
+
 pub(crate) fn segments(sql: &str, toks: &[Token], kind: DatabaseKind) -> Vec<Segment> {
     let mut out = Vec::new();
     let mut seg_start_tok = 0;
@@ -80,7 +110,12 @@ pub(crate) fn segments(sql: &str, toks: &[Token], kind: DatabaseKind) -> Vec<Seg
                 // Postgres 14+ `BEGIN ATOMIC ... END` is the only non-dollar-quoted body.
                 let atomic =
                     next_sig_word(sql, toks, i + 1).is_some_and(|w| w.eq_ignore_ascii_case("ATOMIC"));
-                if kind != DatabaseKind::Postgres || atomic {
+                // T-SQL's `BEGIN TRAN[SACTION]` starts a transaction, not a block.
+                let transaction = kind.family() == Family::SqlServer
+                    && next_sig_word(sql, toks, i + 1).is_some_and(|w| {
+                        ["TRAN", "TRANSACTION", "DISTRIBUTED"].iter().any(|k| w.eq_ignore_ascii_case(k))
+                    });
+                if (!kind.family().pg_like() || atomic) && !transaction {
                     block_depth += 1;
                 }
             } else if t.is_kw(sql, "CASE") && !prev_was_end {
@@ -96,6 +131,26 @@ pub(crate) fn segments(sql: &str, toks: &[Token], kind: DatabaseKind) -> Vec<Seg
             }
         }
         prev_was_end = t.is_kw(sql, "END");
+        if kind.family() == Family::SqlServer
+            && t.is_kw(sql, "GO")
+            && let Some((resume_tok, resume_byte)) = go_line_end(sql, toks, i)
+        {
+            // `GO` is the client's batch separator (sqlcmd, SSMS), not T-SQL: the batch before it ends
+            // here even without a semicolon, and the GO line itself belongs to no statement.
+            out.push(Segment {
+                start: seg_start_byte,
+                end: t.start,
+                has_semi: false,
+                tokens: seg_start_tok..i,
+            });
+            seg_start_tok = resume_tok;
+            seg_start_byte = resume_byte;
+            first_sig = None;
+            routine = None;
+            block_depth = 0;
+            case_depth = 0;
+            continue;
+        }
         if t.kind == TokenKind::Punct && t.is_punct(sql, ";") && block_depth == 0 && case_depth == 0 {
             out.push(Segment {
                 start: seg_start_byte,
@@ -211,14 +266,16 @@ pub fn classify(statement: &str, kind: DatabaseKind) -> StatementClass {
     let up = |t: &Token| t.text(statement).to_ascii_uppercase();
     match up(first).as_str() {
         "SELECT" => {
-            if kind == DatabaseKind::Postgres && has_top_level_into(statement, &sig) {
+            if (kind.family().pg_like() || kind.family() == Family::SqlServer)
+                && has_top_level_into(statement, &sig)
+            {
                 Ddl
             } else {
                 Query
             }
         }
         "VALUES" | "SHOW" | "DESCRIBE" | "DESC" | "HELP" => Query,
-        "TABLE" if kind == DatabaseKind::Postgres => Query,
+        "TABLE" if kind.family().pg_like() => Query,
         "EXPLAIN" => explain_class(statement, kind, &sig),
         "WITH" => with_class(statement, &sig),
         "INSERT" | "UPDATE" | "DELETE" | "MERGE" | "REPLACE" | "COPY" | "TRUNCATE" | "UPSERT" | "LOAD" => {

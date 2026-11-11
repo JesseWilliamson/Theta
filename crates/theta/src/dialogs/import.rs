@@ -26,6 +26,7 @@ use gpui_kit::{
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use theta_core::Family;
 use theta_core::{Catalog, ColumnInfo, DatabaseKind, TableKind};
 use theta_grid::{GridMeta, ResultGrid};
 use theta_import::plan::auto_map;
@@ -543,7 +544,7 @@ impl ImportView {
                 self.catalog
                     .as_ref()
                     .and_then(|c| c.default_schema.clone())
-                    .filter(|_| self.kind != DatabaseKind::Sqlite),
+                    .filter(|_| self.kind.family() != Family::Sqlite),
                 raw,
             ),
         }
@@ -676,7 +677,7 @@ impl ImportView {
             return;
         }
         if matches!(self.mode, Mode::New)
-            && self.kind == DatabaseKind::MySql
+            && self.kind.family() == Family::MySql
             && matches!(&plan, theta_import::TxnPlan::Session { open: true, .. })
         {
             self.status = Some((

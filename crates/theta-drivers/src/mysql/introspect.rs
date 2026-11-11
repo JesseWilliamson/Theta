@@ -6,7 +6,8 @@ use mysql_async::{Conn, Row};
 use std::collections::HashMap;
 use theta_core::*;
 
-const SYSTEM: &str = "('mysql','information_schema','performance_schema','sys')";
+const SYSTEM: &str =
+    "('mysql','information_schema','performance_schema','sys','metrics_schema','inspection_schema')";
 
 async fn rows(conn: &mut Conn, sql: &str) -> Result<Vec<Row>> {
     conn.query::<Row, _>(sql).await.map_err(|e| Error::Query {
@@ -36,7 +37,7 @@ fn normalise_default(raw: Option<String>, mariadb: bool, nullable: bool) -> Opti
     Some(v)
 }
 
-pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
+pub async fn introspect(conn: &mut Conn, mariadb: bool, tidb: bool) -> Result<Catalog> {
     let schema_rows = rows(
         conn,
         &format!(
@@ -368,7 +369,10 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
              FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA NOT IN {SYSTEM} ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME"
         ),
     )
-    .await?;
+    .await;
+    // TiDB has no stored routines; its ROUTINES/PARAMETERS tables are empty or absent depending on the
+    // version, so a failure there is not a failure to read the catalog.
+    let routines = if tidb { routines.unwrap_or_default() } else { routines? };
     let params = rows(
         conn,
         &format!(
@@ -377,7 +381,8 @@ pub async fn introspect(conn: &mut Conn, mariadb: bool) -> Result<Catalog> {
              ORDER BY SPECIFIC_SCHEMA, SPECIFIC_NAME, ORDINAL_POSITION"
         ),
     )
-    .await?;
+    .await;
+    let params = if tidb { params.unwrap_or_default() } else { params? };
     let mut sigs: HashMap<(String, String), Vec<String>> = HashMap::new();
     for r in &params {
         let mode = s(r, 2).map(|m| format!("{m} ")).unwrap_or_default();

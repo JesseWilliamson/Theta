@@ -2,6 +2,7 @@
 //! the "open table" query and best-effort DDL reconstruction.
 
 use crate::keywords::{qualified_name, quote_if_needed};
+use theta_core::Family;
 use theta_core::{DatabaseKind, Table, TableKind, Value};
 
 fn hex(bytes: &[u8]) -> String {
@@ -15,14 +16,19 @@ fn hex(bytes: &[u8]) -> String {
 /// Quote a string literal for the dialect.
 fn quote_str(s: &str, kind: DatabaseKind) -> String {
     let mut out = String::with_capacity(s.len() + 2);
+    // T-SQL needs the N prefix or a non-ASCII literal goes through the database's code page.
+    if kind.family() == Family::SqlServer {
+        out.push('N');
+    }
     out.push('\'');
+    let escapes = matches!(kind.family(), Family::MySql | Family::ClickHouse);
     for c in s.chars() {
         match c {
             '\'' => out.push_str("''"),
-            // MySQL treats backslash as an escape character by default; the other
-            // two dialects take it literally (standard_conforming_strings = on).
-            '\\' if kind == DatabaseKind::MySql => out.push_str("\\\\"),
-            '\0' if kind == DatabaseKind::MySql => out.push_str("\\0"),
+            // MySQL and ClickHouse treat backslash as an escape character; the other
+            // dialects take it literally (standard_conforming_strings = on).
+            '\\' if escapes => out.push_str("\\\\"),
+            '\0' if escapes => out.push_str("\\0"),
             _ => out.push(c),
         }
     }
@@ -61,22 +67,31 @@ fn json_text(v: &Value) -> String {
 pub fn sql_literal(value: &Value, kind: DatabaseKind) -> String {
     match value {
         Value::Null => "NULL".into(),
-        Value::Bool(b) => match kind {
-            DatabaseKind::Sqlite => (if *b { "1" } else { "0" }).into(),
+        Value::Bool(b) => match kind.family() {
+            Family::Sqlite | Family::SqlServer => (if *b { "1" } else { "0" }).into(),
             _ => (if *b { "TRUE" } else { "FALSE" }).into(),
         },
         Value::Int(i) => i.to_string(),
         Value::UInt(u) => u.to_string(),
         Value::Float(f) => {
             if f.is_nan() {
-                if kind == DatabaseKind::Postgres { "'NaN'::float8".into() } else { "NULL".into() }
+                match kind.family() {
+                    Family::Postgres => "'NaN'::float8".into(),
+                    Family::DuckDb => "'NaN'::DOUBLE".into(),
+                    Family::ClickHouse => "nan".into(),
+                    _ => "NULL".into(),
+                }
             } else if f.is_infinite() {
-                match (kind, *f > 0.0) {
-                    (DatabaseKind::Postgres, true) => "'Infinity'::float8".into(),
-                    (DatabaseKind::Postgres, false) => "'-Infinity'::float8".into(),
+                match (kind.family(), *f > 0.0) {
+                    (Family::Postgres, true) => "'Infinity'::float8".into(),
+                    (Family::Postgres, false) => "'-Infinity'::float8".into(),
                     // SQLite parses an out-of-range real literal as infinity.
-                    (DatabaseKind::Sqlite, true) => "9e999".into(),
-                    (DatabaseKind::Sqlite, false) => "-9e999".into(),
+                    (Family::Sqlite, true) => "9e999".into(),
+                    (Family::Sqlite, false) => "-9e999".into(),
+                    (Family::DuckDb, true) => "'Infinity'::DOUBLE".into(),
+                    (Family::DuckDb, false) => "'-Infinity'::DOUBLE".into(),
+                    (Family::ClickHouse, true) => "inf".into(),
+                    (Family::ClickHouse, false) => "-inf".into(),
                     _ => "NULL".into(),
                 }
             } else {
@@ -99,12 +114,18 @@ pub fn sql_literal(value: &Value, kind: DatabaseKind) -> String {
         | Value::TimestampTz(s)
         | Value::Interval(s)
         | Value::Unknown(s) => quote_str(s, kind),
-        Value::Bytes(b) => match kind {
-            DatabaseKind::Postgres => format!("'\\x{}'::bytea", hex(b)),
+        Value::Bytes(b) => match kind.family() {
+            Family::Postgres => format!("'\\x{}'::bytea", hex(b)),
+            Family::DuckDb | Family::ClickHouse => format!("unhex('{}')", hex(b)),
+            Family::SqlServer if b.is_empty() => "CAST('' AS varbinary(max))".into(),
+            Family::SqlServer => format!("0x{}", hex(b)),
             _ => format!("X'{}'", hex(b)),
         },
-        Value::Array(items) => match kind {
-            DatabaseKind::Postgres => {
+        Value::Array(items) if matches!(kind.family(), Family::DuckDb | Family::ClickHouse) => {
+            format!("[{}]", items.iter().map(|v| sql_literal(v, kind)).collect::<Vec<_>>().join(", "))
+        }
+        Value::Array(items) => match kind.family() {
+            Family::Postgres => {
                 if items.is_empty() {
                     "'{}'".into()
                 } else {
@@ -114,13 +135,20 @@ pub fn sql_literal(value: &Value, kind: DatabaseKind) -> String {
                     )
                 }
             }
-            // No array type outside Postgres: JSON text is the closest faithful form.
+            // No array type in MySQL, SQLite or T-SQL: JSON text is the closest faithful form.
             _ => quote_str(&json_text(value), kind),
         },
-        Value::Geometry(b) => match kind {
-            DatabaseKind::Postgres => format!("ST_GeomFromEWKB('\\x{}'::bytea)", hex(b)),
-            DatabaseKind::MySql => mysql_geometry_literal(b),
-            DatabaseKind::Sqlite => format!("GeomFromEWKB(X'{}')", hex(b)),
+        Value::Geometry(b) => match kind.family() {
+            Family::Postgres => format!("ST_GeomFromEWKB('\\x{}'::bytea)", hex(b)),
+            Family::MySql => mysql_geometry_literal(b),
+            Family::Sqlite => format!("GeomFromEWKB(X'{}')", hex(b)),
+            // DuckDB's spatial extension is not loaded by Theta (no GEOMETRY support yet); SQL Server's
+            // STGeomFromWKB needs the SRID the EWKB carries; ClickHouse has no geometry column type.
+            Family::DuckDb | Family::ClickHouse => format!("unhex('{}')", hex(b)),
+            Family::SqlServer => {
+                let (wkb, srid) = ewkb_to_wkb(b);
+                format!("geometry::STGeomFromWKB(0x{}, {srid})", hex(&wkb))
+            }
         },
     }
 }
@@ -209,8 +237,8 @@ pub fn build_insert(
 ) -> String {
     let t = target(kind, schema, table);
     if columns.is_empty() || rows.is_empty() {
-        return match kind {
-            DatabaseKind::MySql => format!("INSERT INTO {t} () VALUES ()"),
+        return match kind.family() {
+            Family::MySql => format!("INSERT INTO {t} () VALUES ()"),
             _ => format!("INSERT INTO {t} DEFAULT VALUES"),
         };
     }
@@ -235,6 +263,10 @@ pub fn build_delete(
 
 /// The "open table" query.
 pub fn select_top(kind: DatabaseKind, schema: Option<&str>, table: &str, limit: usize) -> String {
+    if kind.family() == Family::SqlServer {
+        // T-SQL has no LIMIT.
+        return format!("SELECT TOP {limit} * FROM {}", target(kind, schema, table));
+    }
     format!("SELECT * FROM {} LIMIT {limit}", target(kind, schema, table))
 }
 
@@ -261,7 +293,7 @@ pub fn table_ddl(kind: DatabaseKind, schema_name: &str, table: &Table) -> String
         if let Some(d) = &c.default {
             l.push_str(&format!(" DEFAULT {d}"));
         }
-        if kind == DatabaseKind::MySql
+        if kind.family() == Family::MySql
             && let Some(cm) = &c.comment
         {
             l.push_str(&format!(" COMMENT {}", quote_str(cm, kind)));
@@ -314,7 +346,7 @@ pub fn table_ddl(kind: DatabaseKind, schema_name: &str, table: &Table) -> String
             join_cols(&idx.columns, kind)
         ));
     }
-    if kind == DatabaseKind::Postgres {
+    if kind.family() == Family::Postgres {
         if let Some(c) = &table.comment {
             out.push_str(&format!("COMMENT ON TABLE {name} IS {};\n", quote_str(c, kind)));
         }
@@ -471,6 +503,8 @@ mod tests {
             "SELECT * FROM public.orders LIMIT 100"
         );
         assert_eq!(select_top(MySql, None, "t", 5), "SELECT * FROM t LIMIT 5");
+        assert_eq!(select_top(DatabaseKind::SqlServer, Some("dbo"), "t", 5), "SELECT TOP 5 * FROM dbo.t");
+        assert_eq!(select_top(DatabaseKind::ClickHouse, Some("db"), "t", 5), "SELECT * FROM db.t LIMIT 5");
     }
 
     #[test]

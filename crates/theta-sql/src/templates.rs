@@ -16,6 +16,7 @@
 
 use serde::{Deserialize, Serialize};
 use theta_core::DatabaseKind;
+use theta_core::Family;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Template {
@@ -52,21 +53,41 @@ impl Template {
 /// The built-in templates for `kind`.
 pub fn builtins(kind: DatabaseKind) -> Vec<Template> {
     let t = Template::new;
-    let (crt, exp) = match kind {
-        DatabaseKind::Postgres => (
+    let (crt, exp) = match kind.family() {
+        Family::DuckDb => (
+            "CREATE TABLE ${1:name} (\n    id BIGINT PRIMARY KEY,\n    ${2:column} ${3:VARCHAR} NOT NULL,\n    created_at TIMESTAMP NOT NULL DEFAULT current_timestamp\n)$0",
+            "EXPLAIN ANALYZE $0",
+        ),
+        Family::SqlServer => (
+            "CREATE TABLE ${1:name} (\n    id bigint IDENTITY(1,1) PRIMARY KEY,\n    ${2:column} ${3:nvarchar(255)} NOT NULL,\n    created_at datetime2 NOT NULL DEFAULT SYSUTCDATETIME()\n)$0",
+            "SET STATISTICS TIME ON;\n$0",
+        ),
+        Family::ClickHouse => (
+            "CREATE TABLE ${1:name} (\n    id UInt64,\n    ${2:column} ${3:String},\n    created_at DateTime DEFAULT now()\n)\nENGINE = MergeTree\nORDER BY id$0",
+            "EXPLAIN PLAN actions = 1 $0",
+        ),
+        Family::Postgres => (
             "CREATE TABLE ${1:name} (\n    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    ${2:column} ${3:text} NOT NULL,\n    created_at timestamptz NOT NULL DEFAULT now()\n)$0",
             "EXPLAIN (ANALYZE, BUFFERS) $0",
         ),
-        DatabaseKind::MySql => (
+        Family::MySql => (
             "CREATE TABLE ${1:name} (\n    id bigint AUTO_INCREMENT PRIMARY KEY,\n    ${2:column} ${3:varchar(255)} NOT NULL,\n    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP\n)$0",
             "EXPLAIN ANALYZE $0",
         ),
-        DatabaseKind::Sqlite => (
+        Family::Sqlite => (
             "CREATE TABLE ${1:name} (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    ${2:column} ${3:TEXT} NOT NULL,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)$0",
             "EXPLAIN QUERY PLAN $0",
         ),
     };
-    vec![
+    // Products whose EXPLAIN differs from the family's: Redshift has no options, CockroachDB no BUFFERS,
+    // YugabyteDB adds DIST.
+    let exp = match kind {
+        DatabaseKind::Redshift => "EXPLAIN $0",
+        DatabaseKind::CockroachDb => "EXPLAIN ANALYZE $0",
+        DatabaseKind::YugabyteDb => "EXPLAIN (ANALYZE, DIST) $0",
+        _ => exp,
+    };
+    let mut list = vec![
         t("sel", "SELECT … FROM …", "SELECT ${1:*} FROM ${2:table}$0"),
         t("selw", "SELECT … FROM … WHERE …", "SELECT ${1:*}\nFROM ${2:table}\nWHERE ${3:condition}$0"),
         t("selt", "SELECT * from a table you pick", "SELECT *\nFROM ${table}\nLIMIT ${1:100}$0"),
@@ -113,7 +134,21 @@ pub fn builtins(kind: DatabaseKind) -> Vec<Template> {
         t("uidx", "CREATE UNIQUE INDEX", "CREATE UNIQUE INDEX ${1:idx_name} ON ${2:table} (${3:column})$0"),
         t("crt", "CREATE TABLE with an id and a timestamp", crt),
         t("exp", "EXPLAIN a statement", exp),
-    ]
+    ];
+    if kind.family() == Family::SqlServer {
+        // T-SQL has no LIMIT; TOP goes right after SELECT.
+        for tpl in &mut list {
+            match tpl.abbreviation.as_str() {
+                "selt" => tpl.body = "SELECT TOP (${1:100}) *\nFROM ${table}$0".into(),
+                "top" => {
+                    tpl.body =
+                        "SELECT TOP (${4:10}) ${1:*}\nFROM ${2:table}\nORDER BY ${3:column} DESC$0".into()
+                }
+                _ => {}
+            }
+        }
+    }
+    list
 }
 
 /// What `templates.json` held: the templates and one warning per entry that was skipped.

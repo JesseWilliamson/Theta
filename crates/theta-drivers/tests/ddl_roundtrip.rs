@@ -23,6 +23,7 @@ fn types(kind: DatabaseKind) -> Types {
         DatabaseKind::Sqlite => {
             Types { int: "INTEGER", text: "TEXT", ts: "TIMESTAMP", now: "CURRENT_TIMESTAMP" }
         }
+        other => panic!("the round trip covers the three base kinds, not {other:?}"),
     }
 }
 
@@ -181,6 +182,7 @@ async fn scenario(kind: DatabaseKind, c: &dyn Connection, schema: &str) {
         DatabaseKind::Postgres => "bigint",
         DatabaseKind::MySql => "bigint",
         DatabaseKind::Sqlite => "BIGINT",
+        other => panic!("not covered: {other:?}"),
     };
     next.columns.iter_mut().find(|c| c.name == "tier").unwrap().data_type = wider.into();
     let script = diff(&live, &next, kind);

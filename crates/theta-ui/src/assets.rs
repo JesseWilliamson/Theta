@@ -13,6 +13,14 @@ const OWN: &[(&str, &[u8])] = &[
     ("icons/db-postgres.svg", include_bytes!("../assets/icons/db-postgres.svg")),
     ("icons/db-mysql.svg", include_bytes!("../assets/icons/db-mysql.svg")),
     ("icons/db-sqlite.svg", include_bytes!("../assets/icons/db-sqlite.svg")),
+    ("icons/db-cockroachdb.svg", include_bytes!("../assets/icons/db-cockroachdb.svg")),
+    ("icons/db-redshift.svg", include_bytes!("../assets/icons/db-redshift.svg")),
+    ("icons/db-timescaledb.svg", include_bytes!("../assets/icons/db-timescaledb.svg")),
+    ("icons/db-yugabytedb.svg", include_bytes!("../assets/icons/db-yugabytedb.svg")),
+    ("icons/db-tidb.svg", include_bytes!("../assets/icons/db-tidb.svg")),
+    ("icons/db-duckdb.svg", include_bytes!("../assets/icons/db-duckdb.svg")),
+    ("icons/db-sqlserver.svg", include_bytes!("../assets/icons/db-sqlserver.svg")),
+    ("icons/db-clickhouse.svg", include_bytes!("../assets/icons/db-clickhouse.svg")),
     ("icons/db-generic.svg", include_bytes!("../assets/icons/db-generic.svg")),
 ];
 

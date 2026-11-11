@@ -15,7 +15,7 @@ use gpui_kit::{
     StatefulInteractiveElement as _, Styled as _, StyledText, Window, deferred, div, px, uniform_list,
 };
 use std::ops::Range;
-use theta_core::DatabaseKind;
+use theta_core::Family;
 use theta_sql::ddl::{Flag, Severity};
 use theta_ui::{CHROME_TEXT_SIZE, ROW_HEIGHT, Settings, data_surface};
 
@@ -167,7 +167,7 @@ impl TableEditor {
             .border_b_1()
             .border_color(theme.border)
             .child(Icon::new(IconName::Table2).size(px(14.)).text_color(theme.muted_foreground))
-            .when_some(schema.filter(|s| !s.is_empty() && kind != DatabaseKind::Sqlite), |d, s| {
+            .when_some(schema.filter(|s| !s.is_empty() && kind.family() != Family::Sqlite), |d, s| {
                 d.child(div().text_size(px(12.)).text_color(theme.muted_foreground).child(format!("{s}.")))
             })
             .child(

@@ -9,6 +9,14 @@ pub enum DbIcon {
     Postgres,
     MySql,
     Sqlite,
+    CockroachDb,
+    Redshift,
+    TimescaleDb,
+    YugabyteDb,
+    TiDb,
+    DuckDb,
+    SqlServer,
+    ClickHouse,
     /// A kind without a glyph of its own.
     Generic,
 }
@@ -20,6 +28,14 @@ impl DbIcon {
             "postgres" => DbIcon::Postgres,
             "mysql" => DbIcon::MySql,
             "sqlite" => DbIcon::Sqlite,
+            "cockroachdb" => DbIcon::CockroachDb,
+            "redshift" => DbIcon::Redshift,
+            "timescaledb" => DbIcon::TimescaleDb,
+            "yugabytedb" => DbIcon::YugabyteDb,
+            "tidb" => DbIcon::TiDb,
+            "duckdb" => DbIcon::DuckDb,
+            "sqlserver" => DbIcon::SqlServer,
+            "clickhouse" => DbIcon::ClickHouse,
             _ => DbIcon::Generic,
         }
     }
@@ -29,6 +45,14 @@ impl DbIcon {
             DbIcon::Postgres => "icons/db-postgres.svg",
             DbIcon::MySql => "icons/db-mysql.svg",
             DbIcon::Sqlite => "icons/db-sqlite.svg",
+            DbIcon::CockroachDb => "icons/db-cockroachdb.svg",
+            DbIcon::Redshift => "icons/db-redshift.svg",
+            DbIcon::TimescaleDb => "icons/db-timescaledb.svg",
+            DbIcon::YugabyteDb => "icons/db-yugabytedb.svg",
+            DbIcon::TiDb => "icons/db-tidb.svg",
+            DbIcon::DuckDb => "icons/db-duckdb.svg",
+            DbIcon::SqlServer => "icons/db-sqlserver.svg",
+            DbIcon::ClickHouse => "icons/db-clickhouse.svg",
             DbIcon::Generic => "icons/db-generic.svg",
         }
     }
@@ -40,6 +64,14 @@ impl DbIcon {
             DbIcon::Postgres => hsla(212. / 360., 0.55, 0.58, 1.),
             DbIcon::MySql => hsla(32. / 360., 0.80, 0.52, 1.),
             DbIcon::Sqlite => hsla(172. / 360., 0.45, 0.46, 1.),
+            DbIcon::CockroachDb => hsla(262. / 360., 0.55, 0.65, 1.),
+            DbIcon::Redshift => hsla(350. / 360., 0.62, 0.6, 1.),
+            DbIcon::TimescaleDb => hsla(48. / 360., 0.85, 0.52, 1.),
+            DbIcon::YugabyteDb => hsla(24. / 360., 0.75, 0.58, 1.),
+            DbIcon::TiDb => hsla(300. / 360., 0.45, 0.62, 1.),
+            DbIcon::DuckDb => hsla(52. / 360., 0.9, 0.55, 1.),
+            DbIcon::SqlServer => hsla(2. / 360., 0.62, 0.58, 1.),
+            DbIcon::ClickHouse => hsla(40. / 360., 0.9, 0.58, 1.),
             DbIcon::Generic => hsla(220. / 360., 0.10, 0.55, 1.),
         }
     }

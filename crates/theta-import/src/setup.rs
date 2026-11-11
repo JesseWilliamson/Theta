@@ -6,6 +6,7 @@ use crate::infer::ColumnType;
 use crate::job::*;
 use crate::parser::CsvOptions;
 use crate::plan::{NewColumn, create_table_sql};
+use theta_core::Family;
 use theta_core::{ColumnInfo, DatabaseKind, TypeKind};
 use theta_sql::keywords::qualified_name;
 
@@ -54,8 +55,8 @@ pub struct ImportSetup {
 /// `DELETE FROM`, which a rollback can undo.
 pub fn truncate_sql(kind: DatabaseKind, schema: Option<&str>, table: &str) -> String {
     let name = qualified_name(schema, table, kind);
-    match kind {
-        DatabaseKind::Postgres => format!("TRUNCATE TABLE {name}"),
+    match kind.family() {
+        Family::Postgres => format!("TRUNCATE TABLE {name}"),
         _ => format!("DELETE FROM {name}"),
     }
 }

@@ -17,6 +17,7 @@ use gpui_kit::{App, AppContext as _, Context, Entity, SharedString, WeakEntity, 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
+use theta_core::Family;
 use theta_core::{DatabaseKind, TableKind};
 use theta_sql::VirtualForeignKey;
 use theta_sql::ddl::{self, Flag, Session, Statement};
@@ -55,6 +56,22 @@ impl Workspace {
         })
     }
 
+    /// Whether `feature` is missing for the connection's product; if so, tells the user why and returns
+    /// `true`. The reason text comes from the kind's descriptor (`theta_core::KindInfo`), so the menu
+    /// entries, the palette and the command line all say the same thing.
+    pub fn refuse_unsupported(
+        &self,
+        conn_id: &str,
+        feature: theta_core::Feature,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(kind) = self.store.read(cx).config(conn_id).map(|c| c.kind) else { return false };
+        let Some(reason) = kind.unsupported(feature) else { return false };
+        self.notify(NoticeKind::Info, format!("{}: {reason}", kind.label()), window, cx);
+        true
+    }
+
     /// Open the editor for a new table or an existing one. `None` (after telling the user why) when the
     /// connection is not ready or the table cannot be edited.
     pub fn open_table_editor(
@@ -64,6 +81,13 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<u64> {
+        let feature = match target {
+            EditorTarget::New { .. } => theta_core::Feature::CreateTable,
+            EditorTarget::Modify { .. } => theta_core::Feature::ModifyTable,
+        };
+        if self.refuse_unsupported(&conn_id, feature, window, cx) {
+            return None;
+        }
         let (config, catalog) = {
             let store = self.store.read(cx);
             (store.config(&conn_id).cloned(), store.catalog(&conn_id))
@@ -145,7 +169,7 @@ impl Workspace {
             editor.update(cx, |e, cx| e.focus_name(window, cx));
         }
         if let EditorTarget::Modify { table, .. } = &target
-            && config.kind == DatabaseKind::Sqlite
+            && config.kind.family() == Family::Sqlite
         {
             self.load_sqlite_triggers(&conn_id, table, editor, window, cx);
         }
@@ -513,7 +537,7 @@ fn failure_note(
     if in_session {
         return "The statements ran inside your open transaction. Roll it back to undo them; on PostgreSQL the failed statement leaves it aborted until you do. Your edits are kept.".into();
     }
-    if kind == DatabaseKind::MySql && completed > 0 {
+    if kind.family() == Family::MySql && completed > 0 {
         return format!(
             "MySQL commits each DDL statement: the {completed} statement{} before the failed one {} already applied and cannot be rolled back. Your edits are kept; close and reopen the table to continue from its new state.",
             if completed == 1 { "" } else { "s" },

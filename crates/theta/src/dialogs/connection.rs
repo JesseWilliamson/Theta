@@ -19,6 +19,7 @@ use gpui_kit::{
     WeakEntity, Window, div, px,
 };
 use std::path::PathBuf;
+use theta_core::Family;
 use theta_core::txn::{SqliteBegin, TransactionConfig, isolation_levels};
 use theta_core::{ConnectionConfig, DatabaseKind, SshAuth, SshConfig, SslMode};
 use theta_ui::DbKindIcon;
@@ -31,8 +32,37 @@ const COLORS: [(&str, &str); 5] = [
     ("Purple", "#986ee2"),
 ];
 
-const SSL_LABELS: [&str; 4] = ["Disable", "Prefer", "Require", "Verify full"];
 const SSL_MODES: [SslMode; 4] = [SslMode::Disable, SslMode::Prefer, SslMode::Require, SslMode::VerifyFull];
+
+/// The TLS dropdown's rows for a kind: the modes it implements, with the product's own wording
+/// (`KindInfo::ssl_labels`).
+fn ssl_choices(kind: DatabaseKind) -> Vec<(SslMode, &'static str)> {
+    SSL_MODES.iter().zip(kind.info().ssl_labels).filter_map(|(m, l)| l.map(|l| (*m, l))).collect()
+}
+
+fn ssl_labels(kind: DatabaseKind) -> Vec<&'static str> {
+    ssl_choices(kind).into_iter().map(|(_, l)| l).collect()
+}
+
+fn ssl_index(kind: DatabaseKind, mode: SslMode) -> usize {
+    let choices = ssl_choices(kind);
+    // A mode the kind does not offer (a config edited by hand, or switched from another kind) falls
+    // back to the kind's default rather than to an arbitrary row.
+    choices
+        .iter()
+        .position(|(m, _)| *m == mode)
+        .or_else(|| choices.iter().position(|(m, _)| *m == kind.default_ssl_mode()))
+        .unwrap_or(0)
+}
+
+/// What the TLS dropdown is called: SQL Server says "Encryption", ClickHouse picks a protocol.
+fn ssl_title(kind: DatabaseKind) -> &'static str {
+    match kind {
+        DatabaseKind::SqlServer => "Encryption",
+        DatabaseKind::ClickHouse => "Protocol",
+        _ => "SSL mode",
+    }
+}
 const SSH_AUTH_LABELS: [&str; 3] = ["Key file", "Password", "SSH agent"];
 
 pub fn open(
@@ -161,16 +191,16 @@ pub struct ConnectionForm {
 
 /// The choices of the isolation select: isolation levels, or SQLite's BEGIN modes.
 fn level_labels(kind: DatabaseKind) -> Vec<&'static str> {
-    match kind {
-        DatabaseKind::Sqlite => SqliteBegin::ALL.iter().map(|m| m.label()).collect(),
-        k => isolation_levels(k).iter().map(|l| l.label()).collect(),
+    match kind.family() {
+        Family::Sqlite => SqliteBegin::ALL.iter().map(|m| m.label()).collect(),
+        _ => isolation_levels(kind).iter().map(|l| l.label()).collect(),
     }
 }
 
 fn level_index(kind: DatabaseKind, t: &TransactionConfig) -> usize {
-    match kind {
-        DatabaseKind::Sqlite => SqliteBegin::ALL.iter().position(|m| *m == t.sqlite_begin).unwrap_or(0),
-        k => isolation_levels(k).iter().position(|l| *l == t.isolation).unwrap_or(0),
+    match kind.family() {
+        Family::Sqlite => SqliteBegin::ALL.iter().position(|m| *m == t.sqlite_begin).unwrap_or(0),
+        _ => isolation_levels(kind).iter().position(|l| *l == t.isolation).unwrap_or(0),
     }
 }
 
@@ -219,17 +249,17 @@ impl ConnectionForm {
         };
         let info = c.kind.info();
         let port = if c.port == 0 { String::new() } else { c.port.to_string() };
-        let ssl_ix = SSL_MODES.iter().position(|m| *m == c.ssl_mode).unwrap_or(1);
+        let ssl_ix = ssl_index(c.kind, c.ssl_mode);
 
         let url =
             input(window, cx, "Paste a connection URL, e.g. postgres://user:password@host:5432/database", "");
         let name = input(window, cx, "Production (read-only)", &c.name);
         let host = input(window, cx, info.host_placeholder, &c.host);
-        let port = input(window, cx, "5432", &port);
+        let port = input(window, cx, &info.default_port.map(|p| p.to_string()).unwrap_or_default(), &port);
         let user = input(window, cx, info.user_placeholder, &c.user);
         let password = secret_input(window, cx, "Password", c.password.as_deref().unwrap_or(""));
         let database = input(window, cx, info.database_placeholder, &c.database);
-        let path = input(window, cx, "/path/to/database.sqlite", &c.path);
+        let path = input(window, cx, info.path_placeholder, &c.path);
         let ssh_host =
             input(window, cx, "bastion.example.com", ssh.as_ref().map(|s| s.host.as_str()).unwrap_or(""));
         let ssh_port =
@@ -247,8 +277,7 @@ impl ConnectionForm {
             )
             .searchable(true)
         });
-        let ssl =
-            cx.new(|cx| SelectState::new(SSL_LABELS.to_vec(), Some(IndexPath::new(ssl_ix)), window, cx));
+        let ssl = cx.new(|cx| SelectState::new(ssl_labels(c.kind), Some(IndexPath::new(ssl_ix)), window, cx));
         let isolation = cx.new(|cx| {
             SelectState::new(
                 level_labels(c.kind),
@@ -266,7 +295,7 @@ impl ConnectionForm {
         subscriptions.push(cx.subscribe_in(&url, window, |this, state, event: &InputEvent, window, cx| {
             if matches!(event, InputEvent::Change | InputEvent::PressEnter { .. }) {
                 let text = state.read(cx).value().to_string();
-                if text.contains("://") || text.starts_with("sqlite:") {
+                if text.contains("://") || text.starts_with("sqlite:") || text.starts_with("duckdb:") {
                     this.apply_url(&text, window, cx);
                 }
             }
@@ -307,6 +336,26 @@ impl ConnectionForm {
             |this, _, ev: &gpui_kit::component::select::SelectEvent<SearchableVec<KindItem>>, window, cx| {
                 if let gpui_kit::component::select::SelectEvent::Confirm(Some(item)) = ev {
                     this.set_kind(*item, window, cx);
+                }
+            },
+        ));
+        // ClickHouse's HTTPS port differs from its HTTP one: follow the protocol while the port is a default.
+        subscriptions.push(cx.subscribe_in(
+            &ssl,
+            window,
+            |this, _, ev: &gpui_kit::component::select::SelectEvent<Vec<&'static str>>, window, cx| {
+                let gpui_kit::component::select::SelectEvent::Confirm(Some(_)) = ev else { return };
+                let Some(tls) = this.kind.info().tls_port else { return };
+                let plain = this.kind.default_port().map(|p| p.to_string()).unwrap_or_default();
+                let current = this.text(&this.port, cx);
+                let secure = this
+                    .ssl
+                    .read(cx)
+                    .selected_index(cx)
+                    .and_then(|ix| ssl_choices(this.kind).get(ix.row).map(|(m, _)| *m))
+                    .is_some_and(|m| m != SslMode::Disable);
+                if current.is_empty() || current == plain || current == tls.to_string() {
+                    Self::set_text(&this.port, &if secure { tls.to_string() } else { plain }, window, cx);
                 }
             },
         ));
@@ -391,9 +440,8 @@ impl ConnectionForm {
                 if self.text(&self.name, cx).is_empty() {
                     Self::set_text(&self.name, &p.suggested_name(), window, cx);
                 }
-                if let Some(ssl) = p.ssl_mode
-                    && let Some(ix) = SSL_MODES.iter().position(|m| *m == ssl)
-                {
+                if let Some(ssl) = p.ssl_mode {
+                    let ix = ssl_index(p.kind, ssl);
                     self.ssl.update(cx, |s, cx| s.set_selected_index(Some(IndexPath::new(ix)), window, cx));
                 }
                 self.errors.retain(|(f, _)| *f != "url");
@@ -422,6 +470,11 @@ impl ConnectionForm {
             );
         }
         self.kind = kind;
+        let ix = ssl_index(kind, kind.default_ssl_mode());
+        self.ssl.update(cx, |s, cx| {
+            s.set_items(ssl_labels(kind), window, cx);
+            s.set_selected_index(Some(IndexPath::new(ix)), window, cx);
+        });
         self.isolation.update(cx, |s, cx| {
             s.set_items(level_labels(kind), window, cx);
             s.set_selected_index(Some(IndexPath::new(0)), window, cx);
@@ -467,11 +520,9 @@ impl ConnectionForm {
         config.transaction = {
             let ix = self.isolation.read(cx).selected_index(cx).map_or(0, |i| i.row);
             let mut t = TransactionConfig { manual: self.manual_txn, ..Default::default() };
-            match self.kind {
-                DatabaseKind::Sqlite => {
-                    t.sqlite_begin = SqliteBegin::ALL.get(ix).copied().unwrap_or_default()
-                }
-                k => t.isolation = isolation_levels(k).get(ix).copied().unwrap_or_default(),
+            match self.kind.family() {
+                Family::Sqlite => t.sqlite_begin = SqliteBegin::ALL.get(ix).copied().unwrap_or_default(),
+                _ => t.isolation = isolation_levels(self.kind).get(ix).copied().unwrap_or_default(),
             }
             t
         };
@@ -513,8 +564,8 @@ impl ConnectionForm {
                     .ssl
                     .read(cx)
                     .selected_index(cx)
-                    .and_then(|ix| SSL_MODES.get(ix.row).copied())
-                    .unwrap_or_default();
+                    .and_then(|ix| ssl_choices(self.kind).get(ix.row).map(|(m, _)| *m))
+                    .unwrap_or_else(|| self.kind.default_ssl_mode());
             }
         }
         if self.ssh_enabled && sections.ssh {
@@ -785,7 +836,11 @@ impl Render for ConnectionForm {
                         .gap_3()
                         .items_start()
                         .child(field("Database", Input::new(&self.database), None, cx))
-                        .children(sections.ssl.then(|| field("SSL mode", Select::new(&self.ssl), None, cx))),
+                        .children(
+                            sections
+                                .ssl
+                                .then(|| field(ssl_title(self.kind), Select::new(&self.ssl), None, cx)),
+                        ),
                 )
             })
             .when(sections.file, |d| {
@@ -944,7 +999,7 @@ impl Render for ConnectionForm {
                             .gap_2()
                             .items_center()
                             .child(div().text_size(px(12.)).text_color(theme.muted_foreground).child(
-                                if self.kind == DatabaseKind::Sqlite { "BEGIN mode" } else { "Isolation" },
+                                if self.kind.family() == Family::Sqlite { "BEGIN mode" } else { "Isolation" },
                             ))
                             .child(div().w(px(180.)).child(Select::new(&self.isolation))),
                     ),
@@ -1043,8 +1098,12 @@ mod tests {
     #[test]
     fn short_queries_match_word_starts_only() {
         assert_eq!(matching(""), DatabaseKind::ALL.to_vec());
-        assert_eq!(matching("sq"), vec![DatabaseKind::Sqlite]);
-        assert_eq!(matching("po"), vec![DatabaseKind::Postgres]);
+        assert_eq!(matching("sq"), vec![DatabaseKind::Sqlite, DatabaseKind::SqlServer]);
+        assert_eq!(
+            matching("po"),
+            vec![DatabaseKind::Postgres, DatabaseKind::CockroachDb, DatabaseKind::TimescaleDb],
+            "PostgreSQL, and the products whose keywords say postgres wire / postgis"
+        );
         assert_eq!(matching("pg"), vec![DatabaseKind::Postgres], "keyword");
         assert_eq!(matching("maria"), vec![DatabaseKind::MySql], "keyword of a combined label");
         assert_eq!(matching("zz"), vec![]);
@@ -1052,7 +1111,13 @@ mod tests {
 
     #[test]
     fn longer_queries_match_inside_words() {
-        assert_eq!(matching("sql").len(), 3, "PostgreSQL, MySQL and SQLite all contain it");
+        let sql = matching("sql");
+        for k in [DatabaseKind::Postgres, DatabaseKind::MySql, DatabaseKind::Sqlite, DatabaseKind::SqlServer]
+        {
+            assert!(sql.contains(&k), "{k:?} contains it");
+        }
+        assert_eq!(matching("duck"), vec![DatabaseKind::DuckDb]);
+        assert_eq!(matching("cockroach"), vec![DatabaseKind::CockroachDb]);
         assert_eq!(matching("sqli"), vec![DatabaseKind::Sqlite]);
         assert_eq!(matching("SQLITE"), vec![DatabaseKind::Sqlite], "case-insensitive");
     }
@@ -1067,7 +1132,7 @@ mod tests {
                 SearchableVec::new(DatabaseKind::ALL.iter().map(|k| KindItem(*k)).collect::<Vec<_>>());
             assert_eq!(items.items_count(0), DatabaseKind::ALL.len());
             items.perform_search("sq", window, cx).detach();
-            assert_eq!(items.items_count(0), 1);
+            assert_eq!(items.items_count(0), 2);
             assert_eq!(items.item(IndexPath::new(0)).map(|i| i.0), Some(DatabaseKind::Sqlite));
             items.perform_search("", window, cx).detach();
             assert_eq!(items.items_count(0), DatabaseKind::ALL.len());

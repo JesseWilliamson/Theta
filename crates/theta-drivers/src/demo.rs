@@ -426,7 +426,7 @@ impl Dialect {
     async fn detect(conn: &dyn Connection) -> Result<Dialect> {
         match conn.kind() {
             DatabaseKind::Sqlite => Ok(Dialect::Sqlite),
-            DatabaseKind::Postgres => {
+            DatabaseKind::Postgres | DatabaseKind::TimescaleDb => {
                 let schema = scalar(conn, "SELECT current_schema()").await?.ok_or_else(|| {
                     Error::other("the connection has no current schema (empty search_path)")
                 })?;
@@ -442,12 +442,17 @@ impl Dialect {
                 }
                 Ok(Dialect::Postgres { schema, postgis })
             }
-            DatabaseKind::MySql => {
+            DatabaseKind::MySql | DatabaseKind::TiDb => {
                 let database = scalar(conn, "SELECT DATABASE()").await?.ok_or_else(|| {
                     Error::other("no database selected: connect with a database name (or run USE)")
                 })?;
                 let mariadb = conn.server_info().await?.version.starts_with("MariaDB");
                 Ok(Dialect::MySql { database, mariadb })
+            }
+            // The sample schema uses PostGIS, sequences and MySQL storage clauses that these products
+            // either lack or have not been checked against.
+            other => {
+                Err(Error::Unsupported(format!("the demo data set is not available for {}", other.label())))
             }
         }
     }

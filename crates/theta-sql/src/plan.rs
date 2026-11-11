@@ -8,6 +8,7 @@
 use crate::keywords::quote_if_needed;
 use crate::lexer::{TokenKind, tokenize};
 use crate::lint::Severity;
+use theta_core::Family;
 use theta_core::{Catalog, DatabaseKind, Plan, PlanNode, Table};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -330,8 +331,13 @@ fn create_index(kind: DatabaseKind, relation: &str, cols: &[String]) -> String {
 fn analyze_stmt(kind: DatabaseKind, relation: &str) -> String {
     let target =
         relation.split('.').map(|p| quote_if_needed(p.trim_matches('"'), kind)).collect::<Vec<_>>().join(".");
-    match kind {
-        DatabaseKind::MySql => format!("ANALYZE TABLE {target};"),
+    match kind.family() {
+        Family::MySql => format!("ANALYZE TABLE {target};"),
+        Family::SqlServer => format!("UPDATE STATISTICS {target};"),
+        // ClickHouse keeps statistics itself; there is no statement to refresh them.
+        Family::ClickHouse => {
+            format!("-- ClickHouse has no ANALYZE; statistics are maintained by merges ({target})")
+        }
         _ => format!("ANALYZE {target};"),
     }
 }
@@ -641,11 +647,11 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
     cartesian_check(c, n, path);
 
     // 8. MySQL / MariaDB.
-    if c.kind == DatabaseKind::MySql {
+    if c.kind.family() == Family::MySql {
         mysql_checks(c, n, path);
     }
     // 9. SQLite.
-    if c.kind == DatabaseKind::Sqlite {
+    if c.kind.family() == Family::Sqlite {
         sqlite_checks(c, n, path);
     }
 

@@ -2,6 +2,7 @@
 //! the formatter upper-cases, and the keyword/function lists offered by completion.
 
 use theta_core::DatabaseKind;
+use theta_core::Family;
 
 const COMMON_RESERVED: &[&str] = &[
     "ALL",
@@ -248,6 +249,190 @@ const MYSQL_RESERVED: &[&str] = &[
     "RECURSIVE",
 ];
 
+const MSSQL_RESERVED: &[&str] = &[
+    "ADD",
+    "ALL",
+    "ALTER",
+    "AND",
+    "ANY",
+    "AS",
+    "ASC",
+    "AUTHORIZATION",
+    "BACKUP",
+    "BEGIN",
+    "BETWEEN",
+    "BREAK",
+    "BROWSE",
+    "BULK",
+    "BY",
+    "CASCADE",
+    "CASE",
+    "CHECK",
+    "CHECKPOINT",
+    "CLOSE",
+    "CLUSTERED",
+    "COALESCE",
+    "COLLATE",
+    "COLUMN",
+    "COMMIT",
+    "COMPUTE",
+    "CONSTRAINT",
+    "CONTAINS",
+    "CONTAINSTABLE",
+    "CONTINUE",
+    "CONVERT",
+    "CREATE",
+    "CROSS",
+    "CURRENT",
+    "CURRENT_DATE",
+    "CURRENT_TIME",
+    "CURRENT_TIMESTAMP",
+    "CURRENT_USER",
+    "CURSOR",
+    "DATABASE",
+    "DBCC",
+    "DEALLOCATE",
+    "DECLARE",
+    "DEFAULT",
+    "DELETE",
+    "DENY",
+    "DESC",
+    "DISK",
+    "DISTINCT",
+    "DISTRIBUTED",
+    "DOUBLE",
+    "DROP",
+    "DUMP",
+    "ELSE",
+    "END",
+    "ERRLVL",
+    "ESCAPE",
+    "EXCEPT",
+    "EXEC",
+    "EXECUTE",
+    "EXISTS",
+    "EXIT",
+    "EXTERNAL",
+    "FETCH",
+    "FILE",
+    "FILLFACTOR",
+    "FOR",
+    "FOREIGN",
+    "FREETEXT",
+    "FREETEXTTABLE",
+    "FROM",
+    "FULL",
+    "FUNCTION",
+    "GOTO",
+    "GRANT",
+    "GROUP",
+    "HAVING",
+    "HOLDLOCK",
+    "IDENTITY",
+    "IDENTITY_INSERT",
+    "IDENTITYCOL",
+    "IF",
+    "IN",
+    "INDEX",
+    "INNER",
+    "INSERT",
+    "INTERSECT",
+    "INTO",
+    "IS",
+    "JOIN",
+    "KEY",
+    "KILL",
+    "LEFT",
+    "LIKE",
+    "LINENO",
+    "LOAD",
+    "MERGE",
+    "NATIONAL",
+    "NOCHECK",
+    "NONCLUSTERED",
+    "NOT",
+    "NULL",
+    "NULLIF",
+    "OF",
+    "OFF",
+    "OFFSETS",
+    "ON",
+    "OPEN",
+    "OPENDATASOURCE",
+    "OPENQUERY",
+    "OPENROWSET",
+    "OPENXML",
+    "OPTION",
+    "OR",
+    "ORDER",
+    "OUTER",
+    "OVER",
+    "PERCENT",
+    "PIVOT",
+    "PLAN",
+    "PRECISION",
+    "PRIMARY",
+    "PRINT",
+    "PROC",
+    "PROCEDURE",
+    "PUBLIC",
+    "RAISERROR",
+    "READ",
+    "READTEXT",
+    "RECONFIGURE",
+    "REFERENCES",
+    "REPLICATION",
+    "RESTORE",
+    "RESTRICT",
+    "RETURN",
+    "REVERT",
+    "REVOKE",
+    "RIGHT",
+    "ROLLBACK",
+    "ROWCOUNT",
+    "ROWGUIDCOL",
+    "RULE",
+    "SAVE",
+    "SCHEMA",
+    "SECURITYAUDIT",
+    "SELECT",
+    "SESSION_USER",
+    "SET",
+    "SETUSER",
+    "SHUTDOWN",
+    "SOME",
+    "STATISTICS",
+    "SYSTEM_USER",
+    "TABLE",
+    "TABLESAMPLE",
+    "TEXTSIZE",
+    "THEN",
+    "TO",
+    "TOP",
+    "TRAN",
+    "TRANSACTION",
+    "TRIGGER",
+    "TRUNCATE",
+    "TRY_CONVERT",
+    "TSEQUAL",
+    "UNION",
+    "UNIQUE",
+    "UNPIVOT",
+    "UPDATE",
+    "UPDATETEXT",
+    "USE",
+    "USER",
+    "VALUES",
+    "VARYING",
+    "VIEW",
+    "WAITFOR",
+    "WHEN",
+    "WHERE",
+    "WHILE",
+    "WITH",
+    "WRITETEXT",
+];
+
 const SQLITE_RESERVED: &[&str] = &[
     "ABORT",
     "ACTION",
@@ -323,10 +508,13 @@ fn contains_ci(list: &[&str], word: &str) -> bool {
 /// Words that must be quoted when used as an identifier in this dialect.
 pub fn is_reserved(word: &str, kind: DatabaseKind) -> bool {
     contains_ci(COMMON_RESERVED, word)
-        || match kind {
-            DatabaseKind::Postgres => contains_ci(PG_RESERVED, word),
-            DatabaseKind::MySql => contains_ci(MYSQL_RESERVED, word),
-            DatabaseKind::Sqlite => contains_ci(SQLITE_RESERVED, word),
+        || match kind.family() {
+            Family::Postgres | Family::DuckDb => contains_ci(PG_RESERVED, word),
+            Family::MySql => contains_ci(MYSQL_RESERVED, word),
+            Family::Sqlite => contains_ci(SQLITE_RESERVED, word),
+            Family::SqlServer => contains_ci(MSSQL_RESERVED, word),
+            // ClickHouse reserves almost nothing; the common words are enough.
+            Family::ClickHouse => false,
         }
 }
 
@@ -336,7 +524,7 @@ pub fn needs_quote(ident: &str, kind: DatabaseKind) -> bool {
     let Some(first) = chars.next() else { return true };
     let first_ok = first == '_'
         || first.is_ascii_lowercase()
-        || (kind != DatabaseKind::Postgres && first.is_ascii_uppercase());
+        || (kind.family() != Family::Postgres && first.is_ascii_uppercase());
     if !first_ok {
         return true;
     }
@@ -345,7 +533,7 @@ pub fn needs_quote(ident: &str, kind: DatabaseKind) -> bool {
             || c == '$'
             || c.is_ascii_digit()
             || c.is_ascii_lowercase()
-            || (kind != DatabaseKind::Postgres && c.is_ascii_uppercase());
+            || (kind.family() != Family::Postgres && c.is_ascii_uppercase());
         if !ok {
             return true;
         }
@@ -371,6 +559,8 @@ pub fn qualified_name(schema: Option<&str>, name: &str, kind: DatabaseKind) -> S
 /// are left alone, because changing the case of an identifier can change meaning
 /// (MySQL table names are case-sensitive on some filesystems).
 const FORMAT_KEYWORDS: &[&str] = &[
+    // T-SQL's row limiter; a column called `top` is still valid (identifiers fold case).
+    "TOP",
     "SELECT",
     "FROM",
     "WHERE",
@@ -686,8 +876,67 @@ pub fn statement_keywords(kind: DatabaseKind) -> Vec<&'static str> {
         "REVOKE",
         "SAVEPOINT",
     ];
-    match kind {
-        DatabaseKind::Postgres => v.extend([
+    match kind.family() {
+        Family::DuckDb => v.extend([
+            "COPY",
+            "PRAGMA",
+            "ATTACH",
+            "DETACH",
+            "INSTALL",
+            "LOAD",
+            "DESCRIBE",
+            "SHOW",
+            "SUMMARIZE",
+            "PIVOT",
+            "UNPIVOT",
+            "CALL",
+            "CHECKPOINT",
+            "EXPORT DATABASE",
+            "IMPORT DATABASE",
+            "FROM",
+            "USE",
+            "VACUUM",
+            "ANALYZE",
+        ]),
+        Family::SqlServer => v.extend([
+            "USE",
+            "DECLARE",
+            "EXEC",
+            "EXECUTE",
+            "PRINT",
+            "IF",
+            "WHILE",
+            "BEGIN TRANSACTION",
+            "SAVE TRANSACTION",
+            "THROW",
+            "RAISERROR",
+            "OPEN",
+            "CLOSE",
+            "SET",
+            "DBCC",
+            "BACKUP",
+            "RESTORE",
+            "BULK INSERT",
+            "UPDATE STATISTICS",
+            "GO",
+            "SP_HELP",
+        ]),
+        Family::ClickHouse => v.extend([
+            "SHOW",
+            "DESCRIBE",
+            "USE",
+            "OPTIMIZE TABLE",
+            "SYSTEM",
+            "KILL QUERY",
+            "RENAME TABLE",
+            "EXCHANGE TABLES",
+            "ATTACH",
+            "DETACH",
+            "EXISTS",
+            "CHECK TABLE",
+            "SET",
+        ]),
+        Family::Postgres => v.extend([
             "COPY",
             "ANALYZE",
             "VACUUM",
@@ -710,7 +959,7 @@ pub fn statement_keywords(kind: DatabaseKind) -> Vec<&'static str> {
             "REINDEX",
             "CLUSTER",
         ]),
-        DatabaseKind::MySql => v.extend([
+        Family::MySql => v.extend([
             "USE",
             "DESCRIBE",
             "SHOW",
@@ -727,7 +976,7 @@ pub fn statement_keywords(kind: DatabaseKind) -> Vec<&'static str> {
             "EXECUTE",
             "RELEASE",
         ]),
-        DatabaseKind::Sqlite => v.extend([
+        Family::Sqlite => v.extend([
             "PRAGMA",
             "ATTACH DATABASE",
             "DETACH DATABASE",
@@ -791,12 +1040,30 @@ pub fn follow_keywords(clause: &str, kind: DatabaseKind) -> Vec<&'static str> {
         "values" => vec!["ON CONFLICT", "RETURNING"],
         _ => vec!["AND", "OR", "AS", "FROM", "WHERE"],
     };
-    if kind == DatabaseKind::MySql && clause == "values" {
+    if kind.family() == Family::MySql && clause == "values" {
         v.retain(|k| *k != "ON CONFLICT");
         v.push("ON DUPLICATE KEY UPDATE");
     }
-    if kind == DatabaseKind::Postgres && matches!(clause, "where" | "having" | "on") {
-        v.extend(["ILIKE", "IS DISTINCT FROM"]);
+    if matches!(kind.family(), Family::Postgres | Family::DuckDb | Family::ClickHouse)
+        && matches!(clause, "where" | "having" | "on")
+    {
+        v.extend(["ILIKE"]);
+        if kind.family() != Family::ClickHouse {
+            v.push("IS DISTINCT FROM");
+        }
+    }
+    if kind.family() == Family::SqlServer {
+        // T-SQL has TOP and OFFSET ... FETCH, not LIMIT.
+        v.retain(|k| !matches!(*k, "LIMIT" | "ON CONFLICT" | "RETURNING" | "NULLS FIRST" | "NULLS LAST"));
+        match clause {
+            "select" => v.extend(["TOP", "DISTINCT"]),
+            "order_by" => v.extend(["OFFSET ... ROWS FETCH NEXT ... ROWS ONLY"]),
+            "update" | "delete" | "into" => v.push("OUTPUT"),
+            _ => {}
+        }
+    }
+    if kind.family() == Family::ClickHouse && matches!(clause, "select" | "from") {
+        v.extend(["FINAL", "SAMPLE", "PREWHERE", "ARRAY JOIN", "SETTINGS", "FORMAT"]);
     }
     v
 }
@@ -805,7 +1072,7 @@ pub fn follow_keywords(clause: &str, kind: DatabaseKind) -> Vec<&'static str> {
 pub fn operand_keywords(kind: DatabaseKind) -> Vec<&'static str> {
     let mut v =
         vec!["NOT", "NULL", "TRUE", "FALSE", "CASE", "EXISTS", "DISTINCT", "ANY", "ALL", "CAST", "INTERVAL"];
-    if kind == DatabaseKind::Postgres {
+    if matches!(kind.family(), Family::Postgres | Family::DuckDb) {
         v.push("ARRAY");
     }
     v
@@ -960,6 +1227,138 @@ const SQLITE_FUNCTIONS: &[FunctionDef] = &[
     f!("min", "a, b, ...", "same as input"),
 ];
 
+const DUCKDB_FUNCTIONS: &[FunctionDef] = &[
+    f!("now", "", "timestamptz"),
+    f!("current_date", "", "date"),
+    f!("date_trunc", "part, date", "timestamp"),
+    f!("date_part", "part, date", "bigint"),
+    f!("date_diff", "part, start, end", "bigint"),
+    f!("strftime", "timestamp, format", "varchar"),
+    f!("strptime", "string, format", "timestamp"),
+    f!("list_value", "value, ...", "list"),
+    f!("list_aggr", "list, name", "any"),
+    f!("unnest", "list", "setof any"),
+    f!("range", "start, stop, step", "list"),
+    f!("generate_series", "start, stop, step", "setof"),
+    f!("array_agg", "expr", "list"),
+    f!("list", "expr", "list"),
+    f!("string_agg", "expr, separator", "varchar"),
+    f!("struct_pack", "name := value, ...", "struct"),
+    f!("map", "keys, values", "map"),
+    f!("map_keys", "map", "list"),
+    f!("map_values", "map", "list"),
+    f!("regexp_matches", "string, pattern", "boolean"),
+    f!("regexp_replace", "string, pattern, replacement", "varchar"),
+    f!("read_csv", "path, ...", "table"),
+    f!("read_csv_auto", "path", "table"),
+    f!("read_parquet", "path", "table"),
+    f!("read_json", "path", "table"),
+    f!("glob", "pattern", "table"),
+    f!("json_extract", "json, path", "json"),
+    f!("json_extract_string", "json, path", "varchar"),
+    f!("arg_max", "arg, val", "any"),
+    f!("arg_min", "arg, val", "any"),
+    f!("approx_count_distinct", "expr", "bigint"),
+    f!("quantile_cont", "expr, quantile", "double"),
+    f!("histogram", "expr", "map"),
+    f!("epoch_ms", "ms", "timestamp"),
+    f!("typeof", "expr", "varchar"),
+];
+
+const MSSQL_FUNCTIONS: &[FunctionDef] = &[
+    f!("getdate", "", "datetime"),
+    f!("sysdatetime", "", "datetime2"),
+    f!("getutcdate", "", "datetime"),
+    f!("dateadd", "datepart, number, date", "datetime"),
+    f!("datediff", "datepart, start, end", "int"),
+    f!("datepart", "datepart, date", "int"),
+    f!("datename", "datepart, date", "nvarchar"),
+    f!("eomonth", "date, months", "date"),
+    f!("isnull", "check, replacement", "same as input"),
+    f!("iif", "condition, true_value, false_value", "same as input"),
+    f!("choose", "index, value, ...", "same as input"),
+    f!("len", "string", "int"),
+    f!("datalength", "expr", "int"),
+    f!("charindex", "substring, string, start", "int"),
+    f!("patindex", "pattern, string", "int"),
+    f!("stuff", "string, start, length, replacement", "nvarchar"),
+    f!("concat", "value, ...", "nvarchar"),
+    f!("concat_ws", "separator, value, ...", "nvarchar"),
+    f!("string_agg", "expr, separator", "nvarchar"),
+    f!("string_split", "string, separator", "table"),
+    f!("format", "value, format, culture", "nvarchar"),
+    f!("convert", "type, expr, style", "type"),
+    f!("try_convert", "type, expr, style", "type"),
+    f!("try_cast", "expr AS type", "type"),
+    f!("newid", "", "uniqueidentifier"),
+    f!("scope_identity", "", "numeric"),
+    f!("@@identity", "", "numeric"),
+    f!("@@rowcount", "", "int"),
+    f!("@@version", "", "nvarchar"),
+    f!("object_id", "name", "int"),
+    f!("db_name", "", "nvarchar"),
+    f!("schema_name", "", "sysname"),
+    f!("suser_sname", "", "nvarchar"),
+    f!("json_value", "json, path", "nvarchar"),
+    f!("json_query", "json, path", "nvarchar"),
+    f!("openjson", "json", "table"),
+    f!("isjson", "string", "int"),
+    f!("row_number", "", "bigint"),
+    f!("hashbytes", "algorithm, input", "varbinary"),
+];
+
+const CLICKHOUSE_FUNCTIONS: &[FunctionDef] = &[
+    f!("now", "", "DateTime"),
+    f!("today", "", "Date"),
+    f!("toDate", "expr", "Date"),
+    f!("toDateTime", "expr", "DateTime"),
+    f!("toDateTime64", "expr, scale", "DateTime64"),
+    f!("toStartOfInterval", "time, INTERVAL n unit", "DateTime"),
+    f!("toStartOfHour", "time", "DateTime"),
+    f!("toStartOfDay", "time", "DateTime"),
+    f!("toStartOfMonth", "date", "Date"),
+    f!("toYear", "date", "UInt16"),
+    f!("toMonth", "date", "UInt8"),
+    f!("formatDateTime", "time, format", "String"),
+    f!("dateDiff", "unit, start, end", "Int64"),
+    f!("toString", "expr", "String"),
+    f!("toInt64", "expr", "Int64"),
+    f!("toUInt64", "expr", "UInt64"),
+    f!("toFloat64", "expr", "Float64"),
+    f!("toDecimal64", "expr, scale", "Decimal64"),
+    f!("toUUID", "string", "UUID"),
+    f!("uniq", "expr", "UInt64"),
+    f!("uniqExact", "expr", "UInt64"),
+    f!("countIf", "condition", "UInt64"),
+    f!("sumIf", "expr, condition", "numeric"),
+    f!("avgIf", "expr, condition", "Float64"),
+    f!("any", "expr", "same as input"),
+    f!("anyLast", "expr", "same as input"),
+    f!("argMax", "arg, val", "same as arg"),
+    f!("argMin", "arg, val", "same as arg"),
+    f!("quantile", "level)(expr", "Float64"),
+    f!("groupArray", "expr", "Array"),
+    f!("arrayJoin", "array", "same as element"),
+    f!("arrayMap", "lambda, array", "Array"),
+    f!("arrayFilter", "lambda, array", "Array"),
+    f!("has", "array, element", "UInt8"),
+    f!("length", "string_or_array", "UInt64"),
+    f!("empty", "expr", "UInt8"),
+    f!("notEmpty", "expr", "UInt8"),
+    f!("splitByChar", "separator, string", "Array(String)"),
+    f!("multiIf", "cond, then, ..., else", "same as input"),
+    f!("if", "cond, then, else", "same as input"),
+    f!("positionCaseInsensitive", "haystack, needle", "UInt64"),
+    f!("match", "haystack, pattern", "UInt8"),
+    f!("JSONExtractString", "json, key, ...", "String"),
+    f!("JSONExtract", "json, key, ..., type", "type"),
+    f!("tuple", "expr, ...", "Tuple"),
+    f!("map", "key, value, ...", "Map"),
+    f!("cityHash64", "expr, ...", "UInt64"),
+    f!("version", "", "String"),
+    f!("currentDatabase", "", "String"),
+];
+
 const POSTGIS_FUNCTIONS: &[FunctionDef] = &[
     f!("ST_AsText", "geometry", "text"),
     f!("ST_AsEWKT", "geometry", "text"),
@@ -1029,10 +1428,13 @@ const MYSQL_SPATIAL_FUNCTIONS: &[FunctionDef] = &[
 /// the connected catalog actually has geometry columns, to keep the list short.
 pub fn builtin_functions(kind: DatabaseKind, has_geometry: bool) -> Vec<&'static FunctionDef> {
     let mut out: Vec<&'static FunctionDef> = Vec::new();
-    let specific: &[FunctionDef] = match kind {
-        DatabaseKind::Postgres => PG_FUNCTIONS,
-        DatabaseKind::MySql => MYSQL_FUNCTIONS,
-        DatabaseKind::Sqlite => SQLITE_FUNCTIONS,
+    let specific: &[FunctionDef] = match kind.family() {
+        Family::Postgres => PG_FUNCTIONS,
+        Family::MySql => MYSQL_FUNCTIONS,
+        Family::Sqlite => SQLITE_FUNCTIONS,
+        Family::DuckDb => DUCKDB_FUNCTIONS,
+        Family::SqlServer => MSSQL_FUNCTIONS,
+        Family::ClickHouse => CLICKHOUSE_FUNCTIONS,
     };
     out.extend(specific.iter());
     for f in COMMON_FUNCTIONS {
@@ -1041,10 +1443,10 @@ pub fn builtin_functions(kind: DatabaseKind, has_geometry: bool) -> Vec<&'static
         }
     }
     if has_geometry {
-        match kind {
-            DatabaseKind::Postgres => out.extend(POSTGIS_FUNCTIONS.iter()),
-            DatabaseKind::MySql => out.extend(MYSQL_SPATIAL_FUNCTIONS.iter()),
-            DatabaseKind::Sqlite => {}
+        match kind.family() {
+            Family::Postgres => out.extend(POSTGIS_FUNCTIONS.iter()),
+            Family::MySql => out.extend(MYSQL_SPATIAL_FUNCTIONS.iter()),
+            Family::Sqlite | Family::DuckDb | Family::SqlServer | Family::ClickHouse => {}
         }
     }
     out
@@ -1057,6 +1459,9 @@ pub fn is_known_function(name: &str) -> bool {
         PG_FUNCTIONS,
         MYSQL_FUNCTIONS,
         SQLITE_FUNCTIONS,
+        DUCKDB_FUNCTIONS,
+        MSSQL_FUNCTIONS,
+        CLICKHOUSE_FUNCTIONS,
         POSTGIS_FUNCTIONS,
         MYSQL_SPATIAL_FUNCTIONS,
     ]
@@ -1067,6 +1472,27 @@ pub fn is_known_function(name: &str) -> bool {
 /// Statement-start words per dialect, for lint's "unknown statement" check.
 pub fn is_statement_start(word: &str) -> bool {
     const WORDS: &[&str] = &[
+        // DuckDB, T-SQL and ClickHouse starters.
+        "INSTALL",
+        "SUMMARIZE",
+        "PIVOT",
+        "UNPIVOT",
+        "FROM",
+        "DECLARE",
+        "EXEC",
+        "PRINT",
+        "IF",
+        "WHILE",
+        "GO",
+        "THROW",
+        "RAISERROR",
+        "DBCC",
+        "SYSTEM",
+        "EXCHANGE",
+        "EXISTS",
+        "WATCH",
+        "OPEN",
+        "CLOSE",
         "SELECT",
         "WITH",
         "INSERT",

@@ -9,6 +9,7 @@
 //! result as its [`Analysis`].
 
 use std::sync::Arc;
+use theta_core::Family;
 use theta_core::{Catalog, DatabaseKind, Identity, Table};
 use theta_sql::ddl::{
     self, CheckDraft, ColumnDraft, Fix, ForeignKeyDraft, IndexDraft, Issue, KeyDraft, Scope, Severity,
@@ -259,11 +260,13 @@ impl DraftModel {
     /// An editor for a table that is about to be created. It starts with an `id` key column, as most
     /// tables want one; deleting it is one keystroke.
     pub fn new_table(kind: DatabaseKind, schema: Option<String>, catalog: Option<Arc<Catalog>>) -> Self {
-        let schema = schema.filter(|_| kind != DatabaseKind::Sqlite);
-        let int = match kind {
-            DatabaseKind::MySql => "int",
-            DatabaseKind::Postgres => "integer",
-            DatabaseKind::Sqlite => "INTEGER",
+        let schema = schema.filter(|_| kind.family() != Family::Sqlite);
+        let int = match kind.family() {
+            Family::MySql => "int",
+            Family::Sqlite => "INTEGER",
+            // The other families' kinds have the table editor disabled (`DatabaseKind::unsupported`);
+            // PostgreSQL's vocabulary keeps this total.
+            Family::Postgres | Family::DuckDb | Family::SqlServer | Family::ClickHouse => "integer",
         };
         let draft = TableDraft {
             schema,
@@ -288,7 +291,7 @@ impl DraftModel {
     pub fn modify(kind: DatabaseKind, schema: &str, table: &Table, catalog: Option<Arc<Catalog>>) -> Self {
         let mut original = TableDraft::from_table(schema, table);
         // SQLite's own database is always `main`; naming it only clutters the generated SQL.
-        if kind == DatabaseKind::Sqlite {
+        if kind.family() == Family::Sqlite {
             if schema.eq_ignore_ascii_case("main") {
                 original.schema = None;
             }
@@ -612,10 +615,10 @@ impl DraftModel {
                         ColumnDraft {
                             id,
                             name: String::new(),
-                            data_type: match kind {
-                                DatabaseKind::Postgres => "text",
-                                DatabaseKind::MySql => "varchar(255)",
-                                DatabaseKind::Sqlite => "TEXT",
+                            data_type: match kind.family() {
+                                Family::MySql => "varchar(255)",
+                                Family::Sqlite => "TEXT",
+                                _ => "text",
                             }
                             .into(),
                             nullable: true,
@@ -822,8 +825,8 @@ impl DraftModel {
                 ];
                 let mut rows = Vec::new();
                 let pk = self.draft.primary_key.as_ref();
-                let pk_name = match (kind, pk) {
-                    (DatabaseKind::MySql, _) => Cell::text(Field::KeyName, CellKind::Static, "PRIMARY").dim(),
+                let pk_name = match (kind.family(), pk) {
+                    (Family::MySql, _) => Cell::text(Field::KeyName, CellKind::Static, "PRIMARY").dim(),
                     (_, Some(k)) => {
                         Cell::text(Field::KeyName, CellKind::Text, k.name.clone().unwrap_or_default())
                             .placeholder("(auto)")
@@ -884,7 +887,7 @@ impl DraftModel {
                             String::new()
                         } else {
                             match &f.ref_schema {
-                                Some(s) if kind != DatabaseKind::Sqlite => format!("{s}.{}", f.ref_table),
+                                Some(s) if kind.family() != Family::Sqlite => format!("{s}.{}", f.ref_table),
                                 _ => f.ref_table.clone(),
                             }
                         };
@@ -1355,7 +1358,7 @@ fn set_cell(
         (RowId::Removed(_), _) => Err("This column is removed; restore it first".into()),
         (RowId::Pk, Field::KeyName) => {
             let name = empty_to_none(text(value)?);
-            if kind == DatabaseKind::MySql {
+            if kind.family() == Family::MySql {
                 return Err("MySQL always calls the primary key PRIMARY".into());
             }
             match (&mut d.primary_key, name) {

@@ -11,11 +11,12 @@
 //!   `in_transaction` asks the server (see [`query_in_transaction`]).
 
 mod introspect;
+mod redshift;
 mod tls;
 mod types;
 
-use crate::plan_pg;
 use crate::util::{char_pos_to_byte_offset, is_ddl, reports_rows_affected};
+use crate::{plan_pg, plan_text};
 use async_trait::async_trait;
 use futures_util::future::BoxFuture;
 use futures_util::{StreamExt, TryStreamExt, pin_mut};
@@ -30,12 +31,16 @@ use tokio_postgres::types::ToSql;
 use tokio_postgres::{AsyncMessage, Client, Config, NoTls};
 use tokio_postgres_rustls::MakeRustlsConnect;
 
-pub struct PostgresDriver;
+/// One driver for every product that speaks the PostgreSQL wire protocol. The product decides the
+/// few places that differ (see `DatabaseKind` checks below): catalogs, EXPLAIN, the transaction probe.
+pub struct PostgresDriver {
+    pub kind: DatabaseKind,
+}
 
 #[async_trait]
 impl Driver for PostgresDriver {
     fn kind(&self) -> DatabaseKind {
-        DatabaseKind::Postgres
+        self.kind
     }
 
     async fn connect(&self, config: &ConnectionConfig) -> Result<Box<dyn Connection>> {
@@ -64,6 +69,7 @@ struct Session {
 }
 
 pub struct PgConnection {
+    kind: DatabaseKind,
     session: Mutex<Option<Session>>,
     cancel: CancelFn,
     notices: Notices,
@@ -72,6 +78,35 @@ pub struct PgConnection {
     /// Last known answer of `in_transaction`, served while a statement is running.
     in_txn_cache: AtomicBool,
     info: ServerInfo,
+}
+
+/// A short product and version for the status bar, from the `version()` banner.
+fn describe_server(banner: &str, server_version: &str, timescale: Option<&str>) -> String {
+    let word_after = |marker: &str| {
+        banner.split_once(marker).and_then(|(_, rest)| rest.split_whitespace().next()).unwrap_or("")
+    };
+    match DatabaseKind::detect(banner) {
+        Some(DatabaseKind::CockroachDb) => {
+            // `CockroachDB CCL v24.1.0 (x86_64-pc-linux-gnu, ...)`
+            let v = banner
+                .split_whitespace()
+                .find(|w| w.starts_with('v') && w[1..].starts_with(|c: char| c.is_ascii_digit()));
+            format!("CockroachDB {}", v.unwrap_or(server_version))
+        }
+        Some(DatabaseKind::Redshift) => format!("Amazon Redshift (PostgreSQL {server_version})"),
+        Some(DatabaseKind::YugabyteDb) => {
+            // `PostgreSQL 11.2-YB-2.18.1.0-b0 on ...`
+            let yb = word_after("-YB-").split('-').next().unwrap_or("");
+            format!("YugabyteDB {yb} (PostgreSQL {})", server_version.split("-YB-").next().unwrap_or(""))
+        }
+        _ => {
+            let pg = format!("PostgreSQL {}", server_version.split_whitespace().next().unwrap_or(""));
+            match timescale {
+                Some(t) => format!("TimescaleDB {t} on {pg}"),
+                None => pg,
+            }
+        }
+    }
 }
 
 fn error_chain(e: &(dyn std::error::Error + 'static)) -> String {
@@ -149,7 +184,12 @@ impl PgConnection {
             cfg.host(if config.host.is_empty() { "localhost" } else { &config.host });
         }
         // `Config::port` appends, and hosts/hostaddrs/ports must pair up one to one.
-        cfg.port(via.as_ref().map(|v| v.port).unwrap_or(if config.port == 0 { 5432 } else { config.port }));
+        let default_port = config.kind.default_port().unwrap_or(5432);
+        cfg.port(via.as_ref().map(|v| v.port).unwrap_or(if config.port == 0 {
+            default_port
+        } else {
+            config.port
+        }));
         if via.is_some() {
             // Dial the tunnel's local end but keep `host` for TLS name checks.
             cfg.hostaddr(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
@@ -157,7 +197,8 @@ impl PgConnection {
         if !config.user.is_empty() {
             cfg.user(&config.user);
         } else {
-            cfg.user("postgres");
+            // The conventional superuser of each product (root for CockroachDB, yugabyte, awsuser...).
+            cfg.user(config.kind.info().user_placeholder);
         }
         if let Some(p) = &config.password {
             cfg.password(p);
@@ -188,12 +229,37 @@ impl PgConnection {
             .query_one("SELECT current_database()::text, current_user::text", &[])
             .await
             .map_err(connect_error)?;
+        // `version()` names the product (`server_version` is a compatibility number on CockroachDB and
+        // Redshift). TimescaleDB is an extension, so it is looked up; the probe is skipped on products
+        // without `pg_extension` semantics because a failed statement would abort an open transaction.
+        let banner: String = client
+            .query_one("SELECT version()::text", &[])
+            .await
+            .map(|r| r.get(0))
+            .unwrap_or_else(|_| version.clone());
+        let timescale: Option<String> =
+            if matches!(config.kind, DatabaseKind::Postgres | DatabaseKind::TimescaleDb) {
+                client
+                    .query_opt("SELECT extversion::text FROM pg_extension WHERE extname = 'timescaledb'", &[])
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|r| r.get(0))
+            } else {
+                None
+            };
+        let mut full_banner = banner.clone();
+        if let Some(v) = &timescale {
+            full_banner.push_str(&format!(", TimescaleDB {v}"));
+        }
         let info = ServerInfo {
-            version: format!("PostgreSQL {}", version.split_whitespace().next().unwrap_or("")),
+            version: describe_server(&banner, &version, timescale.as_deref()),
             current_database: row.get(0),
             current_user: row.get(1),
+            banner: full_banner,
         };
         Ok(Self {
+            kind: config.kind,
             session: Mutex::new(Some(Session { client, origins: HashMap::new() })),
             cancel,
             notices,
@@ -362,7 +428,11 @@ impl PgConnection {
             .collect();
         let wanted: Vec<(u32, i16)> =
             stmt.columns().iter().map(|c| (c.table_oid().unwrap_or(0), c.column_id().unwrap_or(0))).collect();
-        resolve_origins(sess, &wanted, &mut columns).await;
+        // Redshift is PostgreSQL 8.0 inside: the `oid[]` parameter below is not available there, and a
+        // failed statement would abort the user's open transaction. Its grid is read-only anyway.
+        if self.kind != DatabaseKind::Redshift {
+            resolve_origins(sess, &wanted, &mut columns).await;
+        }
         Ok(StatementOutcome {
             result: Some(ResultSet { columns, rows, truncated }),
             rows_affected: affected,
@@ -422,8 +492,15 @@ async fn resolve_origins(sess: &mut Session, wanted: &[(u32, i16)], columns: &mu
 /// the statement, so they are equal. The simple-query protocol is used because
 /// that is the path where the server sets the statement timestamp from the
 /// incoming message, independent of any earlier pipelined work.
-async fn query_in_transaction(client: &Client) -> bool {
-    match client.simple_query("SELECT now() = statement_timestamp()").await {
+async fn query_in_transaction(client: &Client, kind: DatabaseKind) -> bool {
+    // Redshift documents SYSDATE as the transaction's start and GETDATE() as the statement's; that is
+    // the same trick (not exercised against a real cluster).
+    let probe = if kind == DatabaseKind::Redshift {
+        "SELECT sysdate = getdate()"
+    } else {
+        "SELECT now() = statement_timestamp()"
+    };
+    match client.simple_query(probe).await {
         Ok(msgs) => msgs
             .iter()
             .any(|m| matches!(m, tokio_postgres::SimpleQueryMessage::Row(r) if r.get(0) == Some("f"))),
@@ -435,7 +512,7 @@ async fn query_in_transaction(client: &Client) -> bool {
 #[async_trait]
 impl Connection for PgConnection {
     fn kind(&self) -> DatabaseKind {
-        DatabaseKind::Postgres
+        self.kind
     }
 
     async fn server_info(&self) -> Result<ServerInfo> {
@@ -455,14 +532,27 @@ impl Connection for PgConnection {
     }
 
     async fn introspect(&self) -> Result<Catalog> {
-        self.run_guarded(async |sess| introspect::introspect(&sess.client).await).await
+        self.run_guarded(async |sess| introspect::introspect(&sess.client, self.kind).await).await
     }
 
     async fn explain(&self, sql: &str, analyze: bool) -> Result<Plan> {
         self.run_guarded(async |sess| {
             let client = &sess.client;
-            let prefix =
-                if analyze { "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " } else { "EXPLAIN (FORMAT JSON) " };
+            // What each product can do (their documentation, not a guess about Postgres):
+            // CockroachDB has no FORMAT JSON for EXPLAIN (a text tree, one row per line) and no BUFFERS;
+            // Redshift has plain `EXPLAIN` only; YugabyteDB takes ANALYZE and JSON but its BUFFERS output
+            // is not tracked, so it is left out.
+            let (prefix, text_plan) = match (self.kind, analyze) {
+                (DatabaseKind::Redshift, true) => {
+                    return Err(Error::Unsupported("Redshift has no EXPLAIN ANALYZE".into()));
+                }
+                (DatabaseKind::Redshift, false) => ("EXPLAIN ", true),
+                (DatabaseKind::CockroachDb, true) => ("EXPLAIN ANALYZE ", true),
+                (DatabaseKind::CockroachDb, false) => ("EXPLAIN ", true),
+                (DatabaseKind::YugabyteDb, true) => ("EXPLAIN (ANALYZE, FORMAT JSON) ", false),
+                (_, true) => ("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ", false),
+                (_, false) => ("EXPLAIN (FORMAT JSON) ", false),
+            };
             let sent = format!("{prefix}{sql}");
             let m = |e| query_error(e, &sent, prefix.len());
             // ANALYZE really runs the statement. Wrap it so writes vanish, and
@@ -470,7 +560,7 @@ impl Connection for PgConnection {
             // neither commit nor roll back their work.
             let (begin, end) = if !analyze {
                 (None, None)
-            } else if query_in_transaction(client).await {
+            } else if query_in_transaction(client, self.kind).await {
                 (
                     Some("SAVEPOINT theta_explain"),
                     Some("ROLLBACK TO SAVEPOINT theta_explain; RELEASE SAVEPOINT theta_explain"),
@@ -486,11 +576,19 @@ impl Connection for PgConnection {
                 let _ = client.batch_execute(e).await;
             }
             let rows = result.map_err(m)?;
-            let raw = rows
-                .first()
-                .and_then(|r| r.try_get::<_, types::Cell>(0).ok())
-                .map(|c| c.0.display())
-                .ok_or_else(|| Error::other("EXPLAIN returned no rows"))?;
+            let cell = |r: &tokio_postgres::Row| r.try_get::<_, types::Cell>(0).ok().map(|c| c.0.display());
+            if text_plan {
+                let raw = rows.iter().filter_map(cell).collect::<Vec<_>>().join("\n");
+                if raw.trim().is_empty() {
+                    return Err(Error::other("EXPLAIN returned no rows"));
+                }
+                return if self.kind == DatabaseKind::Redshift {
+                    plan_text::parse_redshift(&raw)
+                } else {
+                    plan_text::parse_cockroach(&raw, analyze)
+                };
+            }
+            let raw = rows.first().and_then(cell).ok_or_else(|| Error::other("EXPLAIN returned no rows"))?;
             plan_pg::parse_plan(&raw, analyze)
         })
         .await
@@ -500,7 +598,7 @@ impl Connection for PgConnection {
         match self.session.try_lock() {
             Ok(guard) => match guard.as_ref() {
                 Some(s) => {
-                    let v = query_in_transaction(&s.client).await;
+                    let v = query_in_transaction(&s.client, self.kind).await;
                     self.in_txn_cache.store(v, Ordering::SeqCst);
                     v
                 }
