@@ -417,6 +417,7 @@ async fn export_then_import_round_trips_exactly() {
                 schema: fx.schema.clone(),
                 table: "src".into(),
                 key: if composite { vec!["a".into(), "id".into()] } else { vec!["id".into()] },
+                columns: None,
                 format: theta_sql::ExportFormat::Csv,
                 // Not a divisor of 777, so the last page is short; small, so keyset paging is exercised.
                 page_rows: 50,
@@ -494,6 +495,7 @@ async fn export_formats_and_offset_paging_without_a_key() {
             schema: None,
             table: "nokey".into(),
             key: vec![],
+            columns: None,
             format: fmt.clone(),
             page_rows: 10,
         };
@@ -526,6 +528,7 @@ async fn export_cancel_leaves_no_file() {
         schema: None,
         table: "src".into(),
         key: vec!["id".into()],
+        columns: None,
         format: theta_sql::ExportFormat::Csv,
         page_rows: 20,
     };

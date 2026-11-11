@@ -21,6 +21,9 @@ pub struct ExportJob {
     pub table: String,
     /// Primary key columns in key order; empty when the table has none.
     pub key: Vec<String>,
+    /// The columns to read, in order; `None` is `SELECT *`. A dump leaves out generated columns, which a
+    /// restore cannot insert into.
+    pub columns: Option<Vec<String>>,
     pub format: ExportFormat,
     pub page_rows: usize,
 }
@@ -67,8 +70,14 @@ pub struct ExportReport {
 pub fn page_query(job: &ExportJob, after: Option<&[Value]>, offset: u64) -> String {
     let table = qualified_name(job.schema.as_deref(), &job.table, job.kind);
     let n = job.page_rows.max(1);
+    let select = match &job.columns {
+        Some(c) if !c.is_empty() => {
+            c.iter().map(|c| quote_if_needed(c, job.kind)).collect::<Vec<_>>().join(", ")
+        }
+        _ => "*".to_string(),
+    };
     if job.key.is_empty() {
-        return format!("SELECT * FROM {table} LIMIT {n} OFFSET {offset}");
+        return format!("SELECT {select} FROM {table} LIMIT {n} OFFSET {offset}");
     }
     let keys: Vec<String> = job.key.iter().map(|k| quote_if_needed(k, job.kind)).collect();
     let order = keys.join(", ");
@@ -83,7 +92,7 @@ pub fn page_query(job: &ExportJob, after: Option<&[Value]>, offset: u64) -> Stri
             }
         }
     };
-    format!("SELECT * FROM {table}{filter} ORDER BY {order} LIMIT {n}")
+    format!("SELECT {select} FROM {table}{filter} ORDER BY {order} LIMIT {n}")
 }
 
 /// Stream the table into `out`.
@@ -110,7 +119,7 @@ pub async fn export_table<W: Write + Send>(
     let mut after: Option<Vec<Value>> = None;
     let sql_target = job.schema.as_ref().map_or(job.table.clone(), |s| format!("{s}.{}", job.table));
     let mut format = job.format.clone();
-    if let ExportFormat::SqlInserts { table } = &mut format
+    if let ExportFormat::SqlInserts { table } | ExportFormat::SqlInsertsMulti { table, .. } = &mut format
         && table.is_empty()
     {
         *table = sql_target;
@@ -253,6 +262,7 @@ mod tests {
             schema: Some("public".into()),
             table: "order".into(),
             key: key.iter().map(|s| s.to_string()).collect(),
+            columns: None,
             format: ExportFormat::Csv,
             page_rows: 500,
         }

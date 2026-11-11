@@ -10,7 +10,17 @@ pub enum ExportFormat {
     Tsv,
     Json,
     Markdown,
-    SqlInserts { table: String },
+    SqlInserts {
+        table: String,
+    },
+    /// Several rows per `INSERT`, which restores far faster than one statement per row. A statement is also
+    /// closed once it holds about 512 KiB, so wide rows cannot exceed a server's packet limit.
+    SqlInsertsMulti {
+        table: String,
+        per_statement: usize,
+        /// PostgreSQL `GENERATED ALWAYS AS IDENTITY` columns refuse explicit values without this.
+        overriding_system_value: bool,
+    },
 }
 
 fn hex(b: &[u8]) -> String {
@@ -229,6 +239,55 @@ fn markdown(result: &ResultSet) -> String {
     out
 }
 
+fn insert_target(table: &str, kind: DatabaseKind) -> String {
+    if table.contains('.') && !table.contains(['"', '`', '[']) {
+        table.split('.').map(|p| quote_if_needed(p, kind)).collect::<Vec<_>>().join(".")
+    } else if table.contains(['"', '`', '[']) {
+        table.to_string()
+    } else {
+        quote_if_needed(table, kind)
+    }
+}
+
+fn sql_inserts_multi(
+    result: &ResultSet,
+    table: &str,
+    per_statement: usize,
+    overriding: bool,
+    kind: DatabaseKind,
+) -> String {
+    const MAX_STATEMENT_BYTES: usize = 512 * 1024;
+    let target = insert_target(table, kind);
+    let cols: Vec<String> = result.columns.iter().map(|c| quote_if_needed(&c.name, kind)).collect();
+    let head = format!(
+        "INSERT INTO {target} ({}){} VALUES\n",
+        cols.join(", "),
+        if overriding { " OVERRIDING SYSTEM VALUE" } else { "" }
+    );
+    let (mut out, mut in_statement, mut size) = (String::new(), 0usize, 0usize);
+    for row in &result.rows {
+        let vals: Vec<String> = row.iter().map(|v| sql_literal(v, kind)).collect();
+        let tuple = format!("({})", vals.join(", "));
+        if in_statement == 0 {
+            out.push_str(&head);
+            size = 0;
+        } else {
+            out.push_str(",\n");
+        }
+        size += tuple.len();
+        out.push_str(&tuple);
+        in_statement += 1;
+        if in_statement >= per_statement.max(1) || size >= MAX_STATEMENT_BYTES {
+            out.push_str(";\n");
+            in_statement = 0;
+        }
+    }
+    if in_statement > 0 {
+        out.push_str(";\n");
+    }
+    out
+}
+
 fn sql_inserts(result: &ResultSet, table: &str, kind: DatabaseKind) -> String {
     let target = if table.contains('.') && !table.contains(['"', '`', '[']) {
         table.split('.').map(|p| quote_if_needed(p, kind)).collect::<Vec<_>>().join(".")
@@ -255,6 +314,9 @@ pub fn export(result: &ResultSet, format: &ExportFormat, kind: DatabaseKind) -> 
         ExportFormat::Json => json(result),
         ExportFormat::Markdown => markdown(result),
         ExportFormat::SqlInserts { table } => sql_inserts(result, table, kind),
+        ExportFormat::SqlInsertsMulti { table, per_statement, overriding_system_value } => {
+            sql_inserts_multi(result, table, *per_statement, *overriding_system_value, kind)
+        }
     }
 }
 
@@ -430,6 +492,46 @@ mod tests {
         assert_eq!(pg, "INSERT INTO public.t (id, \"Name\") VALUES (1, 'O''Neil');\n");
         let my = export(&r, &ExportFormat::SqlInserts { table: "order".into() }, MySql);
         assert_eq!(my, "INSERT INTO `order` (id, Name) VALUES (1, 'O''Neil');\n");
+    }
+
+    #[test]
+    fn multi_row_inserts_batch_and_close_each_statement() {
+        let rows: Vec<Vec<Value>> =
+            (0..5).map(|i| vec![Value::Int(i), Value::Text(format!("n{i}"))]).collect();
+        let r = rs(&["id", "name"], rows);
+        let f = ExportFormat::SqlInsertsMulti {
+            table: "t".into(),
+            per_statement: 2,
+            overriding_system_value: true,
+        };
+        let out = export(&r, &f, Postgres);
+        assert_eq!(
+            out,
+            "INSERT INTO t (id, name) OVERRIDING SYSTEM VALUE VALUES\n(0, 'n0'),\n(1, 'n1');\n\
+             INSERT INTO t (id, name) OVERRIDING SYSTEM VALUE VALUES\n(2, 'n2'),\n(3, 'n3');\n\
+             INSERT INTO t (id, name) OVERRIDING SYSTEM VALUE VALUES\n(4, 'n4');\n"
+        );
+        // Pages that do not align with the batch size still close every statement.
+        let mut enc = ExportEncoder::new(f.clone(), Postgres, r.columns.clone()).unwrap();
+        let streamed: String = r.rows.chunks(3).map(|c| enc.rows(c)).collect();
+        // Pages of 3 rows, 2 per statement: 2 + 1, then 2.
+        assert_eq!(streamed.matches(";\n").count(), 3);
+        assert_eq!(streamed.matches(", 'n").count(), 5);
+    }
+
+    #[test]
+    fn multi_row_inserts_split_by_size() {
+        let big = "x".repeat(300 * 1024);
+        let r = rs(
+            &["t"],
+            vec![vec![Value::Text(big.clone())], vec![Value::Text(big.clone())], vec![Value::Text(big)]],
+        );
+        let f = ExportFormat::SqlInsertsMulti {
+            table: "t".into(),
+            per_statement: 1000,
+            overriding_system_value: false,
+        };
+        assert_eq!(export(&r, &f, Postgres).matches("INSERT INTO").count(), 2);
     }
 
     #[test]

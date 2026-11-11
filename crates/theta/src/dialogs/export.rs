@@ -218,6 +218,7 @@ impl ExportView {
             schema: Some(self.schema.clone()).filter(|s| !s.is_empty()),
             table: self.table.clone(),
             key,
+            columns: None,
             format,
             page_rows: page,
         };
