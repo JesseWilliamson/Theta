@@ -31,6 +31,8 @@ mod txn;
 mod welcome;
 
 #[cfg(test)]
+mod ddl_refresh_tests;
+#[cfg(test)]
 mod isolation_tests;
 #[cfg(test)]
 mod shortcut_tests;

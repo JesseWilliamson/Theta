@@ -699,6 +699,10 @@ impl Workspace {
         cx.spawn_in(window, async move |this, cx| {
             let mut connection = connection;
             let total = picks.len();
+            // Set once a DDL statement has been sent, whether or not it succeeded: in a script that
+            // continues after an error an earlier one may have taken effect. One refresh at the end of the
+            // run, not one per statement, because introspection is the expensive part.
+            let mut ran_ddl = false;
             for (i, p) in picks.iter().enumerate() {
                 let cancelled = this
                     .update(cx, |this, cx| {
@@ -729,6 +733,7 @@ impl Workspace {
                                 .await;
                     }
                 }
+                ran_ddl |= changes_schema(p.class);
                 if matches!(p.class, StatementClass::Transaction) {
                     txn_open = true;
                 }
@@ -774,7 +779,10 @@ impl Workspace {
                     break;
                 }
             }
-            this.update_in(cx, |this, window, cx| this.finish_run(id, &conn_id, connection, window, cx)).ok();
+            this.update_in(cx, |this, window, cx| {
+                this.finish_run(id, &conn_id, connection, ran_ddl, window, cx)
+            })
+            .ok();
         })
         .detach();
     }
@@ -902,10 +910,16 @@ impl Workspace {
         id: u64,
         conn_id: &str,
         connection: Arc<dyn Connection>,
+        ran_ddl: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let failed = self.runs.remove(conn_id).is_some_and(|r| r.failed);
+        if ran_ddl {
+            // The explorer, completion and the table editors all read the store's catalog; without this a
+            // `create table` typed into a console (or given to `--run`) stays invisible until a manual refresh.
+            self.store.update(cx, |s, cx| s.refresh_catalog(conn_id, cx));
+        }
         self.sync_running(cx);
         // Only the console on screen may touch the shared panels: a statement that finishes in a
         // background tab stores its result with that console (see `finish_statement`) and is
@@ -2492,6 +2506,11 @@ impl Recovery {
 pub(super) struct ManualBegin {
     pub kind: DatabaseKind,
     pub statements: Vec<String>,
+}
+
+/// Whether a statement of this class can change what the explorer shows.
+pub(super) fn changes_schema(class: StatementClass) -> bool {
+    class == StatementClass::Ddl
 }
 
 pub(super) fn txn_statement_kind(class: StatementClass) -> theta_core::txn::StatementKind {
