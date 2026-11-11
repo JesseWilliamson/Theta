@@ -63,8 +63,6 @@ pub enum TableEditorEvent {
     StateChanged,
     /// The table was reloaded from the database after a successful Execute: reveal it in the explorer.
     Reloaded { schema: String, table: String },
-    /// Say something in a toast.
-    Notice { error: bool, text: String },
 }
 
 impl EventEmitter<TableEditorEvent> for TableEditor {}

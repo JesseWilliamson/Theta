@@ -184,9 +184,6 @@ impl Workspace {
                 let items = editor.read(cx).open_suggestions();
                 self.open_picker(SuggestionPicker { editor: editor.downgrade(), items }, window, cx);
             }
-            TableEditorEvent::Notice { error, text } => {
-                self.notify(if error { NoticeKind::Error } else { NoticeKind::Info }, text, window, cx)
-            }
         }
     }
 
@@ -1287,5 +1284,92 @@ mod tests {
             "x",
             "ctrl-r redoes"
         );
+    }
+
+    #[gpui_kit::test]
+    fn explorer_and_palette_entry_points_open_the_editor(cx: &mut TestAppContext) {
+        use crate::explorer::ExplorerEvent;
+        let (f, vcx) = setup(cx, false);
+        sql(&f, vcx, "CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT, city TEXT)").unwrap();
+        refresh(&f, vcx);
+        let explorer = f.ws.read_with(vcx, |ws, _| ws.explorer.clone());
+        // "Modify Column…" on a column opens the table with the cursor on it.
+        explorer.update(vcx, |_, cx| {
+            cx.emit(ExplorerEvent::ModifyTable {
+                connection_id: f.conn.clone(),
+                schema: "main".into(),
+                table: "people".into(),
+                column: Some("city".into()),
+            })
+        });
+        vcx.run_until_parked();
+        let (tab, editor) = {
+            let tab = f.ws.read_with(vcx, |ws, _| ws.active_tab).unwrap();
+            (tab, f.ws.read_with(vcx, |ws, _| ws.table_editor(tab)).expect("a table tab"))
+        };
+        assert_eq!(editor.read_with(vcx, |e, _| (e.section(), e.cursor().0)), (Section::Columns, 2));
+        // "New Table…" from the Tables group.
+        explorer.update(vcx, |_, cx| {
+            cx.emit(ExplorerEvent::NewTable { connection_id: f.conn.clone(), schema: "main".into() })
+        });
+        vcx.run_until_parked();
+        let new_tab = f.ws.read_with(vcx, |ws, _| ws.active_tab).unwrap();
+        assert_ne!(new_tab, tab);
+        assert!(f.ws.read_with(vcx, |ws, cx| ws.table_editor(new_tab).unwrap().read(cx).model().is_new()));
+        // `:table modify NAME` finds the open tab instead of opening a second one.
+        f.ws.update_in(vcx, |ws, window, cx| ws.table_host_command("modify people", window, cx));
+        assert_eq!(f.ws.read_with(vcx, |ws, _| ws.active_tab), Some(tab));
+        // `:table new` and the palette action open a fresh editor.
+        let before = f.ws.read_with(vcx, |ws, _| ws.tabs.len());
+        f.ws.update_in(vcx, |ws, window, cx| ws.table_host_command("new", window, cx));
+        vcx.update(|window, cx| window.dispatch_action(Box::new(crate::actions::NewTable), cx));
+        vcx.run_until_parked();
+        assert_eq!(f.ws.read_with(vcx, |ws, _| ws.tabs.len()), before + 2);
+        // A name that is not a table says so and opens nothing.
+        f.ws.update_in(vcx, |ws, window, cx| ws.table_host_command("modify nothing_here", window, cx));
+        assert_eq!(f.ws.read_with(vcx, |ws, _| ws.tabs.len()), before + 2);
+    }
+
+    #[gpui_kit::test]
+    fn dropping_a_column_index_or_key_is_scripted_from_the_same_model(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, false);
+        sql(&f, vcx, "CREATE TABLE a (id INTEGER PRIMARY KEY, x TEXT, y TEXT)").unwrap();
+        sql(&f, vcx, "CREATE INDEX a_x_idx ON a (x)").unwrap();
+        refresh(&f, vcx);
+        let target = f.ws.read_with(vcx, |ws, cx| ws.ddl_target(&f.conn, "main", "a", cx)).unwrap();
+        // SQLite cannot drop an indexed column in place: the whole consequence (a rebuild without the index,
+        // and a destructive DROP TABLE of the old one) is in the script the confirmation shows.
+        let stmts = f.ws.read_with(vcx, |ws, _| {
+            ws.script_for(&target, |m| {
+                let id = m.draft().columns.iter().find(|c| c.name == "x").unwrap().id;
+                m.delete_row(RowId::Column(id)).unwrap();
+            })
+        });
+        let sql_text: Vec<&str> = stmts.iter().map(|s| s.sql.as_str()).collect();
+        assert!(sql_text.contains(&"DROP TABLE a"), "{sql_text:?}");
+        assert!(
+            !sql_text.iter().any(|s| s.contains("CREATE INDEX")),
+            "the index goes with the column: {sql_text:?}"
+        );
+        assert!(stmts.iter().any(|s| s.is_destructive()));
+        // A rename is one RENAME.
+        let stmts = f.ws.read_with(vcx, |ws, _| {
+            ws.script_for(&target, |m| {
+                let id = m.draft().columns.iter().find(|c| c.name == "y").unwrap().id;
+                m.set_cell(RowId::Column(id), Field::Name, CellValue::Text("z".into())).unwrap();
+            })
+        });
+        assert_eq!(
+            stmts.iter().map(|s| s.sql.as_str()).collect::<Vec<_>>(),
+            vec!["ALTER TABLE a RENAME COLUMN y TO z"]
+        );
+        // Dropping an index alone.
+        let stmts = f.ws.read_with(vcx, |ws, _| {
+            ws.script_for(&target, |m| {
+                let id = m.draft().indexes.iter().find(|i| i.name == "a_x_idx").unwrap().id;
+                m.delete_row(RowId::Index(id)).unwrap();
+            })
+        });
+        assert_eq!(stmts.iter().map(|s| s.sql.as_str()).collect::<Vec<_>>(), vec!["DROP INDEX a_x_idx"]);
     }
 }

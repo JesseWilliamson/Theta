@@ -288,8 +288,11 @@ impl DraftModel {
     pub fn modify(kind: DatabaseKind, schema: &str, table: &Table, catalog: Option<Arc<Catalog>>) -> Self {
         let mut original = TableDraft::from_table(schema, table);
         // SQLite's own database is always `main`; naming it only clutters the generated SQL.
-        if kind == DatabaseKind::Sqlite && schema.eq_ignore_ascii_case("main") {
-            original.schema = None;
+        if kind == DatabaseKind::Sqlite {
+            if schema.eq_ignore_ascii_case("main") {
+                original.schema = None;
+            }
+            forget_invented_names(&mut original);
         }
         let info = table.options.iter().map(|o| (o.name.clone(), o.value.clone())).collect();
         Self::build(kind, Some(original.clone()), original, catalog, info)
@@ -1159,6 +1162,32 @@ impl DraftModel {
     }
 }
 
+/// SQLite does not store constraint names, so introspection invents them (`sqlite_autoindex_t_1` for a key,
+/// `fk_t_0` for a foreign key). Written back by a table rebuild they would become real constraint names
+/// nobody chose: such a constraint is left unnamed instead.
+fn forget_invented_names(d: &mut TableDraft) {
+    let invented = |name: &str| name.starts_with("sqlite_autoindex_");
+    if let Some(pk) = &mut d.primary_key
+        && pk.name.as_deref().is_some_and(invented)
+    {
+        pk.name = None;
+    }
+    for u in &mut d.uniques {
+        if u.name.as_deref().is_some_and(invented) {
+            u.name = None;
+        }
+    }
+    let prefix = format!("fk_{}_", d.name);
+    for f in &mut d.foreign_keys {
+        if let Some(rest) = f.name.as_deref().and_then(|n| n.strip_prefix(&prefix))
+            && !rest.is_empty()
+            && rest.chars().all(|c| c.is_ascii_digit())
+        {
+            f.name = None;
+        }
+    }
+}
+
 fn state_of(same_as_original: Option<bool>) -> RowState {
     match same_as_original {
         None => RowState::Added,
@@ -1720,6 +1749,36 @@ mod tests {
         n.apply_fix(warning.fix.as_ref().unwrap());
         assert!(!n.draft().columns[0].nullable);
         assert_eq!(n.analysis().worst(Section::Keys), None);
+    }
+
+    #[test]
+    fn sqlite_does_not_write_its_invented_constraint_names_back() {
+        let mut t = customers();
+        t.indexes = vec![Index {
+            name: "sqlite_autoindex_customers_1".into(),
+            columns: vec!["id".into()],
+            unique: true,
+            primary: true,
+            ..Default::default()
+        }];
+        t.foreign_keys = vec![ForeignKey {
+            name: "fk_customers_0".into(),
+            columns: vec!["email".into()],
+            referenced_table: "t".into(),
+            referenced_columns: vec!["e".into()],
+            ..Default::default()
+        }];
+        let m = DraftModel::modify(DatabaseKind::Sqlite, "main", &t, None);
+        assert_eq!(m.draft().primary_key.as_ref().unwrap().name, None);
+        assert_eq!(m.draft().foreign_keys[0].name, None);
+        assert_eq!(m.draft().schema, None);
+        // Other databases keep what the catalog says, even a name that looks like that.
+        let pg = DraftModel::modify(DatabaseKind::Postgres, "public", &t, None);
+        assert_eq!(pg.draft().foreign_keys[0].name.as_deref(), Some("fk_customers_0"));
+        // A name the user chose survives in SQLite too.
+        t.foreign_keys[0].name = "fk_to_t".into();
+        let kept = DraftModel::modify(DatabaseKind::Sqlite, "main", &t, None);
+        assert_eq!(kept.draft().foreign_keys[0].name.as_deref(), Some("fk_to_t"));
     }
 
     #[test]
