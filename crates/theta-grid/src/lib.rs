@@ -8,6 +8,8 @@
 //! changes.
 
 mod actions;
+mod agg_ui;
+pub mod aggregate;
 pub mod compare;
 pub mod copy;
 mod editing;
@@ -20,6 +22,7 @@ mod inspector;
 pub mod layout;
 pub mod parse;
 pub mod pending;
+mod record;
 mod render;
 mod scroll;
 pub mod selection;

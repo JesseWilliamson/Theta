@@ -90,6 +90,7 @@ impl Render for ResultGrid {
         let p = palette(cx);
         let root = v_flex()
             .id("theta-result-grid")
+            .relative()
             .size_full()
             .min_w_0()
             .bg(p.bg)
@@ -116,7 +117,9 @@ impl Render for ResultGrid {
         }
         let toolbar = self.render_toolbar(cx, p);
         let filter = self.filter_open.then(|| self.render_filter(cx, p));
-        let grid = self.render_grid(window, cx, p);
+        let grid =
+            if self.record.is_some() { self.render_record(cx, p) } else { self.render_grid(window, cx, p) };
+        let aggregates = self.render_aggregates(cx, p);
         let inspector = self.inspector_open.then(|| self.render_inspector(cx, p));
         let footer = self.render_footer(cx, p);
         let out = root
@@ -124,6 +127,7 @@ impl Render for ResultGrid {
             .children(filter)
             .child(h_flex().flex_1().min_h_0().w_full().child(grid).children(inspector))
             .child(footer)
+            .children(aggregates)
             .into_any_element();
         if self.stats.enabled {
             let dt = started.elapsed();
@@ -246,6 +250,11 @@ impl ResultGrid {
                             })),
                     )
                     .child(export)
+                    .child(
+                        tool_button("grid-record", IconName::Rows3, "Record view (F4; r in Helix and Vim)")
+                            .selected(self.record.is_some())
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_record_view(cx))),
+                    )
                     .child(
                         tool_button("grid-inspector", IconName::PanelRight, "Cell inspector (Space)")
                             .selected(self.inspector_open)
@@ -373,7 +382,21 @@ impl ResultGrid {
                     .flex_shrink_0()
                     .text_color(p.muted)
                     .when(self.modal_visual, |d| d.child(div().text_color(p.accent).child("VISUAL")))
-                    .children(self.summary.clone().map(|s| div().child(s)))
+                    .children(self.summary.clone().map(|s| {
+                        div()
+                            .id("grid-summary")
+                            .px_1()
+                            .rounded(px(3.))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(p.hover))
+                            .when(self.aggregates_open(), |d| d.bg(p.hover))
+                            .tooltip(|window, cx| {
+                                Tooltip::new("Selection statistics (F3; a in Helix and Vim)")
+                                    .build(window, cx)
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_aggregates(cx)))
+                            .child(s)
+                    }))
                     .children(lock),
             )
             .into_any_element()

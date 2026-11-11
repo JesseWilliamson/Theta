@@ -96,6 +96,9 @@ pub struct ResultGrid {
     pub(crate) drag: Option<Drag>,
     pub(crate) hover_row: Option<usize>,
     pub(crate) summary: Option<String>,
+    pub(crate) record: Option<crate::record::RecordState>,
+    pub(crate) agg: crate::agg_ui::AggState,
+    pub(crate) agg_gen: u64,
     pub(crate) pending: Option<Pending>,
     pub(crate) editor: Option<CellEditor>,
     pub(crate) submit_error: Option<String>,
@@ -152,6 +155,9 @@ impl ResultGrid {
             drag: None,
             hover_row: None,
             summary: None,
+            record: None,
+            agg: Default::default(),
+            agg_gen: 0,
             pending: None,
             editor: None,
             submit_error: None,
@@ -210,6 +216,13 @@ impl ResultGrid {
         self.loading = false;
         self.inspector = None;
         self.inspector_dirty = true;
+        self.agg = Default::default();
+        self.agg_gen += 1;
+        self.record_reset();
+        if self.record.is_some() && self.n_rows() > 0 && self.n_cols() > 0 {
+            self.sel = Some(Selection::single(Cell::new(0, 0)));
+            self.refresh_summary_pub();
+        }
         cx.notify();
     }
 
@@ -554,6 +567,7 @@ impl ResultGrid {
         self.hover_row = None;
         self.cache.clear();
         self.refresh_summary();
+        self.refresh_aggregates(cx);
         self.inspector_dirty = true;
         cx.notify();
     }
@@ -568,9 +582,16 @@ impl ResultGrid {
         if self.sel == sel {
             return;
         }
+        let old_row = self.sel.map(|s| s.cursor.row);
         self.sel = sel;
         self.refresh_summary();
         self.inspector_dirty = true;
+        self.refresh_aggregates(cx);
+        if self.record.is_some() && sel.map(|s| s.cursor.row) != old_row {
+            self.record_reveal_field();
+        } else if let (Some(r), Some(s)) = (&self.record, sel) {
+            crate::record::reveal_item(&r.list, s.cursor.col);
+        }
         if reveal && let Some(s) = sel {
             self.reveal(s.cursor);
         }

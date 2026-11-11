@@ -16,3 +16,6 @@ serde_json.workspace = true
 [[example]]
 name = "grid_demo"
 path = "examples/grid_demo.rs"
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }

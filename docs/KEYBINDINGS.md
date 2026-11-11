@@ -181,8 +181,12 @@ Handled in `crates/theta-grid/src/input.rs` when the grid has focus. `mod` is `c
 | `mod-z` | undo the last staged edit |
 | `mod-enter` | submit the staged changes (opens **Apply changes?**) |
 | `space` | toggle the value inspector |
+| `F4`, `r` (Helix, Vim) | toggle the record view (the current row as a list of fields) |
+| `F3`, `a` (Helix, Vim) | toggle the selection statistics popover (also: click the summary in the footer) |
 | `esc` | collapse the selection; when nothing is left to collapse, return to the editor |
 | `mod-1` | return to the editor |
+
+In the record view `up` / `down` (`k` / `j`) go to the previous / next row, `pageup` / `pagedown` jump ten rows, `left` / `right` (`h` / `l`), `tab` / `shift-tab`, `home` and `end` move between the fields of the row, `mod-home` / `mod-end` (`gg` / `G`) go to the first / last row, `enter` / `F2` / `i` edit the highlighted field, `shift-y` (Helix, Vim) copies the whole row, and `esc` returns to the grid. `esc` also closes the statistics popover.
 
 `mod-0` is *Set NULL* while the grid has focus (it is *Reset Editor Font Size* everywhere else).
 

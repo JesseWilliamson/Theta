@@ -133,6 +133,27 @@ impl ResultGrid {
         cx: &mut Context<Self>,
     ) -> bool {
         let was_g = std::mem::take(&mut self.modal_g);
+        // Record view: up/down (k/j) step through rows, left/right (h/l) through the fields of the
+        // row, tab and shift-tab too; the other motions keep their grid meaning.
+        if self.record.is_some() {
+            let step = match key {
+                "up" => Some(-1),
+                "down" => Some(1),
+                "k" if modal => Some(-1),
+                "j" if modal => Some(1),
+                "pageup" => Some(-10),
+                "pagedown" => Some(10),
+                _ => None,
+            };
+            if let Some(d) = step {
+                self.record_step(d, cx);
+                return true;
+            }
+            if key == "y" && modal && shift {
+                self.copy_record_row(cx);
+                return true;
+            }
+        }
         let motion = match key {
             "up" => Some(Motion::Up),
             "down" => Some(Motion::Down),
@@ -199,6 +220,14 @@ impl ResultGrid {
                 self.open_filter(window, cx);
                 true
             }
+            "escape" if self.aggregates_open() => {
+                self.close_aggregates(cx);
+                true
+            }
+            "escape" if self.record.is_some() && !self.modal_visual => {
+                self.toggle_record_view(cx);
+                true
+            }
             "escape" => {
                 let was_visual = std::mem::take(&mut self.modal_visual);
                 let widened = self.sel.is_some() && !self.current_range().is_some_and(|r| r.is_single());
@@ -217,6 +246,22 @@ impl ResultGrid {
             }
             "space" => {
                 self.toggle_inspector(cx);
+                true
+            }
+            "f4" => {
+                self.toggle_record_view(cx);
+                true
+            }
+            "r" if modal && !shift => {
+                self.toggle_record_view(cx);
+                true
+            }
+            "f3" => {
+                self.toggle_aggregates(cx);
+                true
+            }
+            "a" if modal && !shift => {
+                self.toggle_aggregates(cx);
                 true
             }
             "enter" | "f2" => {

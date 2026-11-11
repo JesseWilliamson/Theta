@@ -244,6 +244,10 @@ impl ResultGrid {
         self.cache_clear();
         self.inspector_dirty = true;
         self.refresh_summary_pub();
+        self.refresh_aggregates(cx);
+        if let Some(r) = &self.record {
+            r.list.remeasure();
+        }
         cx.notify();
     }
 }

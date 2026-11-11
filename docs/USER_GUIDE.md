@@ -390,6 +390,23 @@ background.
 With the Helix key map the grid also takes `h j k l`, `gg` / `G`, `v` (extend), `x` (select row), `y` (copy),
 `u` (undo an edit), `i` (edit) and `%` (select all).
 
+### Record view
+
+The record view shows one row at a time as a list: the column name and type on the left, the complete value on the
+right. Long text is wrapped, JSON is pretty-printed, NULL is dimmed and a geometry is summarised. Toggle it with
+the button in the grid toolbar, `F4`, or `r` in Helix and Vim. Move between rows with `up` / `down` (`k` / `j`; the
+counter reads `12 / 600`), between fields with `tab`, `left` / `right` or the mouse, and edit the highlighted field
+with `enter`, `F2` or a double-click: edits go through the same staging, *Submit* and confirmation as in the grid, so
+a record view of a read-only result is read-only. *Value* and *Row* in the strip copy the highlighted value or the
+whole row (name and value per line). The list is virtualised, so a row of 500 columns is as fast as one of five.
+
+### Selection statistics
+
+The footer summarises a selection (`3 rows × 2 cols · sum 1,234.5 · avg 411.5`). Click it, or press `F3` (`a` in
+Helix and Vim), for the details: cells, count, distinct values, NULLs, min, max, sum and average for numbers, and the
+shortest and longest text. It follows the selection, is computed on a background thread when the selection is large,
+and *Copy* puts the figures on the clipboard.
+
 ## Edit data safely
 
 A result is editable only when every column comes from one table of the loaded schema, that table is a
