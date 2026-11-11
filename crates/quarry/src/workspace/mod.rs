@@ -176,6 +176,8 @@ pub struct Workspace {
     txn: HashSet<String>,
     /// Consoles whose Run / Explain is waiting for their connection to come up.
     awaiting_connection: HashSet<u64>,
+    /// Settings/theme warnings waiting for a window to show them in.
+    startup_warnings: Vec<String>,
     ticker: Option<gpui_kit::Task<()>>,
     editor_status: Option<EditorStatus>,
     last_explain: Option<run::ExplainTarget>,
@@ -265,6 +267,7 @@ impl Workspace {
             runs: HashMap::new(),
             txn: HashSet::new(),
             awaiting_connection: HashSet::new(),
+            startup_warnings: Vec::new(),
             ticker: None,
             editor_status: None,
             last_explain: None,
@@ -283,11 +286,20 @@ impl Workspace {
         if ws.tabs.is_empty() && !ws.store.read(cx).configs().is_empty() {
             ws.open_console(None, None, window, cx);
         }
-        // Surface problems found while loading settings/themes exactly once.
-        for warning in Settings::take_warnings(cx) {
-            window.push_notification(Notification::warning(warning), cx);
-        }
+        // Problems found while loading settings/themes are shown once the window exists:
+        // toasts live in the window's `Root`, which wraps this view only after it is built, so
+        // pushing one from here panics.
+        ws.startup_warnings = Settings::take_warnings(cx);
         ws
+    }
+
+    /// Show the settings/theme load warnings collected at start-up (once).
+    pub fn show_startup_warnings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for warning in std::mem::take(&mut self.startup_warnings) {
+            if !self.quiet {
+                window.push_notification(Notification::warning(warning), cx);
+            }
+        }
     }
 
     // ---------------------------------------------------------------- seams

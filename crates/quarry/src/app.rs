@@ -65,7 +65,10 @@ pub fn run(args: Args) {
         handle
             .update(cx, |_, window, cx| {
                 window.set_window_title("Quarry");
-                workspace.update(cx, |ws, cx| ws.focus_default(window, cx));
+                workspace.update(cx, |ws, cx| {
+                    ws.focus_default(window, cx);
+                    ws.show_startup_warnings(window, cx);
+                });
                 if let Some(w) = warning {
                     workspace
                         .update(cx, |ws, cx| ws.notify(crate::connections::NoticeKind::Error, w, window, cx));

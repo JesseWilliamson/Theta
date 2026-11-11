@@ -229,6 +229,11 @@ impl Settings {
         cx.global::<SettingsStore>().warnings.clone()
     }
 
+    /// Report a problem the shell shows once (a theme that failed to load, a failed save).
+    pub fn warn(cx: &mut App, message: impl Into<String>) {
+        cx.global_mut::<SettingsStore>().warnings.push(message.into());
+    }
+
     pub fn take_warnings(cx: &mut App) -> Vec<String> {
         std::mem::take(&mut cx.global_mut::<SettingsStore>().warnings)
     }

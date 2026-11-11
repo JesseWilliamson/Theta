@@ -582,3 +582,26 @@ fn run_on_a_connection_that_cannot_connect_shows_the_error_in_messages(cx: &mut 
     wait_for(vcx, "the error", |vcx| messages(&f, vcx).iter().any(|m| m.contains("Could not connect")));
     assert!(f.ws.read_with(vcx, |ws, cx| ws.results.read(cx).grid.read(cx).result().is_none()));
 }
+
+/// Settings warnings (a hand-edited, invalid settings.json) exist before the window's `Root`
+/// does. Showing them while the workspace is being built panicked at start-up.
+#[gpui_kit::test]
+fn start_up_warnings_do_not_panic_the_constructor(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    cx.update(|cx| {
+        quarry_ui::init(cx);
+        quarry_ui::Settings::warn(cx, "settings.json is not valid JSON; using defaults");
+    });
+    let (store, _) = ConnectionStore::load(None, Arc::new(SecretStore::memory_only()));
+    let store = cx.new(|_| store);
+    let (ws, vcx) = cx.add_window_view(|window, cx| {
+        Workspace::with_data_dir(store.clone(), dir.path().to_path_buf(), window, cx)
+    });
+    let held = ws.read_with(vcx, |ws, _| ws.startup_warnings.clone());
+    assert_eq!(held, ["settings.json is not valid JSON; using defaults"]);
+    ws.update_in(vcx, |ws, window, cx| {
+        ws.quiet = true;
+        ws.show_startup_warnings(window, cx);
+    });
+    assert!(ws.read_with(vcx, |ws, _| ws.startup_warnings.is_empty()), "shown once");
+}
