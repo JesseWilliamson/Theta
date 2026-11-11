@@ -30,6 +30,14 @@ pub(crate) struct Visual {
     pub cursor: usize,
 }
 
+/// Block columns spanned by two corner chars: the left edge of the left one to the last cell of the
+/// right one (a tab at a corner counts completely).
+fn block_cols_of(t: crate::text::Text, a: usize, c: usize) -> (usize, usize) {
+    let (sa, ea) = (col_of(t, a), col_end_of(t, a));
+    let (sc, ec) = (col_of(t, c), col_end_of(t, c));
+    (sa.min(sc), ea.max(ec))
+}
+
 fn mode_of(k: VKind) -> Mode {
     match k {
         VKind::Char => Mode::Visual,
@@ -91,8 +99,7 @@ impl Editor {
             }
             VKind::Block => {
                 let (la, lc) = (line_of(t, a), line_of(t, c));
-                let (ca, cc) = (col_of(t, a), col_of(t, c));
-                let (c0, c1) = (ca.min(cc), ca.max(cc));
+                let (c0, c1) = block_cols_of(t, a, c);
                 let eol = self.vim.want == usize::MAX;
                 let r = region_block(t, la.min(lc), la.max(lc), c0, c1, eol, 0);
                 let mut v = Vec::new();
@@ -129,12 +136,17 @@ impl Editor {
                 r.l1 = line_of(t, hi);
                 r
             }
-            VKind::Line => region_lines(t, line_of(t, lo), line_of(t, hi), lstart(t, line_of(t, lo))),
+            VKind::Line => {
+                // the operator's cursor: column 0 when the selection starts at the anchor, the
+                // cursor's own position when it was extended upwards
+                let cur = if a <= c { lstart(t, line_of(t, lo)) } else { lo };
+                region_lines(t, line_of(t, lo), line_of(t, hi), cur)
+            }
             VKind::Block => {
                 let (la, lc) = (line_of(t, a), line_of(t, c));
-                let (ca, cc) = (col_of(t, a), col_of(t, c));
+                let (c0, c1) = block_cols_of(t, a, c);
                 let eol = self.vim.want == usize::MAX;
-                region_block(t, la.min(lc), la.max(lc), ca.min(cc), ca.max(cc), eol, lo)
+                region_block(t, la.min(lc), la.max(lc), c0, c1, eol, lo)
             }
         };
         r.visual = true;
@@ -151,7 +163,7 @@ impl Editor {
             VKind::Char => {
                 let hi = v.anchor.max(v.cursor);
                 let cols = if lines == 1 {
-                    col_of(t, hi) - col_of(t, v.anchor.min(v.cursor)) + 1
+                    count_graphemes(t, v.anchor.min(v.cursor), hi) + 1
                 } else {
                     col_of(t, hi)
                 };
@@ -171,7 +183,7 @@ impl Editor {
         let cursor = match e.kind {
             VKind::Char => {
                 if e.lines == 1 {
-                    clamp_normal(t, text::nth_next_grapheme(t, cur, e.cols.saturating_sub(1)))
+                    text::nth_next_grapheme(t, cur, e.cols.saturating_sub(1)).min(lend(t, l))
                 } else {
                     clamp_normal(t, pos_at_col(t, last, e.cols))
                 }
@@ -340,9 +352,12 @@ impl Editor {
                 self.vis_exit();
                 if v.kind == VKind::Block {
                     let top = pos_at_col(t, r.l0, r.c0);
-                    self.start_block_insert(r.l0, r.l1, r.c0, false, top, r.c0);
+                    self.start_block_insert(r.l0, r.l1, r.c0, false, top, Some(r.c0));
                 } else {
-                    let at = if v.kind == VKind::Line { lstart(t, r.l0) } else { r.start };
+                    // `I` without a block (observed Vim behaviour): at the start of the first line, or
+                    // at the cursor when the selection was extended upwards
+                    let (la, lc) = (line_of(t, v.anchor), line_of(t, v.cursor));
+                    let at = if lc < la { v.cursor } else { lstart(t, r.l0) };
                     self.vset(at);
                     self.vim_enter_insert(super::InsertAt::Here, 1);
                 }
@@ -358,16 +373,24 @@ impl Editor {
                         if r.eol { usize::MAX } else { r.c1 + 1 },
                         true,
                         at,
-                        r.c0,
+                        Some(r.c0),
                     );
                 } else {
-                    let end = if v.kind == VKind::Line {
-                        lend(t, r.l1)
+                    // `A` without a block (observed Vim behaviour): after the cursor char; at the cursor
+                    // in column 0 or on the line end; at column 0 of the anchor's line when the
+                    // selection was extended upwards over several lines
+                    let c = v.cursor.min(t.len_chars());
+                    let (la, lc) = (line_of(t, v.anchor), line_of(t, c));
+                    let at = if lc < la {
+                        lstart(t, la)
+                    } else if c >= lend(t, lc) {
+                        last_char(t, lc)
+                    } else if col_of(t, c) == 0 {
+                        c
                     } else {
-                        r.end.min(lend(t, line_of(t, r.end.saturating_sub(1))))
+                        text::next_grapheme(t, c)
                     };
-                    self.vset(end);
-                    self.enter_insert_at_exact(end);
+                    self.enter_insert_at_exact(at);
                 }
             }
             Simple::SwapEnds => {
@@ -507,6 +530,10 @@ impl Editor {
     /// Visual `p`: replace the selection with a register (see `:help v_p`).
     fn visual_put(&mut self, r: &Region, kind: VKind, reg: Option<char>, count: usize, keep_unnamed: bool) {
         let Some(src) = self.reg_get(reg) else {
+            // Vim deletes the selection even though there is nothing to put
+            let mut rr = *r;
+            rr.visual = true;
+            self.operate(Op::Delete, rr, None, false);
             self.status(format!("E353: Nothing in register {}", reg.unwrap_or('"')));
             return;
         };

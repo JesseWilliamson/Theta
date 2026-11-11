@@ -63,23 +63,23 @@ fn rust_lit(c: char) -> String {
 fn class_token(d: char) -> Option<&'static str> {
     Some(match d {
         's' => r"[ \t]",
-        'S' => r"[^ \t]",
+        'S' => r"[^ \t\r\n]",
         'd' => "[0-9]",
-        'D' => "[^0-9]",
+        'D' => r"[^0-9\r\n]",
         'w' => "[0-9A-Za-z_]",
-        'W' => "[^0-9A-Za-z_]",
+        'W' => r"[^0-9A-Za-z_\r\n]",
         'a' => "[A-Za-z]",
-        'A' => "[^A-Za-z]",
+        'A' => r"[^A-Za-z\r\n]",
         'l' => "[a-z]",
-        'L' => "[^a-z]",
+        'L' => r"[^a-z\r\n]",
         'u' => "[A-Z]",
-        'U' => "[^A-Z]",
+        'U' => r"[^A-Z\r\n]",
         'x' => "[0-9A-Fa-f]",
-        'X' => "[^0-9A-Fa-f]",
+        'X' => r"[^0-9A-Fa-f\r\n]",
         'o' => "[0-7]",
-        'O' => "[^0-7]",
+        'O' => r"[^0-7\r\n]",
         'h' => "[A-Za-z_]",
-        'H' => "[^A-Za-z_]",
+        'H' => r"[^A-Za-z_\r\n]",
         'i' | 'k' => r"[0-9A-Za-z_\u{80}-\u{10FFFF}]",
         'I' | 'K' => r"[A-Za-z_\u{80}-\u{10FFFF}]",
         _ => return None,
@@ -371,7 +371,8 @@ fn parse_collection(cs: &[char], start: usize) -> Option<(String, usize)> {
     if items.is_empty() {
         return None;
     }
-    Some((format!("[{}{}]", if neg { "^" } else { "" }, items), i))
+    // a negated collection does not match a line break (`\_[^...]` is not supported)
+    Some((format!("[{}{}{}]", if neg { "^" } else { "" }, items, if neg { r"\r\n" } else { "" }), i))
 }
 
 /// Compile with the editor's case options (`\c` / `\C` in the pattern win).

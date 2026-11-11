@@ -6,6 +6,8 @@
 use super::*;
 
 const GOLDEN: &str = include_str!("../../tests/vim_oracle/golden.tsv");
+/// Cases where this crate knowingly differs from Vim: `text<TAB>keys<TAB>why` (README, "Deviations").
+const DEVIATIONS: &str = include_str!("../../tests/vim_oracle/deviations.tsv");
 
 pub(crate) fn unescape(s: &str) -> String {
     let mut out = String::new();
@@ -36,6 +38,13 @@ pub(crate) fn cursor_pos(e: &Editor) -> (usize, usize) {
 
 #[test]
 fn golden_cases_agree_with_real_vim() {
+    let deviations: std::collections::HashSet<(&str, &str)> = DEVIATIONS
+        .lines()
+        .filter_map(|l| {
+            let mut it = l.split('\t');
+            Some((it.next()?, it.next()?))
+        })
+        .collect();
     let mut failures = Vec::new();
     let mut n = 0;
     for (i, line) in GOLDEN.lines().enumerate() {
@@ -89,16 +98,25 @@ fn golden_cases_agree_with_real_vim() {
                 }
             }
         }
+        if deviations.contains(&(f[0], f[1])) {
+            if bad.is_empty() {
+                failures.push(format!(
+                    "line {}: {before:?} keys {keys:?} agrees with Vim now: remove it from deviations.tsv",
+                    i + 1
+                ));
+            }
+            continue;
+        }
         if !bad.is_empty() {
             if let Ok(path) = std::env::var("ORACLE_REPORT") {
                 use std::io::Write;
-                let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
-                let esc = |s: &str| s.replace('\\', "\\\\").replace('\n', "\\n");
+                let mut out = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+                let esc = |s: &str| s.replace('\\', "\\\\").replace('\n', "\\n").replace('\t', "\\t");
                 writeln!(
-                    f,
+                    out,
                     "{}\t{}\t{}\t{}\t{gl}:{gc}\t{want_line}:{want_col}\t{}",
-                    esc(&before),
-                    keys,
+                    f[0],
+                    f[1],
                     esc(&got),
                     esc(&want_text),
                     esc(&bad.join(" ; "))
@@ -134,4 +152,32 @@ fn probe() {
     let fx = feed(&mut e, &keys);
     let (l, c) = cursor_pos(&e);
     println!("text={:?} line={l} col={c} mode={:?} effects={fx:?}", e.text(), e.mode());
+}
+
+/// Batch runner for `tests/vim_oracle/fuzzdiff.py`: reads `ENGINE_CASES` (`text<TAB>keys` per line,
+/// escaped like the golden file) and writes `text<TAB>line<TAB>col` per case to `ENGINE_OUT`.
+#[test]
+#[ignore]
+fn engine_runner() {
+    let (Ok(inp), Ok(out)) = (std::env::var("ENGINE_CASES"), std::env::var("ENGINE_OUT")) else { return };
+    let esc =
+        |s: &str| s.replace('\\', "\\\\").replace('\n', "\\n").replace('\t', "\\t").replace('\r', "\\r");
+    let mut res = String::new();
+    for line in std::fs::read_to_string(inp).unwrap().lines() {
+        let f: Vec<&str> = line.split('\t').collect();
+        let mut e = vim_editor(&unescape(f[0]));
+        let keys = f[1].replace('\u{a6}', "");
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if keys.starts_with(':') {
+                feed(&mut e, &format!("{keys}<ret>"));
+            } else {
+                feed(&mut e, &keys);
+            }
+            let (l, c) = cursor_pos(&e);
+            format!("{}\t{l}\t{c}", esc(&e.text()))
+        }));
+        res.push_str(&r.unwrap_or_else(|_| "PANIC\t0\t0".to_string()));
+        res.push('\n');
+    }
+    std::fs::write(out, res).unwrap();
 }

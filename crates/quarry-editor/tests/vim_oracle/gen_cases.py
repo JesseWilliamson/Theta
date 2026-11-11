@@ -12,7 +12,7 @@ cases = []
 
 
 def add(text, keys, regs=""):
-    t = text.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t")
+    t = text.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r")
     cases.append("\t".join([t, keys, regs]) if regs else "\t".join([t, keys]))
 
 
@@ -152,6 +152,10 @@ for ex in [":s/foo/X/", ":s/foo/X/g", ":%s/foo/X/", ":%s/foo/X/g", ":2,3s/foo/X/
 add(at(EXT, 0), "yy:2pu<ret>")
 add(at(EXT, 0), "yyj:pu<ret>")
 add(at(EXT, 0), "yyj:pu!<ret>")
+
+import gen_extra
+
+gen_extra.add_all(add, at)
 
 for c in cases:
     print(c)

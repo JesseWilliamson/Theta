@@ -173,6 +173,7 @@ impl Editor {
 
     pub(crate) fn insert_newline(&mut self) {
         let le = self.line_ending;
+        let vim = self.keymap == Keymap::Vim;
         let specs = self.specs_for(|t, from, to| {
             let line = t.char_to_line(from);
             let ls = t.line_to_char(line);
@@ -183,6 +184,10 @@ impl Editor {
                     c @ (' ' | '\t') => indent.push(c),
                     _ => break,
                 }
+            }
+            if vim {
+                // Vim rebuilds the indent from its width (`expandtab`): tabs become spaces
+                indent = crate::vim::spaces_of(&indent);
             }
             let before: String = t.slice(ls..from).to_string();
             let opens = before.trim_end().ends_with(['(', '[', '{']);

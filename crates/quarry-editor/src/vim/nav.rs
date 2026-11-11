@@ -165,7 +165,7 @@ impl Editor {
                 }
                 let (mut p, ok) = fwd_word(t, cur, n, big, op.is_some());
                 let mut kind = MK::Excl;
-                if p > cur && gchar(t, p) == '\0' && p > lstart(t, line_of(t, p)) {
+                if !visual && p > cur && gchar(t, p) == '\0' && p > lstart(t, line_of(t, p)) {
                     p = text::prev_grapheme(t, p);
                     kind = MK::Incl;
                 }
@@ -339,7 +339,11 @@ impl Editor {
             self.open_prompt(PromptKind::Search { backwards: !fwd }, prefix, "", count.unwrap_or(1));
             return;
         }
-        let Some(mv) = self.eval_motion(m, count, None) else { return };
+        let Some(mv) = self.eval_motion(m, count, None) else {
+            // a failed motion leaves the remembered column alone
+            self.vim.keep_want = true;
+            return;
+        };
         self.apply_move(mv);
     }
 
@@ -486,7 +490,7 @@ impl Editor {
             let esc = super::vregex::escape_literal(&word);
             return Some(if whole { format!("\\<{esc}\\>") } else { esc });
         }
-        // no keyword: the non-blank string under or after the cursor
+        // no keyword: the run of same-class (non-blank) chars under or after the cursor
         p = cur;
         while p < le && is_blank_char(t.char(p)) {
             p += 1;
@@ -495,12 +499,13 @@ impl Editor {
             self.status("E348: No string under cursor");
             return None;
         }
+        let class = super::motion::vim_class(t.char(p));
         a = p;
-        while a > ls && !is_blank_char(t.char(a - 1)) {
+        while a > ls && super::motion::vim_class(t.char(a - 1)) == class {
             a -= 1;
         }
         b = p;
-        while b < le && !is_blank_char(t.char(b)) {
+        while b < le && super::motion::vim_class(t.char(b)) == class {
             b += 1;
         }
         Some(super::vregex::escape_literal(&t.slice(a..b).to_string()))

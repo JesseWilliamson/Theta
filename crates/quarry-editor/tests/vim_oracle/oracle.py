@@ -98,7 +98,7 @@ def run(text, keys, regs=('"',), setup=(), ex=None):
             "set nocompatible noswapfile nofixeol wrapscan nohlsearch shortmess+=I ignorecase smartcase",
             "set autoindent shiftwidth=4 expandtab softtabstop=4",
             "nnoremap Y y$",
-            "set nrformats=bin,hex tabstop=4",
+            "set nrformats=bin,hex tabstop=4 nojoinspaces",
             "call cursor(%d, %d)" % (cl, cc),
             "clearjumps",
             "call setpos(\"''\", [0, %d, %d, 0])" % (cl, cc),
@@ -117,7 +117,7 @@ def run(text, keys, regs=('"',), setup=(), ex=None):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
         with open(info) as f:
             res = json.load(f)
-        with open(outp, newline="") as f:
+        with open(outp, newline="", encoding="utf-8", errors="replace") as f:
             res["text"] = f.read()
         return res
 

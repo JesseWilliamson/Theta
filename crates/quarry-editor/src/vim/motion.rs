@@ -6,6 +6,44 @@
 use super::geom::*;
 use crate::text::{self, CharClass, Text};
 
+/// Vim's character classes (`utf_class`): 0 blank, 1 punctuation, 2 keyword, 3 emoji, and one class
+/// per script for kana, ideographs and hangul so that `w` stops where the script changes.
+pub(crate) fn vim_class(c: char) -> u8 {
+    let u = c as u32;
+    if c == ' ' || c == '\t' || c == '\0' {
+        return 0;
+    }
+    if u < 0x80 {
+        return if c.is_ascii_alphanumeric() || c == '_' { 2 } else { 1 };
+    }
+    match u {
+        0x80..=0xff => {
+            if c.is_whitespace() {
+                0
+            } else if (0xa1..=0xbf).contains(&u) && !matches!(u, 0xaa | 0xb5 | 0xba) || u == 0xd7 || u == 0xf7
+            {
+                1
+            } else {
+                2
+            }
+        }
+        0x2000..=0x200b | 0x2028 | 0x2029 | 0x202f | 0x205f | 0x3000 => 0,
+        0x200c..=0x206f | 0x2190..=0x2bff | 0x3001..=0x3020 | 0x3030 | 0x303d..=0x303f | 0xfe30..=0xfe6b => 1,
+        0xff00..=0xff0f | 0xff1a..=0xff20 | 0xff3b..=0xff40 | 0xff5b..=0xff65 => 1,
+        0x3040..=0x309f => 4,
+        0x30a0..=0x30ff => 5,
+        0x3300..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x2fa1f => 6,
+        0xac00..=0xd7a3 => 7,
+        0x1f000..=0x1faff | 0x2600..=0x27bf => 3,
+        _ => match text::classify(c) {
+            CharClass::Space | CharClass::Eol => 0,
+            CharClass::Punct => 1,
+            CharClass::Word => 2,
+            CharClass::Other => 3,
+        },
+    }
+}
+
 /// A cursor that can also stand on the end-of-line NUL, like Vim's own cursor during motions.
 #[derive(Clone, Copy)]
 pub(crate) struct Cur<'a> {
@@ -96,12 +134,7 @@ impl<'a> Cur<'a> {
         if c == '\0' || c == ' ' || c == '\t' {
             return 0;
         }
-        let k = match text::classify(c) {
-            CharClass::Space | CharClass::Eol => 0,
-            CharClass::Punct => 1,
-            CharClass::Word => 2,
-            CharClass::Other => 3,
-        };
+        let k = vim_class(c);
         if k != 0 && self.big { 1 } else { k }
     }
 

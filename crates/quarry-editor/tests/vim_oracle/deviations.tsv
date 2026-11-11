@@ -1,0 +1,137 @@
+\tone two\n    f[o]ur five six\n\t\tx\nabcdefghij\n\n  \tmixed\n	<C-v>j$d	blocks cutting through a tab are not split into spaces
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	j	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	jj	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	3j	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	wj	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	wjj	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	jl	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	jh	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	<C-v>jIX<esc>	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	<C-v>j$d	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	dj	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	yjP	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	x	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	~	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	rx	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	cwX<esc>	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	ix<esc>	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	ax<esc>	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	J	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	gUU	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	i<tab>x<esc>	empty last line without a final newline
+\tone two\n    four five six\n\t\tx\nabcdefghij\n\n  \tmixed\n[]	a<tab>x<esc>	empty last line without a final newline
+日本語 テスト ひらがな カタカナ abc한글 x\nfoo日[本]bar x，y。z\na🙂b🙂🙂c ñandú naïve\nα β-γ δ.ε 😀 é́x\n	*	* / # word boundaries use Unicode word characters, not Vim's character classes
+日本語 テスト ひらがな カタカナ abc한글 x\nfoo日本bar x，y。z\na🙂b[🙂]🙂c ñandú naïve\nα β-γ δ.ε 😀 é́x\n	*	* / # word boundaries use Unicode word characters, not Vim's character classes
+[o]ne\ntwo\nthree	Go<esc>	empty last line without a final newline
+[o]ne\ntwo\nthree	GD	empty last line without a final newline
+[o]ne\ntwo\nthree	Gcc<esc>	empty last line without a final newline
+[o]ne\ntwo\nthree	Gd}	empty last line without a final newline
+one\ntw[o]\nthree	Go<esc>	empty last line without a final newline
+one\ntw[o]\nthree	GD	empty last line without a final newline
+one\ntw[o]\nthree	Gcc<esc>	empty last line without a final newline
+one\ntw[o]\nthree	Gd}	empty last line without a final newline
+one\ntwo\nthre[e]	Go<esc>	empty last line without a final newline
+one\ntwo\nthre[e]	GD	empty last line without a final newline
+one\ntwo\nthre[e]	Gcc<esc>	empty last line without a final newline
+one\ntwo\nthre[e]	Gd}	empty last line without a final newline
+[o]ne\ntwo\n\nlast	Gdd	empty last line without a final newline
+[o]ne\ntwo\n\nlast	Gddp	empty last line without a final newline
+[o]ne\ntwo\n\nlast	GddP	empty last line without a final newline
+[o]ne\ntwo\n\nlast	Go<esc>	empty last line without a final newline
+[o]ne\ntwo\n\nlast	GD	empty last line without a final newline
+[o]ne\ntwo\n\nlast	Gcc<esc>	empty last line without a final newline
+[o]ne\ntwo\n\nlast	Gddk	empty last line without a final newline
+[o]ne\ntwo\n\nlast	GddGp	empty last line without a final newline
+[o]ne\ntwo\n\nlast	Gd}	empty last line without a final newline
+[o]ne\ntwo\n\nlast	GddGddGdd	empty last line without a final newline
+[o]ne\ntwo\n\nlast	GVd	empty last line without a final newline
+one\ntw[o]\n\nlast	Gdd	empty last line without a final newline
+one\ntw[o]\n\nlast	Gddp	empty last line without a final newline
+one\ntw[o]\n\nlast	GddP	empty last line without a final newline
+one\ntw[o]\n\nlast	Go<esc>	empty last line without a final newline
+one\ntw[o]\n\nlast	GD	empty last line without a final newline
+one\ntw[o]\n\nlast	Gcc<esc>	empty last line without a final newline
+one\ntw[o]\n\nlast	Gddk	empty last line without a final newline
+one\ntw[o]\n\nlast	GddGp	empty last line without a final newline
+one\ntw[o]\n\nlast	Gd}	empty last line without a final newline
+one\ntw[o]\n\nlast	GddGddGdd	empty last line without a final newline
+one\ntw[o]\n\nlast	GVd	empty last line without a final newline
+one\ntwo\n\nlas[t]	Gdd	empty last line without a final newline
+one\ntwo\n\nlas[t]	Gddp	empty last line without a final newline
+one\ntwo\n\nlas[t]	GddP	empty last line without a final newline
+one\ntwo\n\nlas[t]	dd	empty last line without a final newline
+one\ntwo\n\nlas[t]	ddGp	empty last line without a final newline
+one\ntwo\n\nlas[t]	ddGP	empty last line without a final newline
+one\ntwo\n\nlas[t]	Go<esc>	empty last line without a final newline
+one\ntwo\n\nlas[t]	GD	empty last line without a final newline
+one\ntwo\n\nlas[t]	Gcc<esc>	empty last line without a final newline
+one\ntwo\n\nlas[t]	dG	empty last line without a final newline
+one\ntwo\n\nlas[t]	Gddk	empty last line without a final newline
+one\ntwo\n\nlas[t]	GddGp	empty last line without a final newline
+one\ntwo\n\nlas[t]	Gd}	empty last line without a final newline
+one\ntwo\n\nlas[t]	GddGddGdd	empty last line without a final newline
+one\ntwo\n\nlas[t]	GVd	empty last line without a final newline
+one\ntwo\n\nlas[t]	VGp	empty last line without a final newline
+[s]ingle	Go<esc>	empty last line without a final newline
+[s]ingle	GddGddGdd	empty last line without a final newline
+sin[g]le	Go<esc>	empty last line without a final newline
+sin[g]le	GddGddGdd	empty last line without a final newline
+singl[e]	Go<esc>	empty last line without a final newline
+singl[e]	GddGddGdd	empty last line without a final newline
+[a]\n\nb	Gdd	empty last line without a final newline
+[a]\n\nb	Gddp	empty last line without a final newline
+[a]\n\nb	GddP	empty last line without a final newline
+[a]\n\nb	Go<esc>	empty last line without a final newline
+[a]\n\nb	Gx	empty last line without a final newline
+[a]\n\nb	GD	empty last line without a final newline
+[a]\n\nb	Gcc<esc>	empty last line without a final newline
+[a]\n\nb	GddGp	empty last line without a final newline
+[a]\n\nb	Gd}	empty last line without a final newline
+[a]\n\nb	G$xp	empty last line without a final newline
+[a]\n\nb	Gx.	empty last line without a final newline
+[a]\n\nb	ggjddp	empty last line without a final newline
+[a]\n\nb	ggjyyGp	empty last line without a final newline
+[a]\n\nb	GddGddGdd	empty last line without a final newline
+[a]\n\nb	GVd	empty last line without a final newline
+[a]\n\nb	GvpP	empty last line without a final newline
+a\n[]\nb	Gdd	empty last line without a final newline
+a\n[]\nb	Gddp	empty last line without a final newline
+a\n[]\nb	GddP	empty last line without a final newline
+a\n[]\nb	ddGp	empty last line without a final newline
+a\n[]\nb	yyGp	empty last line without a final newline
+a\n[]\nb	Go<esc>	empty last line without a final newline
+a\n[]\nb	Gx	empty last line without a final newline
+a\n[]\nb	GD	empty last line without a final newline
+a\n[]\nb	Gcc<esc>	empty last line without a final newline
+a\n[]\nb	GddGp	empty last line without a final newline
+a\n[]\nb	Gd}	empty last line without a final newline
+a\n[]\nb	yipGp	empty last line without a final newline
+a\n[]\nb	G$xp	empty last line without a final newline
+a\n[]\nb	Gx.	empty last line without a final newline
+a\n[]\nb	ggjddp	empty last line without a final newline
+a\n[]\nb	ggjyyGp	empty last line without a final newline
+a\n[]\nb	GddGddGdd	empty last line without a final newline
+a\n[]\nb	GVd	empty last line without a final newline
+a\n[]\nb	GvpP	empty last line without a final newline
+a\n\n[b]	Gdd	empty last line without a final newline
+a\n\n[b]	Gddp	empty last line without a final newline
+a\n\n[b]	GddP	empty last line without a final newline
+a\n\n[b]	dd	empty last line without a final newline
+a\n\n[b]	ddGp	empty last line without a final newline
+a\n\n[b]	ddGP	empty last line without a final newline
+a\n\n[b]	Go<esc>	empty last line without a final newline
+a\n\n[b]	Gx	empty last line without a final newline
+a\n\n[b]	GD	empty last line without a final newline
+a\n\n[b]	Gcc<esc>	empty last line without a final newline
+a\n\n[b]	dG	empty last line without a final newline
+a\n\n[b]	GddGp	empty last line without a final newline
+a\n\n[b]	Gd}	empty last line without a final newline
+a\n\n[b]	d}	empty last line without a final newline
+a\n\n[b]	G$xp	empty last line without a final newline
+a\n\n[b]	Gx.	empty last line without a final newline
+a\n\n[b]	ggjddp	empty last line without a final newline
+a\n\n[b]	ggjyyGp	empty last line without a final newline
+a\n\n[b]	GddGddGdd	empty last line without a final newline
+a\n\n[b]	GVd	empty last line without a final newline
+a\n\n[b]	GvpP	empty last line without a final newline
+a\n\n[b]	VGp	empty last line without a final newline

@@ -56,12 +56,86 @@ pub(crate) fn gchar(t: Text, pos: usize) -> char {
     if text::is_eol(c) { '\0' } else { c }
 }
 
-/// Grapheme column of `pos` within its line.
+/// Tab stops are four columns apart (the editor indents with four spaces).
+pub(crate) const TAB_WIDTH: usize = 4;
+
+/// Display width of the grapheme starting at `p` when it begins at column `col`.
+fn cell_width(t: Text, p: usize, col: usize) -> usize {
+    let c = t.char(p);
+    if c == '\t' {
+        TAB_WIDTH - col % TAB_WIDTH
+    } else if is_wide(c) {
+        2
+    } else {
+        1
+    }
+}
+
+/// East Asian wide / fullwidth characters and emoji take two columns.
+fn is_wide(c: char) -> bool {
+    matches!(c as u32,
+        0x1100..=0x115f | 0x2e80..=0x303e | 0x3041..=0x33ff | 0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xa000..=0xa4cf
+        | 0xac00..=0xd7a3 | 0xf900..=0xfaff | 0xfe30..=0xfe6f | 0xff00..=0xff60 | 0xffe0..=0xffe6
+        | 0x1f300..=0x1f64f | 0x1f900..=0x1f9ff | 0x20000..=0x3fffd)
+}
+
+/// Display column (0-based, tabs expanded) where the char at `pos` starts.
 pub(crate) fn col_of(t: Text, pos: usize) -> usize {
-    let ls = lstart(t, line_of(t, pos));
-    let mut p = ls;
+    let le = lend(t, line_of(t, pos));
+    let mut p = lstart(t, line_of(t, pos));
+    let mut col = 0;
+    while p < pos && p < le {
+        col += cell_width(t, p, col);
+        let q = text::next_grapheme(t, p);
+        if q == p {
+            break;
+        }
+        p = q;
+    }
+    col
+}
+
+/// The last display column the char at `pos` covers (a tab spans several).
+pub(crate) fn col_end_of(t: Text, pos: usize) -> usize {
+    let start = col_of(t, pos);
+    if pos < lend(t, line_of(t, pos)) { start + cell_width(t, pos, start) - 1 } else { start }
+}
+
+/// The column Vim remembers for vertical moves: Normal mode puts the cursor at the end of a tab.
+pub(crate) fn want_col(t: Text, pos: usize, at_end_of_tab: bool) -> usize {
+    if at_end_of_tab && pos < t.len_chars() && t.char(pos) == '\t' {
+        col_end_of(t, pos)
+    } else {
+        col_of(t, pos)
+    }
+}
+
+/// Position of the char covering display column `col` of line `l`; the NUL position when the
+/// line is shorter.
+pub(crate) fn pos_at_col(t: Text, l: usize, col: usize) -> usize {
+    let le = lend(t, l);
+    let mut p = lstart(t, l);
+    let mut c = 0;
+    while p < le {
+        let w = cell_width(t, p, c);
+        if col < c + w {
+            return p;
+        }
+        c += w;
+        let q = text::next_grapheme(t, p);
+        if q == p {
+            break;
+        }
+        p = q;
+    }
+    le
+}
+
+/// Number of graphemes in `a..b`.
+pub(crate) fn count_graphemes(t: Text, a: usize, b: usize) -> usize {
+    let mut p = a;
     let mut n = 0;
-    while p < pos {
+    while p < b {
         let q = text::next_grapheme(t, p);
         if q == p {
             break;
@@ -70,19 +144,6 @@ pub(crate) fn col_of(t: Text, pos: usize) -> usize {
         n += 1;
     }
     n
-}
-
-/// Position of grapheme column `col` of line `l`, clamped to the NUL position.
-pub(crate) fn pos_at_col(t: Text, l: usize, col: usize) -> usize {
-    let le = lend(t, l);
-    let mut p = lstart(t, l);
-    for _ in 0..col {
-        if p >= le {
-            break;
-        }
-        p = text::next_grapheme(t, p);
-    }
-    p.min(le)
 }
 
 /// Last grapheme of the line's content, or the line start when it is empty.
@@ -119,7 +180,12 @@ pub(crate) fn after_incl(t: Text, p: usize) -> usize {
     }
     if text::is_eol(t.char(p)) {
         let l = line_of(t, p);
-        if p == lend(t, l) { lnext(t, l) } else { text::next_grapheme(t, p) }
+        if p == lend(t, l) {
+            // the break of the last line is not there to be included
+            if l + 1 >= nlines(t) { p } else { lnext(t, l) }
+        } else {
+            text::next_grapheme(t, p)
+        }
     } else {
         text::next_grapheme(t, p)
     }

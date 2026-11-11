@@ -447,7 +447,7 @@ impl Editor {
         }
         self.set_sels(Selections::single(Selection::point(c)));
         let t = self.rope.slice(..);
-        self.vim.want = col_of(t, c);
+        self.vim.want = want_col(t, c, !insert);
     }
 
     pub(crate) fn vim_cursor_of(&self, sel: &Selection) -> usize {
@@ -1044,7 +1044,8 @@ impl Editor {
         if !busy {
             if !self.vim.keep_want {
                 let t = self.rope.slice(..);
-                self.vim.want = col_of(t, self.vcur());
+                let normal = self.mode == Mode::Normal;
+                self.vim.want = want_col(t, self.vcur(), normal);
             }
             self.vim.keep_want = false;
         }
@@ -1389,6 +1390,15 @@ impl UndoInfo {
         };
         self.first = Some((c.from, size));
     }
+}
+
+/// An indent as spaces of the same width (tab stops every four columns).
+pub(crate) fn spaces_of(indent: &str) -> String {
+    let mut w = 0;
+    for c in indent.chars() {
+        w += if c == '\t' { geom::TAB_WIDTH - w % geom::TAB_WIDTH } else { 1 };
+    }
+    " ".repeat(w)
 }
 
 pub(crate) fn valid_reg(c: char) -> bool {

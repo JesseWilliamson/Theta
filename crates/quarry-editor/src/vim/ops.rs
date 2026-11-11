@@ -3,7 +3,7 @@
 use super::geom::*;
 use super::nav::{MK, Mv};
 use super::object;
-use super::{Motion, Op, SearchOp};
+use super::{Motion, Op, SearchOp, spaces_of};
 use crate::editor::{Editor, Effect};
 use crate::prompt::PromptKind;
 use crate::selection::{Selection, Selections};
@@ -126,8 +126,7 @@ pub(crate) fn region_from_mv(t: Text, from: usize, mv: Mv, force: Option<char>) 
         }
         Some('V') => kind = MK::Line,
         Some('\x16') => {
-            let (ca, cb) = (col_of(t, a), col_of(t, b));
-            let (c0, c1) = (ca.min(cb), ca.max(cb));
+            let (c0, c1) = (col_of(t, a).min(col_of(t, b)), col_end_of(t, a).max(col_end_of(t, b)));
             return region_block(t, line_of(t, a), line_of(t, b), c0, c1, false, a);
         }
         _ => {}
@@ -341,21 +340,34 @@ impl Editor {
                 | Motion::SearchRepeat { .. }
                 | Motion::Star { .. }
         );
-        self.run_op_mv(op, mv, reg, force, reg_one);
+        // `y_` is `yy`: the cursor stays where it is
+        let keep_cursor = op == Op::Yank && m == Motion::UnderLine;
+        self.run_op_mv(op, mv, reg, force, reg_one, keep_cursor);
     }
 
     pub(crate) fn run_op_with_mv(&mut self, op: Op, mv: Mv, reg: Option<char>, force: Option<char>) {
-        self.run_op_mv(op, mv, reg, force, true);
+        self.run_op_mv(op, mv, reg, force, true, false);
     }
 
-    fn run_op_mv(&mut self, op: Op, mv: Mv, reg: Option<char>, force: Option<char>, reg_one: bool) {
+    fn run_op_mv(
+        &mut self,
+        op: Op,
+        mv: Mv,
+        reg: Option<char>,
+        force: Option<char>,
+        reg_one: bool,
+        keep_cursor: bool,
+    ) {
         let rope = self.rp();
         let t = rope.slice(..);
         let cur = self.vcur();
         if mv.jump {
             self.vim_push_jump();
         }
-        let r = region_from_mv(t, cur, mv, force);
+        let mut r = region_from_mv(t, cur, mv, force);
+        if keep_cursor {
+            r.cur = cur;
+        }
         self.operate(op, r, reg, reg_one);
     }
 
@@ -509,8 +521,11 @@ impl Editor {
                 self.reg_delete(reg, rg, true);
                 if change {
                     // keep one (indented) empty line to type on
-                    let indent =
-                        if self.vim_autoindent() { text::leading_whitespace(t, r.l0) } else { String::new() };
+                    let indent = if self.vim_autoindent() {
+                        spaces_of(&text::leading_whitespace(t, r.l0))
+                    } else {
+                        String::new()
+                    };
                     let from = lstart(t, r.l0);
                     let to = lend(t, r.l1);
                     self.vapply(vec![Change { from, to, text: indent.clone() }]);
@@ -543,7 +558,7 @@ impl Editor {
                 let t2 = rope.slice(..);
                 let top = pos_at_col(t2, r.l0, r.c0);
                 if change {
-                    self.start_block_insert(r.l0, r.l1, r.c0, false, top, r.c0);
+                    self.start_block_insert(r.l0, r.l1, r.c0, false, top, None);
                 } else {
                     self.vset(top);
                 }
@@ -569,9 +584,10 @@ impl Editor {
             }
         };
         let mut changes = Vec::new();
-        // an empty exclusive region still switches the char under the cursor (as Vim does)
+        // an empty exclusive region at the very start of the buffer still switches the first char
+        // (a quirk of Vim's `op_tilde`, which cannot step back from there)
         let mut r = *r;
-        if r.kind == RK::Char && r.start == r.end && r.start < lend(t, line_of(t, r.start)) {
+        if r.kind == RK::Char && r.start == r.end && r.start == 0 && r.start < lend(t, 0) {
             r.end = text::next_grapheme(t, r.start);
         }
         let r = &r;
@@ -640,8 +656,13 @@ impl Editor {
         }
         if c == '\n' {
             // the new line copies the indent of what stays in front, loses the blanks behind
-            let indent: String =
-                t.slice(lstart(t, l)..cur).to_string().chars().take_while(|c| is_blank_char(*c)).collect();
+            let indent: String = spaces_of(
+                &t.slice(lstart(t, l)..cur)
+                    .to_string()
+                    .chars()
+                    .take_while(|c| is_blank_char(*c))
+                    .collect::<String>(),
+            );
             let mut stop = end;
             while stop < lend(t, l) && is_blank_char(t.char(stop)) {
                 stop += 1;
@@ -696,6 +717,11 @@ impl Editor {
         let t = rope.slice(..);
         let l = line_of(t, self.vcur());
         if l + 1 >= nlines(t) {
+            // on the last line `J` fails; with a count above two it "joins" the one line that is
+            // there, which only puts the cursor at the start of the line
+            if count > 2 {
+                self.vset(lstart(t, l));
+            }
             return;
         }
         let last = (l + count - 1).min(nlines(t) - 1);

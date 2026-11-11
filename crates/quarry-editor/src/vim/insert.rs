@@ -6,7 +6,7 @@
 //! the thing `3ihello<Esc>` repeats.
 
 use super::geom::*;
-use super::{InsertAt, Reg, RegKind};
+use super::{InsertAt, Reg, RegKind, spaces_of};
 use crate::edit::EditSpec;
 use crate::editor::{Editor, Effect, Mode};
 use crate::keys::{Key, KeyInput};
@@ -38,7 +38,7 @@ pub(crate) struct BlockInsert {
     pub append: bool,
     pub start: usize,
     /// left edge of the block: where the cursor returns to
-    pub left: usize,
+    pub left: Option<usize>,
 }
 
 fn ctrl_is(k: &KeyInput, c: char) -> bool {
@@ -98,7 +98,7 @@ impl Editor {
         let l = line_of(t, self.vcur());
         let le = self.line_ending;
         self.vim.edit_at = Some(self.vcur());
-        let indent = self.indent_for_new_line(l);
+        let indent = spaces_of(&self.indent_for_new_line(l));
         let n = indent.chars().count();
         let (at, ins, cur) = if below {
             let at = lend(t, l);
@@ -134,7 +134,7 @@ impl Editor {
         col: usize,
         append: bool,
         at: usize,
-        left: usize,
+        left: Option<usize>,
     ) {
         let rope = self.rp();
         let t = rope.slice(..);
@@ -307,7 +307,7 @@ impl Editor {
                     }
                     l - 1
                 };
-                pos_at_col(t, target, self.vim.want.min(col_of(t, cur).max(self.vim.want)))
+                pos_at_col(t, target, self.vim.want)
             }
             _ => cur,
         };
@@ -566,7 +566,7 @@ impl Editor {
         self.vim.marks.insert('[', b.start);
         // the cursor goes back to the top-left of the block
         let t2 = self.rope.slice(..);
-        let cur = clamp_normal(t2, pos_at_col(t2, b.l0, b.left));
+        let cur = clamp_normal(t2, pos_at_col(t2, b.l0, b.left?));
         Some(cur)
     }
 

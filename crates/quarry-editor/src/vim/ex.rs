@@ -579,6 +579,7 @@ impl Editor {
         }
         let mut unique = false;
         let mut numeric = false;
+        let mut hex = false;
         let mut use_match = false;
         let mut icase = false;
         let mut pat: Option<String> = None;
@@ -587,6 +588,10 @@ impl Editor {
             match c {
                 'u' => unique = true,
                 'n' => numeric = true,
+                'x' => {
+                    numeric = true;
+                    hex = true;
+                }
                 'r' => use_match = true,
                 'i' => icase = true,
                 ' ' => {}
@@ -636,7 +641,13 @@ impl Editor {
             .into_iter()
             .map(|l| {
                 let k = key_text(&l);
-                let num = if numeric { first_number(&k) } else { None };
+                let num = if hex {
+                    first_hex(&k)
+                } else if numeric {
+                    first_number(&k)
+                } else {
+                    None
+                };
                 let k = if icase { k.to_lowercase() } else { k };
                 (k, num, l)
             })
@@ -934,68 +945,16 @@ impl Editor {
         let rope = self.rp();
         let t = rope.slice(..);
         let le = self.line_ending;
-        // work on the text of the whole range (terminator of the last line excluded)
+        // Work on the text of the range including the break after its last line: a `\n` there
+        // matches (and joins with the next line) just as in Vim. Behind the last line of the
+        // buffer the break is put back afterwards.
         let from = lstart(t, a);
-        let to = lend(t, b);
+        let to = lnext(t, b);
+        let buffer_end_term = b + 1 >= nlines(t) && has_term(t, b);
         let hay = t.slice(from..to).to_string();
-        let mut out = String::new();
-        let mut last = 0usize;
-        let mut subs = 0usize;
-        let mut last_line_hit: Option<usize> = None;
-        let mut last_joined = false;
-        let mut last_repl_end = 0usize;
-        let mut pos = 0usize;
-        let multiline = hay.contains('\n') && re.as_str().contains(r"\n");
-        let line_of_pos = |p: usize| hay[..p].matches('\n').count();
-        let mut done_line: Option<usize> = None;
-        while pos <= hay.len() {
-            let Some(caps) = re.captures_at(&hay, pos) else { break };
-            let m = caps.get(0).unwrap();
-            let ln = line_of_pos(m.start());
-            if !global {
-                if let Some(d) = done_line {
-                    if ln <= d {
-                        // already substituted on this line: skip to the next line
-                        match hay[m.start()..].find('\n') {
-                            Some(i) => {
-                                pos = m.start() + i + 1;
-                                continue;
-                            }
-                            None => break,
-                        }
-                    }
-                }
-            }
-            subs += 1;
-            out.push_str(&hay[last..m.start()]);
-            if !count_only {
-                out.push_str(&vregex::expand(&parts, &caps));
-            } else {
-                out.push_str(m.as_str());
-            }
-            last = m.end();
-            let end_ln = line_of_pos(m.end());
-            let ends_at_line_start = m.end() > 0 && hay.as_bytes()[m.end() - 1] == b'\n';
-            last_line_hit = Some(out.matches('\n').count());
-            last_joined = m.as_str().contains('\n');
-            last_repl_end = out.chars().count();
-            // a match that ran into a later line uses that line up; one that only swallowed a
-            // line break leaves the next line to be processed
-            done_line = Some(if end_ln > ln && !ends_at_line_start { end_ln } else { ln });
-            if m.end() == m.start() {
-                // an empty match: step over one char so the loop makes progress
-                let step = hay[m.end()..].chars().next().map_or(1, |c| c.len_utf8());
-                if m.end() >= hay.len() {
-                    break;
-                }
-                out.push_str(&hay[m.end()..m.end() + step]);
-                last = m.end() + step;
-                pos = last;
-            } else {
-                pos = m.end();
-            }
-            let _ = multiline;
-        }
+        let multiline = re.as_str().contains(r"\n");
+        let (mut new, subs, last_joined, last_repl_end) =
+            substitute_text(&hay, &re, &parts, global, count_only, multiline);
         if subs == 0 {
             if flags.contains('e') {
                 return Ok(());
@@ -1004,21 +963,30 @@ impl Editor {
         }
         if count_only {
             self.status(format!("{subs} match{} on lines", if subs == 1 { "" } else { "es" }));
+            // the cursor goes to the last line with a match, like after a real substitution
+            let rope = self.rp();
+            let t2 = rope.slice(..);
+            let cur_line = line_of(t2, self.vcur());
+            self.vset(first_nonblank(t2, cur_line));
+            let _ = last_repl_end;
             return Ok(());
         }
-        out.push_str(&hay[last..]);
-        let new = out.replace('\0', "\n").replace('\n', "\n");
+        let term = if hay.ends_with("\r\n") { "\r\n" } else { "\n" };
+        if buffer_end_term && !new.ends_with('\n') {
+            new.push_str(term);
+        }
+        let last_repl_end = new[..last_repl_end.min(new.len())].chars().count();
         let new = if le == "\r\n" { new.replace("\r\n", "\n").replace('\n', "\r\n") } else { new };
         if new != hay {
             self.vapply(vec![Change { from, to, text: new.clone() }]);
         }
-        let _ = (&mut rep, &mut flags, &mut pat, last_line_hit);
+        let _ = (&mut flags, &mut pat);
         // the cursor goes to the last line where something was substituted; after a match that
         // joined lines it stays at the join
         let rope = self.rp();
         let t2 = rope.slice(..);
         let end_pos = (from + last_repl_end).min(t2.len_chars());
-        if last_joined {
+        if last_joined && rep.is_empty() {
             self.vset(end_pos);
         } else {
             let l = line_of(t2, end_pos);
@@ -1026,6 +994,116 @@ impl Editor {
         }
         Ok(())
     }
+}
+
+/// Run a substitution over `hay` (whole lines with their breaks). Returns the new text, the number
+/// of substitutions, whether the last one swallowed a line break, and where (as a byte offset in
+/// the new text) the last replacement ends.
+fn substitute_text(
+    hay: &str,
+    re: &Regex,
+    parts: &[vregex::Rep],
+    global: bool,
+    count_only: bool,
+    multiline: bool,
+) -> (String, usize, bool, usize) {
+    let mut out = String::new();
+    let mut last = 0usize;
+    let mut subs = 0usize;
+    let mut last_joined = false;
+    let mut last_end = 0usize;
+    let mut pos = 0usize;
+    let mut done_line: Option<usize> = None;
+    let mut prev_end: Option<usize> = None;
+    let line_of_pos = |p: usize| hay[..p].matches('\n').count();
+    let eol_at = |p: usize| -> usize {
+        if hay[p..].starts_with("\r\n") {
+            2
+        } else if hay[p..].starts_with('\n') {
+            1
+        } else {
+            0
+        }
+    };
+    // matches may start at the break after the last line but not behind it
+    let limit = if hay.ends_with("\r\n") {
+        hay.len() - 2
+    } else if hay.ends_with('\n') {
+        hay.len() - 1
+    } else {
+        hay.len()
+    };
+    while pos <= hay.len() {
+        let Some(caps) = re.captures_at(hay, pos) else { break };
+        let m = caps.get(0).unwrap();
+        if m.start() > limit {
+            break;
+        }
+        if m.start() == m.end() && Some(m.start()) == prev_end {
+            // an empty match right behind the previous match is skipped
+            if m.end() >= hay.len() {
+                break;
+            }
+            let step = match eol_at(m.end()) {
+                0 => hay[m.end()..].chars().next().map_or(1, |c| c.len_utf8()),
+                n => n,
+            };
+            pos = m.end() + step;
+            prev_end = None;
+            continue;
+        }
+        let ln = line_of_pos(m.start());
+        if !global && done_line.is_some_and(|d| ln <= d) {
+            // already substituted on this line: on to the next one
+            match hay[m.start()..].find('\n') {
+                Some(i) => {
+                    pos = m.start() + i + 1;
+                    continue;
+                }
+                None => break,
+            }
+        }
+        subs += 1;
+        out.push_str(&hay[last..m.start()]);
+        if count_only {
+            out.push_str(m.as_str());
+        } else {
+            out.push_str(&vregex::expand(parts, &caps));
+        }
+        last = m.end();
+        let end_ln = line_of_pos(m.end());
+        let ends_at_line_start = m.end() > 0 && hay.as_bytes()[m.end() - 1] == b'\n';
+        if m.end() <= limit {
+            // (a match of the break behind the buffer's last line does not move the cursor)
+            last_joined = m.as_str().contains('\n');
+            last_end = out.len();
+        }
+        // a match that ran into a later line uses that line up; one that only swallowed a break
+        // leaves the next line to be processed
+        done_line = Some(if end_ln > ln && !ends_at_line_start { end_ln } else { ln });
+        pos = m.end();
+        prev_end = Some(m.end());
+        if m.end() == m.start() {
+            // an empty match: step over one char so the loop makes progress
+            if m.end() >= hay.len() {
+                break;
+            }
+            let step = match eol_at(m.end()) {
+                0 => hay[m.end()..].chars().next().map_or(1, |c| c.len_utf8()),
+                n => n,
+            };
+            out.push_str(&hay[m.end()..m.end() + step]);
+            last = m.end() + step;
+            pos = last;
+        }
+        // like Vim, a line is finished once the search reaches its end (unless the pattern can
+        // match a line break)
+        if !multiline && pos < hay.len() && eol_at(pos) > 0 && pos > 0 && hay.as_bytes()[pos - 1] != b'\n' {
+            pos += eol_at(pos);
+        }
+    }
+    out.push_str(&hay[last..]);
+    (out, subs, last_joined, last_end)
 }
 
 /// Index of the first `|` that is not escaped with a backslash.
@@ -1051,6 +1129,28 @@ fn pat_has_upper(p: &str) -> bool {
         }
     }
     false
+}
+
+/// The first hexadecimal number (with or without `0x`) in `s`.
+fn first_hex(s: &str) -> Option<i128> {
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() && !b[i].is_ascii_hexdigit() {
+        i += 1;
+    }
+    if i >= b.len() {
+        return None;
+    }
+    let neg = i > 0 && b[i - 1] == b'-';
+    if b[i] == b'0' && i + 2 < b.len() && matches!(b[i + 1], b'x' | b'X') && b[i + 2].is_ascii_hexdigit() {
+        i += 2;
+    }
+    let mut j = i;
+    while j < b.len() && b[j].is_ascii_hexdigit() {
+        j += 1;
+    }
+    let v = i128::from_str_radix(&s[i..j], 16).ok()?;
+    Some(if neg { -v } else { v })
 }
 
 fn first_number(s: &str) -> Option<i128> {
