@@ -22,7 +22,7 @@ pub mod themes;
 pub mod tokens;
 pub mod zed_import;
 
-pub use assets::QuarryAssets;
+pub use assets::{MARK_ICON, QuarryAssets};
 pub use colors::{EditorColors, SyntaxColors};
 pub use db_icon::{DbIcon, DbKindIcon};
 pub use keyhint::{KeyHint, format_keystrokes, host_os, is_mac};

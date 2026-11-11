@@ -1,6 +1,6 @@
 # Quarry
 
-<p align="center"><img src="packaging/icons/hicolor/128x128/apps/quarry.png" alt="Quarry icon" width="96"></p>
+<p align="center"><img src="packaging/icons/quarry.svg" alt="Quarry icon" width="64"></p>
 
 Quarry is a keyboard-first database IDE written in Rust on [GPUI](https://www.gpui.rs/) (through the
 [`gpui-kit`](https://github.com/longbridge/gpui-kit) component crate). It connects to PostgreSQL,

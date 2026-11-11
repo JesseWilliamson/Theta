@@ -1,25 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <title>Quarry</title>
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#262c3a"/>
-      <stop offset="1" stop-color="#141720"/>
-    </linearGradient>
-    <linearGradient id="top" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffd28a"/>
-      <stop offset="1" stop-color="#ffb55a"/>
-    </linearGradient>
-  </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <g stroke-linejoin="round">
-    <polygon points="118.0,174.0 256.0,256.0 256.0,305.6 118.0,223.6" fill="#f0883e"/>
-    <polygon points="118.0,230.8 256.0,312.8 256.0,359.2 118.0,277.2" fill="#e57a32"/>
-    <polygon points="118.0,284.4 256.0,366.4 256.0,416.0 118.0,334.0" fill="#d96d28"/>
-    <polygon points="256.0,256.0 394.0,174.0 394.0,223.6 256.0,305.6" fill="#b9531f"/>
-    <polygon points="256.0,312.8 394.0,230.8 394.0,277.2 256.0,359.2" fill="#ad4a1a"/>
-    <polygon points="256.0,366.4 394.0,284.4 394.0,334.0 256.0,416.0" fill="#9f4216"/>
-    <polygon points="256.0,92.0 394.0,174.0 256.0,256.0 118.0,174.0" fill="url(#top)"/>
-    <ellipse cx="256" cy="174" rx="71.8" ry="42.6" fill="none" stroke="#d9852c" stroke-width="9" opacity="0.55"/>
-    <ellipse cx="256" cy="174" rx="30.4" ry="18.0" fill="#d9852c" opacity="0.55"/>
-  </g>
+  <rect width="512" height="512" rx="115" fill="#111113"/>
+  <path d="M240 96 L368 160 L368 352 L240 416 L112 352 L112 160Z M160 189.67 L160 322.33 L240 362.33 L320 322.33 L320 189.67 L240 149.67Z M285.25 267.31 L388.49 370.55 L354.55 404.49 L251.31 301.25Z" fill="#FFFFFF"/>
 </svg>

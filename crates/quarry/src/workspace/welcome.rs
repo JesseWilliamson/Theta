@@ -44,7 +44,7 @@ impl Workspace {
                 v_flex()
                     .items_center()
                     .gap_2()
-                    .child(Icon::new(IconName::Database).size(px(34.)).text_color(theme.primary))
+                    .child(Icon::default().path(quarry_ui::MARK_ICON).size(px(44.)).text_color(theme.foreground))
                     .child(div().text_size(px(28.)).font_weight(FontWeight::SEMIBOLD).child("Quarry"))
                     .child(
                         div().text_size(px(14.)).text_color(theme.muted_foreground).child(
