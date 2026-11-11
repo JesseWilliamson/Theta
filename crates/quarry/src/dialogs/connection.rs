@@ -81,6 +81,9 @@ pub struct ConnectionForm {
     test: TestState,
     keychain_ok: Option<bool>,
     test_epoch: u64,
+    /// The last input event was a mouse press, so a focus change should place the caret rather
+    /// than select the field (Tab selects, like every native form).
+    pointer_focus: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -177,9 +180,14 @@ impl ConnectionForm {
             &ssh_key_path,
             &ssh_secret,
         ] {
-            subscriptions.push(cx.subscribe_in(input, window, |this, _, event: &InputEvent, window, cx| {
-                if matches!(event, InputEvent::PressEnter { .. }) {
-                    this.save(true, window, cx);
+            subscriptions.push(cx.subscribe_in(input, window, |this, state, event: &InputEvent, window, cx| {
+                match event {
+                    InputEvent::PressEnter { .. } => this.save(true, window, cx),
+                    // Tabbing into a field selects its text so typing replaces a default.
+                    InputEvent::Focus if !this.pointer_focus => {
+                        state.update(cx, |s, cx| s.select_all(window, cx))
+                    }
+                    _ => {}
                 }
             }));
         }
@@ -227,6 +235,7 @@ impl ConnectionForm {
             color: COLORS.iter().find(|(_, hex)| Some(*hex) == c.color.as_deref()).map(|(_, h)| *h),
             errors: Vec::new(),
             test: TestState::Idle,
+            pointer_focus: false,
             keychain_ok: None,
             test_epoch: 0,
             _subscriptions: subscriptions,
@@ -796,6 +805,8 @@ impl Render for ConnectionForm {
 
         v_flex()
             .gap_3()
+            .capture_any_mouse_down(cx.listener(|this, _, _, _| this.pointer_focus = true))
+            .capture_key_down(cx.listener(|this, _, _, _| this.pointer_focus = false))
             .child(div().id("connection-form-scroll").max_h(px(max_h)).overflow_y_scroll().child(body))
             .child(
                 h_flex()
