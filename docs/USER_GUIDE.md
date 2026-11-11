@@ -248,6 +248,32 @@ run in it and are not committed ("Applied 2 changes (in your open transaction, n
 the last console of a connection or quitting with an open transaction opens a dialog with *Roll Back and
 Close* / *Commit and Close* (or *Roll Back and Quit* / *Commit and Quit*).
 
+### Auto-commit, manual mode and isolation level
+
+By default a console is in **auto-commit** mode: each statement commits by itself unless you typed `BEGIN`. In
+**manual** mode Theta starts the transaction for you, lazily, just before the first query, write or DDL statement
+(a `SET` or a `COMMIT` does not start one), and leaves it open until you press **Commit** or **Roll Back**. Grid
+edits join it. *Messages* records each automatic `BEGIN`, so nothing happens behind your back.
+
+The chip in the title bar shows the state: `Auto-commit`, `Manual`, `Manual · Repeatable Read`, and while a
+transaction is open `Manual · TXN open · Repeatable Read`. Click it to switch mode and isolation level for
+this session, or use the palette (*Transactions: Auto-commit*, *Transactions: Manual*, *Transaction Isolation
+Level…*). The default for a connection is set in its dialog (*Manual transactions* and *Isolation*) and saved in
+`connections.json`. A change applies to the next transaction; you cannot switch back to auto-commit while a
+transaction is open.
+
+| Database | Levels | What Theta sends |
+| --- | --- | --- |
+| PostgreSQL | Server default, Read Committed, Repeatable Read, Serializable | `BEGIN ISOLATION LEVEL …` |
+| MySQL / MariaDB | those, plus Read Uncommitted | `SET TRANSACTION ISOLATION LEVEL …` then `START TRANSACTION` (the level covers that transaction only) |
+| SQLite | `BEGIN` mode: Deferred, Immediate, Exclusive | `BEGIN DEFERRED / IMMEDIATE / EXCLUSIVE` |
+
+On a **read-only connection** the transaction is also started read-only on PostgreSQL (`READ ONLY`) and
+MySQL/MariaDB (`START TRANSACTION READ ONLY`); SQLite has no such mode (Theta still refuses writes itself).
+Theta asks the server whether a transaction is open after every statement and shows what it finds. That matters on
+MySQL and MariaDB, where DDL (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`…) commits implicitly: the chip drops its
+`TXN open` and *Messages* says the earlier changes were committed. PostgreSQL and SQLite roll DDL back with the rest.
+
 ## Editor keys
 
 The editor has three key maps: [Helix](https://helix-editor.com/)'s (the default: *select first, then act*), a

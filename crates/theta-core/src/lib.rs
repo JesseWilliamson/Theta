@@ -22,6 +22,7 @@ pub mod driver;
 pub mod error;
 pub mod plan;
 pub mod schema;
+pub mod txn;
 pub mod value;
 
 pub use config::*;
@@ -29,4 +30,5 @@ pub use driver::*;
 pub use error::*;
 pub use plan::*;
 pub use schema::*;
+pub use txn::{Isolation, SqliteBegin, TransactionConfig};
 pub use value::*;

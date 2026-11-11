@@ -525,3 +525,65 @@ async fn a_connection_killed_by_another_session_is_reported_as_connection_lost()
     assert!(err.is_connection_lost(), "{err:?}");
     let _ = admin.close().await;
 }
+
+/// MySQL/MariaDB (`@@tx_isolation` is the variable MariaDB 10 has): `SET TRANSACTION ISOLATION LEVEL` + `START TRANSACTION`, and the implicit commit of DDL is
+/// visible through `in_transaction`.
+#[tokio::test]
+async fn manual_transactions_start_with_the_configured_isolation() {
+    let c = theta_drivers::connect(&mysql_config()).await.expect("connect to MySQL");
+    let c = c.as_ref();
+    // `SET TRANSACTION` is not visible in `@@tx_isolation`; InnoDB reports the level of the running
+    // transaction once it has touched a table.
+    let probe = unique("txn_iso");
+    run(c, &format!("CREATE TABLE {probe} (a int) ENGINE=InnoDB")).await;
+    for (level, expected) in [
+        (Isolation::ReadUncommitted, "READ UNCOMMITTED"),
+        (Isolation::ReadCommitted, "READ COMMITTED"),
+        (Isolation::RepeatableRead, "REPEATABLE READ"),
+        (Isolation::Serializable, "SERIALIZABLE"),
+    ] {
+        let cfg = TransactionConfig { manual: true, isolation: level, ..Default::default() };
+        for sql in cfg.begin_statements(DatabaseKind::MySql, false) {
+            run(c, &sql).await;
+        }
+        assert!(c.in_transaction().await, "{level:?}");
+        run(c, &format!("SELECT COUNT(*) FROM {probe}")).await;
+        // information_schema.innodb_trx is served from a cache that refreshes every 100 ms.
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        assert_eq!(
+            scalar(
+                c,
+                "SELECT trx_isolation_level FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = CONNECTION_ID()"
+            )
+            .await,
+            text(expected)
+        );
+        run(c, "ROLLBACK").await;
+        assert!(!c.in_transaction().await);
+    }
+    // The level applied to that one transaction only: the session default is back afterwards.
+    assert_eq!(scalar(c, "SELECT @@tx_isolation").await, text("REPEATABLE-READ"));
+    run(c, &format!("DROP TABLE {probe}")).await;
+
+    // DDL commits implicitly: the app must be able to see the transaction is gone.
+    let table = unique("txn_ddl");
+    let cfg = TransactionConfig { manual: true, ..Default::default() };
+    for sql in cfg.begin_statements(DatabaseKind::MySql, false) {
+        run(c, &sql).await;
+    }
+    assert!(c.in_transaction().await);
+    run(c, &format!("CREATE TABLE {table} (a int)")).await;
+    assert!(!c.in_transaction().await, "CREATE TABLE ended the transaction");
+    run(c, &format!("DROP TABLE {table}")).await;
+
+    // Read-only transactions refuse writes.
+    let t2 = unique("txn_ro");
+    run(c, &format!("CREATE TABLE {t2} (a int)")).await;
+    for sql in cfg.begin_statements(DatabaseKind::MySql, true) {
+        run(c, &sql).await;
+    }
+    let err = c.execute(&format!("INSERT INTO {t2} VALUES (1)"), &all()).await.unwrap_err();
+    assert!(err.to_string().to_lowercase().contains("read only"), "{err}");
+    run(c, "ROLLBACK").await;
+    run(c, &format!("DROP TABLE {t2}")).await;
+}

@@ -657,3 +657,36 @@ async fn a_backend_killed_by_another_session_is_reported_as_connection_lost() {
     assert!(err.is_connection_lost(), "{err:?}");
     let _ = admin.close().await;
 }
+
+/// The statements `TransactionConfig::begin_statements` builds really start a transaction with the
+/// requested isolation level and access mode, and `in_transaction` reports it.
+#[tokio::test]
+async fn manual_transactions_start_with_the_configured_isolation() {
+    let fx = PgFx::new().await;
+    let c = fx.conn.as_ref();
+    for (level, expected) in [
+        (Isolation::ReadCommitted, "read committed"),
+        (Isolation::RepeatableRead, "repeatable read"),
+        (Isolation::Serializable, "serializable"),
+    ] {
+        let cfg = TransactionConfig { manual: true, isolation: level, ..Default::default() };
+        for sql in cfg.begin_statements(DatabaseKind::Postgres, false) {
+            run(c, &sql).await;
+        }
+        assert!(c.in_transaction().await);
+        assert_eq!(scalar(c, "SHOW transaction_isolation").await, text(expected));
+        assert_eq!(scalar(c, "SHOW transaction_read_only").await, text("off"));
+        run(c, "ROLLBACK").await;
+        assert!(!c.in_transaction().await);
+    }
+    // Read-only: a write inside the transaction is refused by the server.
+    let cfg = TransactionConfig { manual: true, isolation: Isolation::RepeatableRead, ..Default::default() };
+    for sql in cfg.begin_statements(DatabaseKind::Postgres, true) {
+        run(c, &sql).await;
+    }
+    assert_eq!(scalar(c, "SHOW transaction_read_only").await, text("on"));
+    let err = c.execute("CREATE TABLE ro_probe (a int)", &all()).await.unwrap_err();
+    assert!(err.to_string().contains("read-only"), "{err}");
+    run(c, "ROLLBACK").await;
+    fx.done().await;
+}

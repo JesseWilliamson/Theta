@@ -1,3 +1,4 @@
+use crate::txn::TransactionConfig;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -224,6 +225,9 @@ pub struct ConnectionConfig {
     /// Optional accent colour (`#rrggbb`) to mark e.g. production connections.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// Auto-commit or manual transactions, and the isolation level (see [`crate::txn`]).
+    #[serde(default, skip_serializing_if = "TransactionConfig::is_default")]
+    pub transaction: TransactionConfig,
 }
 
 impl ConnectionConfig {
@@ -242,6 +246,7 @@ impl ConnectionConfig {
             ssh: None,
             read_only: false,
             color: None,
+            transaction: TransactionConfig::default(),
         }
     }
 }

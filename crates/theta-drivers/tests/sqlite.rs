@@ -302,3 +302,32 @@ async fn demo_seed() {
     assert_eq!(items.primary_key, vec!["order_id", "line_no"]);
     assert_eq!(items.foreign_keys.len(), 2);
 }
+
+#[tokio::test]
+async fn manual_transactions_use_the_configured_begin_mode() {
+    let dir = std::env::temp_dir().join(unique("sqlite_txn"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("t.db");
+    let path = path.to_str().unwrap();
+    let a = theta_drivers::connect(&sqlite_config(path)).await.unwrap();
+    let b = theta_drivers::connect(&sqlite_config(path)).await.unwrap();
+    run(a.as_ref(), "CREATE TABLE t (x INTEGER)").await;
+    for mode in SqliteBegin::ALL {
+        let cfg = TransactionConfig { manual: true, sqlite_begin: mode, ..Default::default() };
+        for sql in cfg.begin_statements(DatabaseKind::Sqlite, false) {
+            run(a.as_ref(), &sql).await;
+        }
+        assert!(a.in_transaction().await, "{mode:?}");
+        // IMMEDIATE and EXCLUSIVE take the write lock at BEGIN, so another connection cannot write
+        // (the default busy timeout is zero, so it fails at once); DEFERRED has not locked anything yet.
+        let other = b.execute("INSERT INTO t VALUES (1)", &all()).await;
+        match mode {
+            SqliteBegin::Deferred => assert!(other.is_ok(), "{other:?}"),
+            _ => assert!(other.is_err(), "{mode:?} must hold the write lock"),
+        }
+        run(a.as_ref(), "ROLLBACK").await;
+        assert!(!a.in_transaction().await);
+        run(b.as_ref(), "DELETE FROM t").await;
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}

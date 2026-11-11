@@ -19,6 +19,7 @@ use gpui_kit::{
     WeakEntity, Window, div, px,
 };
 use std::path::PathBuf;
+use theta_core::txn::{SqliteBegin, TransactionConfig, isolation_levels};
 use theta_core::{ConnectionConfig, DatabaseKind, SshAuth, SshConfig, SslMode};
 use theta_ui::DbKindIcon;
 
@@ -144,6 +145,9 @@ pub struct ConnectionForm {
     ssh_secret: Entity<InputState>,
     create_if_missing: bool,
     read_only: bool,
+    /// Manual transactions by default for this connection (the title bar can still change it per session).
+    manual_txn: bool,
+    isolation: Entity<SelectState<Vec<&'static str>>>,
     color: Option<&'static str>,
     errors: Vec<(&'static str, String)>,
     test: TestState,
@@ -153,6 +157,21 @@ pub struct ConnectionForm {
     /// than select the field (Tab selects, like every native form).
     pointer_focus: bool,
     _subscriptions: Vec<Subscription>,
+}
+
+/// The choices of the isolation select: isolation levels, or SQLite's BEGIN modes.
+fn level_labels(kind: DatabaseKind) -> Vec<&'static str> {
+    match kind {
+        DatabaseKind::Sqlite => SqliteBegin::ALL.iter().map(|m| m.label()).collect(),
+        k => isolation_levels(k).iter().map(|l| l.label()).collect(),
+    }
+}
+
+fn level_index(kind: DatabaseKind, t: &TransactionConfig) -> usize {
+    match kind {
+        DatabaseKind::Sqlite => SqliteBegin::ALL.iter().position(|m| *m == t.sqlite_begin).unwrap_or(0),
+        k => isolation_levels(k).iter().position(|l| *l == t.isolation).unwrap_or(0),
+    }
 }
 
 fn input(
@@ -230,6 +249,14 @@ impl ConnectionForm {
         });
         let ssl =
             cx.new(|cx| SelectState::new(SSL_LABELS.to_vec(), Some(IndexPath::new(ssl_ix)), window, cx));
+        let isolation = cx.new(|cx| {
+            SelectState::new(
+                level_labels(c.kind),
+                Some(IndexPath::new(level_index(c.kind, &c.transaction))),
+                window,
+                cx,
+            )
+        });
         let ssh_auth = cx.new(|cx| {
             SelectState::new(SSH_AUTH_LABELS.to_vec(), Some(IndexPath::new(ssh_auth_ix)), window, cx)
         });
@@ -325,6 +352,8 @@ impl ConnectionForm {
             ssh_secret,
             create_if_missing: false,
             read_only: c.read_only,
+            manual_txn: c.transaction.manual,
+            isolation,
             color: COLORS.iter().find(|(_, hex)| Some(*hex) == c.color.as_deref()).map(|(_, h)| *h),
             errors: Vec::new(),
             test: TestState::Idle,
@@ -393,6 +422,10 @@ impl ConnectionForm {
             );
         }
         self.kind = kind;
+        self.isolation.update(cx, |s, cx| {
+            s.set_items(level_labels(kind), window, cx);
+            s.set_selected_index(Some(IndexPath::new(0)), window, cx);
+        });
         // By value, not row: with a filter typed the rows of the dropdown are not `ALL`'s.
         self.kind_select.update(cx, |s, cx| s.set_selected_value(&kind, window, cx));
         self.errors.clear();
@@ -431,6 +464,17 @@ impl ConnectionForm {
         }
         let mut config = ConnectionConfig::new(self.config_id.clone(), name, self.kind);
         config.read_only = self.read_only;
+        config.transaction = {
+            let ix = self.isolation.read(cx).selected_index(cx).map_or(0, |i| i.row);
+            let mut t = TransactionConfig { manual: self.manual_txn, ..Default::default() };
+            match self.kind {
+                DatabaseKind::Sqlite => {
+                    t.sqlite_begin = SqliteBegin::ALL.get(ix).copied().unwrap_or_default()
+                }
+                k => t.isolation = isolation_levels(k).get(ix).copied().unwrap_or_default(),
+            }
+            t
+        };
         config.color = self.color.map(str::to_string);
         let sections = self.kind.info().sections;
         if sections.file {
@@ -879,6 +923,30 @@ impl Render for ConnectionForm {
                             )
                             .child(self.color_swatch(None, cx))
                             .children(COLORS.iter().map(|(_, hex)| self.color_swatch(Some(*hex), cx))),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .justify_between()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        Switch::new("manual-txn")
+                            .label("Manual transactions")
+                            .checked(self.manual_txn)
+                            .on_change(cx.listener(|this, v, _, cx| {
+                                this.manual_txn = *v;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(div().text_size(px(12.)).text_color(theme.muted_foreground).child(
+                                if self.kind == DatabaseKind::Sqlite { "BEGIN mode" } else { "Isolation" },
+                            ))
+                            .child(div().w(px(180.)).child(Select::new(&self.isolation))),
                     ),
             )
             .when_some(test_row, |d, row| d.child(row));

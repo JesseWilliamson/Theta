@@ -50,6 +50,7 @@ impl Workspace {
             color.as_deref().and_then(|h| h.strip_prefix('#')).and_then(|h| u32::from_str_radix(h, 16).ok());
         let running = self.running;
         let transaction = self.txn_open_for_active(cx);
+        let chip = self.render_txn_chip(transaction, cx);
 
         let switcher = h_flex()
             .id("connection-switcher")
@@ -111,27 +112,12 @@ impl Workspace {
                         .items_center()
                         .pr_2()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .when_some(chip, |d, chip| d.child(chip))
                         .when(transaction, |d| {
                             d.child(
                                 h_flex()
                                     .gap_1p5()
                                     .items_center()
-                                    .child(
-                                        h_flex()
-                                            .h(px(22.))
-                                            .px_2()
-                                            .gap_1()
-                                            .items_center()
-                                            .rounded(px(4.))
-                                            .border_1()
-                                            .border_color(theme.warning.opacity(0.5))
-                                            .bg(theme.warning.opacity(0.18))
-                                            .text_size(CHROME_TEXT_SIZE)
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(theme.warning)
-                                            .child(Icon::new(IconName::TriangleAlert).size(px(12.)))
-                                            .child("TXN open"),
-                                    )
                                     .child(
                                         Button::new("txn-commit")
                                             .small()

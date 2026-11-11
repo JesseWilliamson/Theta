@@ -678,6 +678,8 @@ impl Workspace {
         let opts = ExecOptions { row_limit: (limit > 0).then_some(limit) };
         // Whether the session may hold uncommitted work that a reconnect would silently drop.
         let mut txn_open = self.txn.contains(&conn_id);
+        // Manual transaction mode: what to start a transaction with, if the session is set to it.
+        let manual = self.manual_begin(&conn_id, cx);
         cx.spawn_in(window, async move |this, cx| {
             let mut connection = connection;
             let total = picks.len();
@@ -691,7 +693,14 @@ impl Workspace {
                 if cancelled {
                     break;
                 }
-                let mut res = exec_statement(&connection, p, &opts).await;
+                let mut began = Vec::new();
+                let mut res = match begin_transaction_if_needed(&connection, manual.as_ref(), p).await {
+                    Ok(stmts) => {
+                        began = stmts;
+                        exec_statement(&connection, p, &opts).await
+                    }
+                    Err(e) => Err(e),
+                };
                 let mut recovery = Recovery::None;
                 if res.as_ref().is_err_and(Error::is_connection_lost) {
                     let user_cancelled = this
@@ -706,6 +715,39 @@ impl Workspace {
                 }
                 if matches!(p.class, StatementClass::Transaction) {
                     txn_open = true;
+                }
+                if let Some(m) = &manual {
+                    // Ask the server rather than assume: a DDL statement on MySQL ends the transaction
+                    // by itself, and the title bar must say so.
+                    let was_open = txn_open || !began.is_empty();
+                    let now_open = {
+                        let c = connection.clone();
+                        runtime::spawn(async move { c.in_transaction().await }).await.unwrap_or(false)
+                    };
+                    let note = theta_core::txn::implicit_commit_note(
+                        m.kind,
+                        was_open,
+                        now_open,
+                        txn_statement_kind(p.class),
+                    );
+                    txn_open = now_open;
+                    let started = began.last().cloned();
+                    this.update(cx, |this, cx| {
+                        if let Some(first) = &started {
+                            this.log(
+                                &conn_id,
+                                first,
+                                MessageKind::Info,
+                                vec![format!("Transaction started: {}", began.join("; "))],
+                                None,
+                                cx,
+                            );
+                        }
+                        if let Some(n) = note {
+                            this.log(&conn_id, &p.sql, MessageKind::Info, vec![n.to_string()], None, cx);
+                        }
+                    })
+                    .ok();
                 }
                 let keep = this
                     .update_in(cx, |this, window, cx| {
@@ -1302,14 +1344,24 @@ impl Workspace {
     ) {
         let c = connection.clone();
         let list = stmts.clone();
+        // In manual mode the edits join a transaction that stays open for the user to commit.
+        let manual = self.manual_begin(&conn_id, cx);
         cx.spawn_in(window, async move |this, cx| {
             let res = runtime::spawn_result(async move {
-                let in_txn = c.in_transaction().await;
-                let all = changes::with_transaction(list, in_txn);
                 let opts = ExecOptions::default();
+                let was_open = c.in_transaction().await;
+                let mut began_here = false;
+                if let (Some(m), false) = (&manual, was_open) {
+                    for sql in &m.statements {
+                        c.execute(sql, &opts).await?;
+                    }
+                    began_here = true;
+                }
+                let in_txn = was_open || began_here;
+                let all = changes::with_transaction(list, in_txn);
                 for sql in &all {
                     if let Err(e) = c.execute(sql, &opts).await {
-                        if !in_txn {
+                        if !was_open {
                             let _ = c.execute("ROLLBACK", &opts).await;
                         }
                         return Err(e);
@@ -2251,6 +2303,71 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn manual_mode_begins_lazily_keeps_the_transaction_and_rolls_back(cx: &mut TestAppContext) {
+        let (_, ws, vcx, id, _dir) = setup(cx, false);
+        ws.update_in(vcx, |ws, window, cx| {
+            ws.txn_prefs.insert(
+                id.clone(),
+                theta_core::TransactionConfig {
+                    manual: true,
+                    sqlite_begin: theta_core::SqliteBegin::Immediate,
+                    ..Default::default()
+                },
+            );
+            let tab = ws.open_console(
+                Some(id.clone()),
+                Some("create table t (a int); insert into t values (1)".into()),
+                window,
+                cx,
+            );
+            ws.run_request(tab, RunReq::All, window, cx);
+        });
+        wait_for(vcx, |vcx| ws.read_with(vcx, |ws, _| ws.runs.is_empty() && ws.txn.contains(&id)));
+        ws.read_with(vcx, |ws, cx| {
+            let m = ws.messages.read(cx).entries();
+            assert!(
+                m.iter().any(|m| m.lines.iter().any(|l| l.contains("Transaction started: BEGIN IMMEDIATE"))),
+                "the lazy BEGIN is logged exactly once: {m:?}"
+            );
+            let begins =
+                m.iter().filter(|m| m.lines.iter().any(|l| l.starts_with("Transaction started"))).count();
+            assert_eq!(begins, 1, "the second statement joins the open transaction");
+        });
+        // A rollback undoes both statements: the table is gone again.
+        ws.update_in(vcx, |ws, window, cx| ws.txn_command("ROLLBACK", window, cx));
+        wait_for(vcx, |vcx| ws.read_with(vcx, |ws, _| !ws.txn.contains(&id)));
+        ws.update_in(vcx, |ws, window, cx| {
+            let check = ws.open_console(Some(id.clone()), Some("select count(*) from t".into()), window, cx);
+            ws.run_request(check, RunReq::All, window, cx);
+        });
+        wait_for(vcx, |vcx| ws.read_with(vcx, |ws, _| ws.runs.is_empty()));
+        ws.read_with(vcx, |ws, cx| {
+            let last = ws.messages.read(cx).entries().last().unwrap().clone();
+            assert!(last.lines.join(" ").contains("no such table"), "{last:?}");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn auto_commit_mode_does_not_begin(cx: &mut TestAppContext) {
+        let (_, ws, vcx, id, _dir) = setup(cx, false);
+        ws.update_in(vcx, |ws, window, cx| {
+            let tab = ws.open_console(Some(id.clone()), Some("create table t (a int)".into()), window, cx);
+            ws.run_request(tab, RunReq::All, window, cx);
+        });
+        wait_for(vcx, |vcx| ws.read_with(vcx, |ws, _| ws.runs.is_empty()));
+        ws.read_with(vcx, |ws, cx| {
+            assert!(!ws.txn.contains(&id));
+            assert!(
+                !ws.messages
+                    .read(cx)
+                    .entries()
+                    .iter()
+                    .any(|m| m.lines.iter().any(|l| l.contains("Transaction started")))
+            );
+        });
+    }
+
+    #[gpui_kit::test]
     fn read_only_connection_refuses_writes(cx: &mut TestAppContext) {
         let (_, ws, vcx, id, _dir) = setup(cx, true);
         ws.update_in(vcx, |ws, window, cx| {
@@ -2315,6 +2432,49 @@ impl Recovery {
             }
         }
     }
+}
+
+/// What manual transaction mode needs to start a transaction before a statement.
+#[derive(Clone)]
+pub(super) struct ManualBegin {
+    pub kind: DatabaseKind,
+    pub statements: Vec<String>,
+}
+
+pub(super) fn txn_statement_kind(class: StatementClass) -> theta_core::txn::StatementKind {
+    use theta_core::txn::StatementKind as K;
+    match class {
+        StatementClass::Query => K::Query,
+        StatementClass::Write => K::Write,
+        StatementClass::Ddl => K::Ddl,
+        StatementClass::Transaction => K::Transaction,
+        StatementClass::Session | StatementClass::Other => K::Other,
+    }
+}
+
+/// Manual mode: start the transaction before the first statement that needs one, unless the session
+/// already has one (the user typed `BEGIN`, or an earlier statement started it). Returns the statements
+/// that were run.
+async fn begin_transaction_if_needed(
+    connection: &Arc<dyn Connection>,
+    manual: Option<&ManualBegin>,
+    p: &Picked,
+) -> Result<Vec<String>, Error> {
+    let Some(m) = manual else { return Ok(Vec::new()) };
+    if !theta_core::txn::starts_transaction(txn_statement_kind(p.class)) {
+        return Ok(Vec::new());
+    }
+    let (c, stmts) = (connection.clone(), m.statements.clone());
+    runtime::spawn_result(async move {
+        if c.in_transaction().await {
+            return Ok(Vec::new());
+        }
+        for sql in &stmts {
+            c.execute(sql, &ExecOptions::default()).await?;
+        }
+        Ok(stmts)
+    })
+    .await
 }
 
 async fn exec_statement(

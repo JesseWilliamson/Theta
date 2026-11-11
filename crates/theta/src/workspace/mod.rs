@@ -23,6 +23,7 @@ mod run;
 mod status_bar;
 mod tabs;
 mod title_bar;
+mod txn;
 mod welcome;
 
 #[cfg(test)]
@@ -177,6 +178,8 @@ pub struct Workspace {
     map_badge: Option<usize>,
     runs: HashMap<String, run::RunInfo>,
     txn: HashSet<String>,
+    /// Session-level transaction mode per connection id (see `txn.rs`); absent means the saved setting.
+    txn_prefs: std::collections::HashMap<String, theta_core::txn::TransactionConfig>,
     /// Consoles whose Run / Explain is waiting for their connection to come up.
     awaiting_connection: HashSet<u64>,
     /// Settings/theme warnings waiting for a window to show them in.
@@ -270,6 +273,7 @@ impl Workspace {
             map_badge: None,
             runs: HashMap::new(),
             txn: HashSet::new(),
+            txn_prefs: Default::default(),
             awaiting_connection: HashSet::new(),
             startup_warnings: Vec::new(),
             ticker: None,
@@ -996,6 +1000,15 @@ impl Render for Workspace {
             )
             .on_action(cx.listener(|this, _: &MoveConnectionToFolder, window, cx| {
                 this.move_active_connection_to_folder(window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &SetAutoCommit, window, cx| this.set_txn_manual(false, window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &SetManualTransactions, window, cx| {
+                this.set_txn_manual(true, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SelectIsolationLevel, window, cx| {
+                this.open_isolation_picker(window, cx)
             }))
             .on_action(cx.listener(|_, _: &ToggleParameters, _, cx| {
                 theta_ui::Settings::update(cx, |s| s.editor.parameters = !s.editor.parameters)
