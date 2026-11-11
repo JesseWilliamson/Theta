@@ -16,6 +16,7 @@ use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _, h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::{Anchor, AnchoredPositionMode, anchored, deferred, point};
 use gpui_kit::{
     AnyElement, App, AsyncApp, ClipboardItem, Context, CursorStyle, DispatchPhase, EventEmitter, FocusHandle,
     FontWeight, HitboxBehavior, Hsla, InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton,
@@ -459,6 +460,22 @@ fn scale_bar(t: &Theme, bar_px: f32, label: String, above: f32) -> AnyElement {
         .into_any_element()
 }
 
+/// Show `el` at `at` (px from the map's top-left) on the window-level overlay layer, clamped
+/// to stay inside the window: a hover card, menu or popover is then never clipped by the
+/// bottom panel's bounds, however short the panel is dragged.
+fn floating(at: [f64; 2], el: impl IntoElement) -> AnyElement {
+    deferred(
+        anchored()
+            .position_mode(AnchoredPositionMode::Local)
+            .position(point(px(at[0] as f32), px(at[1] as f32)))
+            .anchor(Anchor::TopLeft)
+            .snap_to_window_with_margin(px(8.))
+            .child(el),
+    )
+    .with_priority(2)
+    .into_any_element()
+}
+
 impl MapPanel {
     fn toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let core = self.core.borrow();
@@ -766,25 +783,11 @@ impl MapPanel {
             && self.menu.is_none()
         {
             let o = card_origin(p, [CARD_W, card_height(&core, h)], size, 14.0);
-            out.push(
-                div()
-                    .absolute()
-                    .left(px(o[0] as f32))
-                    .top(px(o[1] as f32))
-                    .child(self.feature_card(&core, h, t, false))
-                    .into_any_element(),
-            );
+            out.push(floating(o, self.feature_card(&core, h, t, false)));
         }
         if let Some(p) = core.pinned.filter(|p| p.feature < core.prepared.features.len()) {
             let o = card_origin(p.at, [CARD_W, card_height(&core, p.feature)], size, 14.0);
-            out.push(
-                div()
-                    .absolute()
-                    .left(px(o[0] as f32))
-                    .top(px(o[1] as f32))
-                    .child(self.feature_card(&core, p.feature, t, true))
-                    .into_any_element(),
-            );
+            out.push(floating(o, self.feature_card(&core, p.feature, t, true)));
         }
 
         // Layers popover.
@@ -834,11 +837,9 @@ impl MapPanel {
                     )
                     .child(muted_text(t, core.layer_counts.get(i).copied().unwrap_or(0).to_string()))
             });
-            out.push(
+            out.push(floating(
+                [(size[0] - 228.0).max(0.0), 6.0],
                 v_flex()
-                    .absolute()
-                    .top(px(6.))
-                    .right(px(8.))
                     .w(px(220.))
                     .p_1()
                     .gap_0p5()
@@ -849,9 +850,8 @@ impl MapPanel {
                     .shadow_md()
                     .occlude()
                     .child(div().px_2().py_0p5().child(muted_text(t, "Layers")))
-                    .children(rows)
-                    .into_any_element(),
-            );
+                    .children(rows),
+            ));
         }
 
         // Context menu.
@@ -868,11 +868,9 @@ impl MapPanel {
             let feature_wkt =
                 feature.map(|i| to_wkt(&core.source[core.prepared.features[i].src].feature, None));
             let has_feature = feature_wkt.is_some();
-            out.push(
+            out.push(floating(
+                o,
                 v_flex()
-                    .absolute()
-                    .left(px(o[0] as f32))
-                    .top(px(o[1] as f32))
                     .w(px(190.))
                     .p_1()
                     .rounded(px(6.))
@@ -903,9 +901,8 @@ impl MapPanel {
                             }
                             cx.notify();
                         }),
-                    ))
-                    .into_any_element(),
-            );
+                    )),
+            ));
         }
         out
     }

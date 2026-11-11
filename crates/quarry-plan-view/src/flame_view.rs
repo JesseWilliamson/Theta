@@ -11,10 +11,10 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, BorderStyle, Bounds, Context, FontWeight, Hsla, InteractiveElement as _, IntoElement,
-    MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement as _, Pixels, SharedString,
-    StatefulInteractiveElement as _, Styled as _, TextAlign, TextRun, Window, canvas, div, point, px, quad,
-    relative, size,
+    Anchor, AnchoredPositionMode, AnyElement, BorderStyle, Bounds, Context, FontWeight, Hsla,
+    InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement as _,
+    Pixels, SharedString, StatefulInteractiveElement as _, Styled as _, TextAlign, TextRun, Window, anchored,
+    canvas, deferred, div, point, px, quad, relative, size,
 };
 use quarry_ui::tool_button;
 
@@ -364,10 +364,6 @@ impl PlanPanel {
             }
         }
         let card = v_flex()
-            .absolute()
-            .left(px(left))
-            .when(below, |d| d.top(px((rect.depth + 1) as f32 * row_h + 4.0)))
-            .when(!below, |d| d.bottom(px(total_h - rect.depth as f32 * row_h + 4.0)))
             .w(px(TIP_W))
             .p(px(8.))
             .gap(px(4.))
@@ -387,7 +383,25 @@ impl PlanPanel {
                     }),
             )
             .child(rows);
-        Some(card.into_any_element())
+        // On the window overlay layer, clamped to the window: a short panel (or a block at
+        // the panel's edge) never clips the card.
+        let (y, anchor) = if below {
+            ((rect.depth + 1) as f32 * row_h + 4.0, Anchor::TopLeft)
+        } else {
+            (rect.depth as f32 * row_h - 4.0, Anchor::BottomLeft)
+        };
+        Some(
+            deferred(
+                anchored()
+                    .position_mode(AnchoredPositionMode::Local)
+                    .position(point(px(left), px(y)))
+                    .anchor(anchor)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(card),
+            )
+            .with_priority(2)
+            .into_any_element(),
+        )
     }
 
     pub(crate) fn render_raw(&mut self, cx: &mut Context<Self>) -> AnyElement {
