@@ -219,3 +219,116 @@ fn search_keys_on_20k_lines() {
     e.search_matches();
     eprintln!("search_matches x2: {:?}", t.elapsed());
 }
+
+/// Every Vim key on a 20k-line buffer, including the scans that could walk the whole document
+/// (`}`, `)`, `ip`, `*`, searches) and undo/redo/dot after big edits. Whole-file ex commands are
+/// excluded on purpose: `:%s` is O(document) by definition.
+#[test]
+fn vim_keys_are_fast_on_20k_lines() {
+    let doc = big_doc();
+    let mut e = Editor::new(&doc, Keymap::Vim);
+    e.set_viewport(10_000, 50);
+    feed(&mut e, "10000G");
+    let keys = [
+        "j",
+        "k",
+        "w",
+        "b",
+        "e",
+        "ge",
+        "W",
+        "B",
+        "E",
+        "l",
+        "h",
+        "0",
+        "^",
+        "$",
+        "x",
+        ".",
+        "u",
+        "<C-r>",
+        "dd",
+        "yyp",
+        "P",
+        "p",
+        "J",
+        "~",
+        ">>",
+        "<lt><lt>",
+        "==",
+        "gg",
+        "G",
+        "10000G",
+        "%",
+        "}",
+        "{",
+        ")",
+        "(",
+        "]]",
+        "[[",
+        "H",
+        "M",
+        "L",
+        "zz",
+        "<C-d>",
+        "<C-u>",
+        "<C-f>",
+        "<C-b>",
+        "<C-e>",
+        "<C-y>",
+        "*",
+        "#",
+        "n",
+        "N",
+        "/table_5<ret>",
+        "?table_9<ret>",
+        "fx",
+        "tx",
+        ";",
+        ",",
+        "ma",
+        "'a",
+        "`a",
+        "<C-o>",
+        "<C-i>",
+        "ciw<esc>",
+        "dap",
+        "yip",
+        "vipy",
+        "Vjjd",
+        "<C-v>jjIx<esc>",
+        "viw<esc>",
+        "gv",
+        "ifoo<esc>",
+        "A;<esc>",
+        "o<esc>",
+        "O<esc>",
+        "3dd",
+        "qaxjq",
+        "@a",
+        "yi'",
+        "ci(x<esc>",
+        "gUU",
+        "g~w",
+        "<C-a>",
+        "gcc",
+        ":5,8s/col/c/<ret>",
+        ":10,20d<ret>",
+        ":noh<ret>",
+        ":5,9m12<ret>",
+    ];
+    let times = keys.iter().map(|k| (time_keys(&mut e, k), k.to_string())).collect();
+    assert_fast(times, "vim");
+}
+
+/// A document without blank lines or sentence ends is the worst case for `)`, `}` and `ip`.
+#[test]
+fn vim_paragraph_and_sentence_scans_are_bounded() {
+    let doc: String = (0..20_000).map(|i| format!("word{i} and more words here\n")).collect();
+    let mut e = Editor::new(&doc, Keymap::Vim);
+    e.set_viewport(0, 50);
+    let keys = ["}", ")", "ip", "ap", "vip<esc>", "is", "as", "G", "{", "(", "dip", "u"];
+    let times = keys.iter().map(|k| (time_keys(&mut e, k), k.to_string())).collect();
+    assert_fast(times, "vim scans");
+}

@@ -19,6 +19,7 @@ use std::ops::Range;
 pub enum Keymap {
     Helix,
     Standard,
+    Vim,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -28,6 +29,25 @@ pub enum Mode {
     Select,
     /// the only mode of the Standard keymap
     Standard,
+    /// Vim `v`
+    Visual,
+    /// Vim `V`
+    VisualLine,
+    /// Vim `ctrl-v`
+    VisualBlock,
+    /// Vim `R` (overtype)
+    Replace,
+}
+
+/// How the view should draw the cursor.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CursorStyle {
+    /// a box over the character the cursor is on
+    Block,
+    /// a vertical bar between characters
+    Bar,
+    /// a line under the character (Vim Replace mode)
+    Underline,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -127,6 +147,7 @@ pub struct Editor {
     pub(crate) syntax: Syntax,
     pub(crate) hx: crate::helix::HelixState,
     pub(crate) std: crate::standard::StdState,
+    pub(crate) vim: crate::vim::VimState,
     pub(crate) prompt: Option<PromptState>,
     pub(crate) search: SearchState,
     pub(crate) vert: Option<Vec<usize>>,
@@ -143,7 +164,7 @@ impl Editor {
             rope,
             sels: sels.clone(),
             keymap,
-            mode: if keymap == Keymap::Helix { Mode::Normal } else { Mode::Standard },
+            mode: if keymap == Keymap::Standard { Mode::Standard } else { Mode::Normal },
             revision: 0,
             saved_id: 0,
             history: History::default(),
@@ -158,6 +179,7 @@ impl Editor {
             syntax: Syntax::new(),
             hx: Default::default(),
             std: Default::default(),
+            vim: Default::default(),
             prompt: None,
             search: SearchState::default(),
             vert: None,
@@ -176,16 +198,50 @@ impl Editor {
     pub fn set_keymap(&mut self, keymap: Keymap) {
         self.commit_group();
         self.keymap = keymap;
-        self.mode = if keymap == Keymap::Helix { Mode::Normal } else { Mode::Standard };
+        self.mode = if keymap == Keymap::Standard { Mode::Standard } else { Mode::Normal };
         self.hx = Default::default();
         self.std = Default::default();
+        let opts = self.vim.opts;
+        self.vim = Default::default();
+        self.vim.opts = opts;
         self.prompt = None;
         let s = self.sels.clone();
         self.set_sels(s);
+        if keymap == Keymap::Vim {
+            self.vim_collapse_to_cursor();
+        }
     }
 
     pub fn mode(&self) -> Mode {
         self.mode
+    }
+
+    /// The text for a status bar mode badge: `NOR`/`INS`/`SEL` (Helix), `STD`, and the long Vim
+    /// names `NORMAL` `INSERT` `VISUAL` `V-LINE` `V-BLOCK` `REPLACE`.
+    pub fn mode_label(&self) -> &'static str {
+        match (self.keymap, self.mode) {
+            (_, Mode::Standard) => "STD",
+            (Keymap::Vim, Mode::Normal) => "NORMAL",
+            (Keymap::Vim, Mode::Insert) => "INSERT",
+            (_, Mode::Visual) => "VISUAL",
+            (_, Mode::VisualLine) => "V-LINE",
+            (_, Mode::VisualBlock) => "V-BLOCK",
+            (_, Mode::Replace) => "REPLACE",
+            (_, Mode::Normal) => "NOR",
+            (_, Mode::Insert) => "INS",
+            (_, Mode::Select) => "SEL",
+        }
+    }
+
+    /// Block for Normal/Select/Visual, bar for Insert and the Standard keymap, underline for
+    /// Vim's Replace mode. Valid for every keymap, so views need no keymap knowledge.
+    pub fn cursor_style(&self) -> CursorStyle {
+        match (self.keymap, self.mode) {
+            (Keymap::Standard, _) => CursorStyle::Bar,
+            (_, Mode::Insert) => CursorStyle::Bar,
+            (_, Mode::Replace) => CursorStyle::Underline,
+            _ => CursorStyle::Block,
+        }
     }
 
     // ---- text access -----------------------------------------------------------------------
@@ -261,6 +317,10 @@ impl Editor {
     pub fn set_selections(&mut self, selections: Vec<Selection>, primary: usize) {
         self.vert = None;
         self.set_sels(Selections::new(selections, primary));
+        if self.keymap == Keymap::Vim {
+            // Vim has a single cursor: a host-made selection collapses onto it
+            self.vim_host_selection();
+        }
     }
 
     /// Grapheme-exact cursor position of `sel` for the current keymap (block cursor for Helix,
@@ -269,6 +329,7 @@ impl Editor {
         match self.keymap {
             Keymap::Helix => sel.block_cursor(self.rope.slice(..)),
             Keymap::Standard => sel.head,
+            Keymap::Vim => self.vim_cursor_of(sel),
         }
     }
 
@@ -278,6 +339,7 @@ impl Editor {
         let real = match self.keymap {
             Keymap::Standard => !p.is_empty(),
             Keymap::Helix => text::next_grapheme(t, p.from()) < p.to(),
+            Keymap::Vim => self.mode_is_visual() && !p.is_empty(),
         };
         real.then(|| self.rope.slice(p.from()..p.to()).to_string())
     }
@@ -295,7 +357,10 @@ impl Editor {
     pub(crate) fn set_sels(&mut self, s: Selections) {
         let t = self.rope.slice(..);
         let len = t.len_chars();
-        let helix = self.keymap == Keymap::Helix;
+        // Vim's Normal/Visual cursor is a block on a character, like Helix's; Insert and Replace
+        // use empty selections (a bar).
+        let helix = self.keymap == Keymap::Helix
+            || (self.keymap == Keymap::Vim && !matches!(self.mode, Mode::Insert | Mode::Replace));
         let v: Vec<Selection> =
             s.v.iter()
                 .map(|r| {
@@ -335,6 +400,9 @@ impl Editor {
     }
 
     fn note_syntax(&mut self, tx: &Transaction) {
+        if self.keymap == Keymap::Vim {
+            self.vim_map(tx);
+        }
         if let Some((from, _)) = tx.span() {
             let line = self.rope.char_to_line(from.min(self.rope.len_chars()));
             self.syntax.note_edit(line);
@@ -352,7 +420,14 @@ impl Editor {
         let mapped = self.map_selections(&tx);
         self.note_syntax(&tx);
         if self.group.is_none() {
-            self.group = Some(Group { forward: vec![], inverse: vec![], before: self.group_base.clone() });
+            let before = if self.keymap == Keymap::Vim {
+                // Vim remembers the cursor at the moment of the first change, not of the command
+                let at = self.vim.edit_at.unwrap_or_else(|| self.vcur());
+                Selections::single(Selection::point(at.min(self.rope.len_chars())))
+            } else {
+                self.group_base.clone()
+            };
+            self.group = Some(Group { forward: vec![], inverse: vec![], before });
         }
         let inverse = tx.apply(&mut self.rope);
         self.revision += 1;
@@ -391,30 +466,45 @@ impl Editor {
     pub fn undo(&mut self) -> bool {
         self.commit_group();
         let Some(step) = self.history.undo.pop() else { return false };
+        let mut info = crate::vim::UndoInfo::default();
         for inv in step.inverse.iter().rev() {
             self.note_syntax(inv);
+            if self.keymap == Keymap::Vim {
+                info.note(&self.rope, inv);
+            }
             inv.apply(&mut self.rope);
         }
         self.revision += 1;
         let before = step.before.clone();
         self.history.redo.push(step);
-        self.set_sels(before);
+        self.set_sels(before.clone());
         self.vert = None;
+        if self.keymap == Keymap::Vim {
+            self.vim_after_undo(info, &before);
+        }
         true
     }
 
     pub fn redo(&mut self) -> bool {
         self.commit_group();
         let Some(step) = self.history.redo.pop() else { return false };
+        let mut info = crate::vim::UndoInfo::default();
         for fwd in &step.forward {
             self.note_syntax(fwd);
+            if self.keymap == Keymap::Vim {
+                info.note(&self.rope, fwd);
+            }
             fwd.apply(&mut self.rope);
         }
         self.revision += 1;
+        let before = step.before.clone();
         let after = step.after.clone();
         self.history.undo.push(step);
         self.set_sels(after);
         self.vert = None;
+        if self.keymap == Keymap::Vim {
+            self.vim_after_undo(info, &before);
+        }
         true
     }
 
@@ -428,6 +518,9 @@ impl Editor {
         self.apply(Transaction::new(vec![Change { from, to, text: text.to_string() }]));
         self.commit_group();
         self.vert = None;
+        if self.keymap == Keymap::Vim {
+            self.vim_after_host_edit();
+        }
     }
 
     /// Replace the whole text with a minimal diff (common prefix and suffix), so cursors outside
@@ -487,6 +580,13 @@ impl Editor {
         if self.keymap == Keymap::Helix && self.mode == Mode::Insert {
             self.mode = Mode::Normal;
         }
+        if self.keymap == Keymap::Vim {
+            self.vim_click(pos, extend);
+            if !extend {
+                self.drag_anchor = Some(pos);
+            }
+            return;
+        }
         let p = self.sels.primary();
         let new = match (self.keymap, extend) {
             (Keymap::Helix, true) => p.put_cursor(t, pos, true),
@@ -515,9 +615,14 @@ impl Editor {
     pub fn drag_to(&mut self, char_idx: usize) {
         let t = self.rope.slice(..);
         let pos = text::floor_grapheme(t, char_idx.min(t.len_chars()));
+        if self.keymap == Keymap::Vim {
+            let a = self.drag_anchor.unwrap_or_else(|| self.vcur());
+            self.vim_drag(a, pos);
+            return;
+        }
         let a = self.drag_anchor.unwrap_or_else(|| self.sels.primary().anchor);
         let new = match self.keymap {
-            Keymap::Helix => Selection::point(a).min_width_1(t).put_cursor(t, pos, true),
+            Keymap::Helix | Keymap::Vim => Selection::point(a).min_width_1(t).put_cursor(t, pos, true),
             Keymap::Standard => Selection::new(a, pos),
         };
         let mut v = self.sels.v.clone();
@@ -532,6 +637,7 @@ impl Editor {
         if len == 0 {
             return;
         }
+        let vim = self.keymap == Keymap::Vim;
         let i = char_idx.min(len - 1);
         let class = text::classify(t.char(i));
         let same = |j: usize| text::classify(t.char(j)) == class;
@@ -542,6 +648,10 @@ impl Editor {
         while e < len && same(e) && class != text::CharClass::Eol {
             e += 1;
         }
+        if vim {
+            self.vim_select_range(s, e, false);
+            return;
+        }
         self.set_primary_only(Selection::new(s, e));
     }
 
@@ -551,6 +661,10 @@ impl Editor {
         let line = t.char_to_line(char_idx.min(t.len_chars()));
         let s = t.line_to_char(line);
         let e = t.line_to_char((line + 1).min(t.len_lines()));
+        if self.keymap == Keymap::Vim {
+            self.vim_select_range(s, e, true);
+            return;
+        }
         self.set_primary_only(Selection::new(s, e));
     }
 
@@ -570,7 +684,17 @@ impl Editor {
     }
 
     fn begin_key(&mut self, k: &KeyInput) {
-        if self.keymap == Keymap::Helix {
+        if self.keymap == Keymap::Vim {
+            if self.group.is_none() && !matches!(self.mode, Mode::Insert | Mode::Replace) {
+                self.group_base = self.sels.clone();
+            }
+            if self.vim.replaying_dot == 0
+                && self.vim.replaying_macro == 0
+                && let Some((_, rec)) = &mut self.vim.macro_rec
+            {
+                rec.push(k.clone());
+            }
+        } else if self.keymap == Keymap::Helix {
             if self.group.is_none() && self.mode != Mode::Insert {
                 self.group_base = self.sels.clone();
             }
@@ -600,6 +724,12 @@ impl Editor {
         }
         self.vert_keep = false;
         match self.keymap {
+            Keymap::Vim => {
+                self.vim_finish_command();
+                if !matches!(self.mode, Mode::Insert | Mode::Replace) {
+                    self.commit_group();
+                }
+            }
             Keymap::Helix => {
                 if self.mode != Mode::Insert {
                     self.commit_group();
@@ -616,6 +746,9 @@ impl Editor {
 
     fn dispatch(&mut self, k: &KeyInput) -> bool {
         if self.prompt.is_some() {
+            if self.keymap == Keymap::Vim {
+                self.rec(k);
+            }
             return self.prompt_key(k);
         }
         if self.global_key(k) {
@@ -624,6 +757,7 @@ impl Editor {
         match self.keymap {
             Keymap::Helix => self.helix_key(k),
             Keymap::Standard => self.standard_key(k),
+            Keymap::Vim => self.vim_key(k),
         }
     }
 
@@ -677,7 +811,21 @@ impl Editor {
                 }
                 true
             }
+            Keymap::Vim => {
+                if self.prompt.is_some() {
+                    self.prompt_insert(text);
+                    true
+                } else if matches!(self.mode, Mode::Insert | Mode::Replace) {
+                    self.hx_insert_text(text);
+                    true
+                } else {
+                    false
+                }
+            }
         };
+        if self.keymap == Keymap::Vim && !matches!(self.mode, Mode::Insert | Mode::Replace) {
+            self.commit_group();
+        }
         if self.keymap == Keymap::Helix && self.mode != Mode::Insert {
             self.commit_group();
         }
@@ -694,12 +842,14 @@ impl Editor {
         match self.keymap {
             Keymap::Helix => self.hx_pending_string(),
             Keymap::Standard => self.std.chord.as_ref().map(|k| k.display()).unwrap_or_default(),
+            Keymap::Vim => self.vim_pending_string(),
         }
     }
 
     pub fn key_hints(&self) -> Option<(String, Vec<KeyHint>)> {
         match self.keymap {
             Keymap::Helix if self.prompt.is_none() => self.hx_key_hints(),
+            Keymap::Vim if self.prompt.is_none() => self.vim_key_hints(),
             Keymap::Standard if self.prompt.is_none() && self.std.chord.is_some() => Some((
                 "ctrl-k".to_string(),
                 vec![KeyHint { key: "ctrl-t".into(), description: "select theme".into() }],
@@ -709,6 +859,9 @@ impl Editor {
     }
 
     pub fn search_matches(&self) -> Vec<Range<usize>> {
+        if self.keymap == Keymap::Vim {
+            return self.vim_search_matches();
+        }
         self.search_matches_impl()
     }
 }

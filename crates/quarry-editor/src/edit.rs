@@ -41,7 +41,7 @@ impl Editor {
     /// The (from, to) range an insertion by this selection replaces.
     fn edit_range(&self, s: &Selection) -> (usize, usize) {
         match self.keymap {
-            Keymap::Helix => {
+            Keymap::Helix | Keymap::Vim => {
                 let c = s.block_cursor(self.t());
                 (c, c)
             }
@@ -58,7 +58,7 @@ impl Editor {
         }
         let tx = Transaction::new(changes);
         let sels = match self.keymap {
-            Keymap::Helix => {
+            Keymap::Helix | Keymap::Vim => {
                 let mut mapped = self.map_selections(&tx);
                 // Auto-pair / type-over put the cursor somewhere the generic mapping can't know:
                 // place those selections explicitly (the block cursor re-widens them).
@@ -173,6 +173,7 @@ impl Editor {
 
     pub(crate) fn insert_newline(&mut self) {
         let le = self.line_ending;
+        let vim = self.keymap == Keymap::Vim;
         let specs = self.specs_for(|t, from, to| {
             let line = t.char_to_line(from);
             let ls = t.line_to_char(line);
@@ -183,6 +184,10 @@ impl Editor {
                     c @ (' ' | '\t') => indent.push(c),
                     _ => break,
                 }
+            }
+            if vim {
+                // Vim rebuilds the indent from its width (`expandtab`): tabs become spaces
+                indent = crate::vim::spaces_of(&indent);
             }
             let before: String = t.slice(ls..from).to_string();
             let opens = before.trim_end().ends_with(['(', '[', '{']);
