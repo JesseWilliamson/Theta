@@ -16,6 +16,13 @@ on:
         description: Upload workflow artifacts only; do not create a release
         type: boolean
         default: true
+      tag:
+        description: >-
+          With dry_run=false: name of a tag that does not exist yet (e.g. v0.1.0-alpha.1).
+          A draft release is created for it at `ref`; the tag itself is only created
+          when the draft is published.
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -155,6 +162,15 @@ jobs:
         if: github.event_name == 'push' || inputs.dry_run == false
         env:
           GH_TOKEN: ${{ github.token }}
+          NEW_TAG: ${{ github.event.inputs.tag }}
         run: |
-          git show-ref --verify --quiet "refs/tags/$REF" || { echo "$REF is not a tag"; exit 1; }
-          gh release create "$REF" --draft --title "Quarry ${REF#v}" --notes-file RELEASE_NOTES.md dist/*
+          if [ -n "$NEW_TAG" ]; then
+            # Draft for a tag that does not exist yet: GitHub creates the tag at
+            # this commit when a maintainer publishes the draft.
+            case "$NEW_TAG" in *-*) pre=--prerelease ;; *) pre= ;; esac
+            gh release create "$NEW_TAG" --draft $pre --target "$(git rev-parse HEAD)" \
+              --title "Quarry ${NEW_TAG#v}" --notes-file RELEASE_NOTES.md dist/*
+          else
+            git show-ref --verify --quiet "refs/tags/$REF" || { echo "$REF is not a tag"; exit 1; }
+            gh release create "$REF" --draft --title "Quarry ${REF#v}" --notes-file RELEASE_NOTES.md dist/*
+          fi
