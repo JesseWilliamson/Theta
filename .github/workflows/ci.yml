@@ -84,9 +84,9 @@ jobs:
           docker exec "$id" mariadb -uroot -proot \
             -e "GRANT ALL ON *.* TO 'quarry'@'%'; FLUSH PRIVILEGES;"
       - run: >
-          cargo clippy -p theta-core -p theta-sql -p theta-geo -p theta-editor -p theta-drivers
+          cargo clippy -p theta-core -p theta-sql -p theta-geo -p theta-editor -p theta-drivers -p theta-import
           --all-targets -- -D warnings
-      - run: cargo test -p theta-core -p theta-sql -p theta-geo -p theta-editor -p theta-drivers
+      - run: cargo test -p theta-core -p theta-sql -p theta-geo -p theta-editor -p theta-drivers -p theta-import
       # A throw-away sshd on 127.0.0.1:2222; see crates/theta-drivers/tests/ssh/setup.sh. The key
       # directory must be world-traversable (/tmp, not the runner's home): sshd reads
       # authorized_keys as the test user.
@@ -136,12 +136,14 @@ jobs:
             libxcb-xfixes0-dev libfontconfig-dev libasound2-dev libssl-dev libzstd-dev \
             libvulkan1 mesa-vulkan-drivers xvfb
       - run: cargo build --workspace --all-targets
+      # theta-import's pipeline tests need the live databases that only the libraries job
+      # starts, so the app jobs run just that crate's pure unit tests.
       - name: Tests (headless)
         if: runner.os == 'Linux'
-        run: xvfb-run -a cargo test --workspace --exclude theta-drivers
+        run: xvfb-run -a cargo test --workspace --exclude theta-drivers --exclude theta-import && cargo test -p theta-import --lib
       - name: Tests
         if: runner.os != 'Linux'
-        run: cargo test --workspace --exclude theta-drivers
+        run: cargo test --workspace --exclude theta-drivers --exclude theta-import && cargo test -p theta-import --lib
 
   # Non-blocking until the whole workspace is warning-free.
   clippy:
