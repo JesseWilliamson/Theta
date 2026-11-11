@@ -475,11 +475,89 @@ impl Workspace {
         }
     }
 
+    /// Run `then` once console `id`'s connection is up. Returns false when it already is (the
+    /// caller carries on inline) and true when the caller must stop: either `then` was queued
+    /// behind a connect that is now in progress, or there is no connection to wait for.
+    ///
+    /// A restored console keeps its connection id but the connection itself starts
+    /// disconnected; Run / Explain must connect, wait and then run, not ask the user to press
+    /// the key twice. A failed connect is reported in Messages with the server's error.
+    fn defer_until_connected(
+        &mut self,
+        id: u64,
+        what: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) -> bool {
+        let Some(conn_id) = self.tabs.iter().find(|t| t.id == id).and_then(|t| t.connection_id.clone())
+        else {
+            // Explains why (and opens the connection picker).
+            self.connection_for(id, window, cx);
+            return true;
+        };
+        let state = self.store.read(cx).state(&conn_id).clone();
+        if state.is_connected() {
+            return false;
+        }
+        if !self.awaiting_connection.insert(id) {
+            self.notify(NoticeKind::Info, "Still connecting…", window, cx);
+            return true;
+        }
+        if !matches!(state, ConnState::Connecting) {
+            self.use_connection(&conn_id, cx);
+        }
+        let name = self.conn_name(&conn_id, cx);
+        self.notify(NoticeKind::Info, format!("Connecting to {name}…"), window, cx);
+        let what = what.to_string();
+        cx.spawn_in(window, async move |this, cx| {
+            let waited = wait_connected(&this, cx, &conn_id).await;
+            this.update_in(cx, |this, window, cx| {
+                    this.awaiting_connection.remove(&id);
+                    match waited {
+                        Ok(_) => {
+                            // The console may have been closed or re-pointed while connecting.
+                            let same = this
+                                .tabs
+                                .iter()
+                                .find(|t| t.id == id)
+                                .is_some_and(|t| t.connection_id.as_deref() == Some(conn_id.as_str()));
+                            if same {
+                                then(this, window, cx);
+                            }
+                        }
+                        Err(e) => {
+                            let name = this.conn_name(&conn_id, cx);
+                            this.log(
+                                &conn_id,
+                                &what,
+                                MessageKind::Error,
+                                vec![format!("Could not connect to {name}: {e}")],
+                                Some(&e),
+                                cx,
+                            );
+                            this.set_bottom_tab(BottomTab::Messages, cx);
+                        }
+                    }
+            })
+            .ok();
+        })
+        .detach();
+        true
+    }
+
     fn conn_name(&self, conn_id: &str, cx: &App) -> String {
         self.store.read(cx).config(conn_id).map(|c| c.name.clone()).unwrap_or_default()
     }
 
     fn start_run(&mut self, id: u64, picks: Vec<Picked>, window: &mut Window, cx: &mut Context<Self>) {
+        let what = picks.first().map(|p| p.sql.clone()).unwrap_or_default();
+        let again = picks.clone();
+        if self.defer_until_connected(id, &what, window, cx, move |this, window, cx| {
+            this.start_run(id, again, window, cx)
+        }) {
+            return;
+        }
         let Some((conn_id, _)) = self.connection_for(id, window, cx) else { return };
         if self.runs.contains_key(&conn_id) {
             // Policy: one query at a time per connection; a second run is refused, not queued.
@@ -552,7 +630,10 @@ impl Workspace {
         self.ensure_ticker(cx);
         let limit = Settings::get(cx).row_limit;
         let opts = ExecOptions { row_limit: (limit > 0).then_some(limit) };
+        // Whether the session may hold uncommitted work that a reconnect would silently drop.
+        let mut txn_open = self.txn.contains(&conn_id);
         cx.spawn_in(window, async move |this, cx| {
+            let mut connection = connection;
             let total = picks.len();
             for (i, p) in picks.iter().enumerate() {
                 let cancelled = this
@@ -564,11 +645,25 @@ impl Workspace {
                 if cancelled {
                     break;
                 }
-                let (c, sql, o) = (connection.clone(), p.sql.clone(), opts.clone());
-                let res = runtime::spawn_result(async move { c.execute(&sql, &o).await }).await;
+                let mut res = exec_statement(&connection, p, &opts).await;
+                let mut recovery = Recovery::None;
+                if res.as_ref().is_err_and(Error::is_connection_lost) {
+                    let user_cancelled = this
+                        .update(cx, |this, _| this.runs.get(&conn_id).is_some_and(|r| r.cancelled))
+                        .unwrap_or(true);
+                    if !user_cancelled {
+                        txn_open |= p.class == StatementClass::Transaction;
+                        (connection, res, recovery) =
+                            recover_lost_session(&this, cx, &conn_id, connection, p, &opts, txn_open, res)
+                                .await;
+                    }
+                }
+                if matches!(p.class, StatementClass::Transaction) {
+                    txn_open = true;
+                }
                 let keep = this
                     .update_in(cx, |this, window, cx| {
-                        this.finish_statement(id, &conn_id, p, i, total, res, window, cx)
+                        this.finish_statement(id, &conn_id, p, i, total, res, recovery, window, cx)
                     })
                     .unwrap_or(false);
                 if !keep {
@@ -589,6 +684,7 @@ impl Workspace {
         index: usize,
         total: usize,
         res: Result<StatementOutcome, Error>,
+        recovery: Recovery,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
@@ -648,6 +744,7 @@ impl Workspace {
                     lines[0] = format!("[{}/{}] {}", index + 1, total, lines[0]);
                 }
                 lines.extend(out.notices.iter().map(|n| format!("Notice: {n}")));
+                lines.extend(recovery.message());
                 self.log(conn_id, &p.sql, MessageKind::Ok, lines, None, cx);
                 true
             }
@@ -669,7 +766,7 @@ impl Workspace {
                 self.push_history(&conn_name, &p.sql, elapsed, None, Some(e.to_string()), cx);
                 self.set_status(id, Some((p.range.clone(), StatementStatus::Failed)), cx);
                 // A dropped connection says nothing about the statement's text: no squiggle.
-                if !matches!(e, Error::Closed)
+                if !e.is_connection_lost()
                     && let Some(text) = self.console_text(id, cx)
                 {
                     let range = pick::error_range(&p.range, &e, &text);
@@ -682,24 +779,10 @@ impl Workspace {
                 }
                 // No toast: `finish_run` raises the Messages tab and the status bar shows the text.
                 let mut lines = vec![e.to_string()];
-                // The server (or the network) dropped the session: every further statement would
-                // fail the same way, so reconnect now and say so instead of leaving a dead
-                // "connected" connection behind. Open transactions are gone with the session.
-                let lost = matches!(e, Error::Closed);
-                if lost {
-                    lines.push(
-                        "The connection to the server was lost. Reconnecting now; run the statement again once it is back."
-                            .into(),
-                    );
-                }
+                // A dropped session was already reconnected by `recover_lost_session`; say what
+                // happened to this statement.
+                lines.extend(recovery.message());
                 self.log(conn_id, &p.sql, MessageKind::Error, lines, Some(&e), cx);
-                if lost {
-                    let conn = conn_id.to_string();
-                    self.store.update(cx, |s, cx| {
-                        s.disconnect(&conn, cx);
-                        s.connect(&conn, cx);
-                    });
-                }
                 false
             }
         }
@@ -1236,6 +1319,12 @@ impl Workspace {
             self.notify(NoticeKind::Info, "There is no statement to explain here", window, cx);
             return;
         };
+        let again = p.sql.clone();
+        if self.defer_until_connected(id, &again, window, cx, move |this, window, cx| {
+            this.explain_console(id, analyze, window, cx)
+        }) {
+            return;
+        }
         let Some((conn_id, _)) = self.connection_for(id, window, cx) else { return };
         let target = ExplainTarget { console: id, connection_id: conn_id, sql: p.sql.clone() };
         if analyze && matches!(p.class, StatementClass::Write | StatementClass::Ddl) {
@@ -1385,6 +1474,11 @@ impl Workspace {
             self.notify(NoticeKind::Info, "Open a console first (Ctrl+N)", window, cx);
             return;
         };
+        if self.defer_until_connected(id, sql, window, cx, move |this, window, cx| {
+            this.txn_command(sql, window, cx)
+        }) {
+            return;
+        }
         let Some((conn_id, connection)) = self.connection_for(id, window, cx) else { return };
         if self.runs.contains_key(&conn_id) {
             self.notify(NoticeKind::Info, "A query is running on this connection", window, cx);
@@ -1904,4 +1998,117 @@ mod tests {
             assert!(ws.tabs().iter().all(|t| t.connection_id.as_deref() == Some("t1")));
         });
     }
+}
+
+/// What happened to a statement whose session was lost.
+pub(super) enum Recovery {
+    /// The session was fine.
+    None,
+    /// Reconnected and ran the statement again; its result is the one shown.
+    Reran,
+    /// Reconnected, but the statement was not run again (the reason is for the user).
+    NotRerun(String),
+    /// Could not reconnect.
+    ReconnectFailed(Error),
+}
+
+impl Recovery {
+    fn message(&self) -> Option<String> {
+        match self {
+            Recovery::None => None,
+            Recovery::Reran => Some("Connection lost — reconnected and re-ran the statement".into()),
+            Recovery::NotRerun(why) => {
+                Some(format!("Connection lost — reconnected. The statement was NOT re-run: {why}."))
+            }
+            Recovery::ReconnectFailed(e) => {
+                Some(format!("Connection lost — reconnecting failed: {e}. The statement was NOT re-run."))
+            }
+        }
+    }
+}
+
+async fn exec_statement(
+    connection: &Arc<dyn Connection>,
+    p: &Picked,
+    opts: &ExecOptions,
+) -> Result<StatementOutcome, Error> {
+    let (c, sql, o) = (connection.clone(), p.sql.clone(), opts.clone());
+    runtime::spawn_result(async move { c.execute(&sql, &o).await }).await
+}
+
+/// Wait until the store has finished connecting `conn_id`: the live connection, or the
+/// connect error. Polling keeps this independent of which event the store emits when.
+async fn wait_connected(
+    this: &gpui_kit::WeakEntity<Workspace>,
+    cx: &mut gpui_kit::AsyncWindowContext,
+    conn_id: &str,
+) -> Result<Arc<dyn Connection>, Error> {
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let state = this
+            .update(cx, |this, cx| this.store.read(cx).state(conn_id).clone())
+            .map_err(|_| Error::Closed)?;
+        match state {
+            ConnState::Connected { connection, .. } => return Ok(connection),
+            ConnState::Failed(e) => return Err(e),
+            ConnState::Disconnected => return Err(Error::Connect("the connection was closed".into())),
+            ConnState::Connecting if Instant::now() > deadline => {
+                return Err(Error::Connect("timed out while connecting".into()));
+            }
+            ConnState::Connecting => {}
+        }
+        cx.background_executor().timer(Duration::from_millis(40)).await;
+    }
+}
+
+/// The server ended the session under a running statement: mark it lost, reconnect at once
+/// and, when that is safe, run the statement once more.
+///
+/// Re-running is only safe for a plain query outside a transaction: a write may or may not
+/// have been applied before the connection died, and an open transaction's earlier statements
+/// are gone with the session, so repeating just the last one would act on a different state.
+#[allow(clippy::too_many_arguments)]
+async fn recover_lost_session(
+    this: &gpui_kit::WeakEntity<Workspace>,
+    cx: &mut gpui_kit::AsyncWindowContext,
+    conn_id: &str,
+    old: Arc<dyn Connection>,
+    p: &Picked,
+    opts: &ExecOptions,
+    txn_open: bool,
+    first: Result<StatementOutcome, Error>,
+) -> (Arc<dyn Connection>, Result<StatementOutcome, Error>, Recovery) {
+    let reconnect = |cx: &mut gpui_kit::AsyncWindowContext| {
+        let conn = conn_id.to_string();
+        this.update(cx, |this, cx| {
+            this.txn.remove(&conn);
+            this.store.update(cx, |s, cx| {
+                s.disconnect(&conn, cx);
+                s.connect(&conn, cx);
+            });
+        })
+    };
+    if reconnect(cx).is_err() {
+        return (old, first, Recovery::None);
+    }
+    let fresh = match wait_connected(this, cx, conn_id).await {
+        Ok(c) => c,
+        Err(e) => return (old, first, Recovery::ReconnectFailed(e)),
+    };
+    if txn_open {
+        let why = "a transaction was open and its changes were lost with the session";
+        return (fresh, first, Recovery::NotRerun(why.into()));
+    }
+    if p.class != StatementClass::Query {
+        let why = "it changes data or session state, so running it again could apply it twice";
+        return (fresh, first, Recovery::NotRerun(why.into()));
+    }
+    let second = exec_statement(&fresh, p, opts).await;
+    if second.as_ref().is_err_and(Error::is_connection_lost) {
+        // Lost again (e.g. the statement itself kills its backend): leave a healthy session.
+        let _ = reconnect(cx);
+        let fresh = wait_connected(this, cx, conn_id).await.unwrap_or(fresh);
+        return (fresh, second, Recovery::NotRerun("it lost the connection again when re-run".into()));
+    }
+    (fresh, second, Recovery::Reran)
 }

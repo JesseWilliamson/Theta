@@ -26,6 +26,12 @@ struct Fixture {
 }
 
 fn setup(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
+    setup_with(cx, true, ":memory:")
+}
+
+/// `connect`: whether the SQLite connection is brought up before the console opens (a
+/// restored console finds its connection disconnected).
+fn setup_with<'a>(cx: &'a mut TestAppContext, connect: bool, path: &str) -> (Fixture, &'a mut VisualTestContext) {
     let dir = tempfile::tempdir().unwrap();
     cx.executor().allow_parking();
     cx.update(|cx| {
@@ -35,10 +41,12 @@ fn setup(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
     let (store, _) = ConnectionStore::load(None, Arc::new(SecretStore::memory_only()));
     let store = cx.new(|_| store);
     let mut config = ConnectionConfig::new("t1", "test", DatabaseKind::Sqlite);
-    config.path = ":memory:".into();
+    config.path = path.into();
     let id = store.update(cx, |s, cx| {
         let id = s.add_temporary(config, cx);
-        s.connect(&id, cx);
+        if connect {
+            s.connect(&id, cx);
+        }
         id
     });
     let (ws, vcx) = cx.add_window_view(|window, cx| {
@@ -48,7 +56,7 @@ fn setup(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
     });
     for _ in 0..500 {
         vcx.run_until_parked();
-        if store.read_with(vcx, |s, _| s.state(&id).is_connected()) {
+        if !connect || store.read_with(vcx, |s, _| s.state(&id).is_connected()) {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -511,4 +519,66 @@ fn focused_views_win_their_own_keys_and_leave_the_rest_to_the_application(cx: &m
             assert!(owned_seen.contains(&format!("{v}:ctrl-p")), "{owned_seen:?}");
         }
     }
+}
+
+fn wait_for(vcx: &mut VisualTestContext, what: &str, mut done: impl FnMut(&mut VisualTestContext) -> bool) {
+    for _ in 0..800 {
+        vcx.run_until_parked();
+        if done(vcx) {
+            return;
+        }
+        // The workspace polls the connection state on a timer, which a test clock only fires
+        // when advanced.
+        vcx.executor().advance_clock(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("timed out waiting for {what}");
+}
+
+fn messages(f: &Fixture, vcx: &mut VisualTestContext) -> Vec<String> {
+    f.ws.read_with(vcx, |ws, cx| {
+        ws.messages.read(cx).entries().iter().map(|m| m.plain_text()).collect()
+    })
+}
+
+/// A restored console finds its connection disconnected. Run must connect, wait and then run;
+/// it used to connect and leave the user to press Run a second time.
+#[gpui_kit::test]
+fn run_on_a_disconnected_console_connects_waits_and_runs(cx: &mut TestAppContext) {
+    let (f, vcx) = setup_with(cx, false, ":memory:");
+    let id = f.ws.read_with(vcx, |ws, _| ws.tabs[0].connection_id.clone().unwrap());
+    let store = f.ws.read_with(vcx, |ws, _| ws.store.clone());
+    assert!(!store.read_with(vcx, |s, _| s.state(&id).is_connected()), "starts disconnected");
+    let editor = editor_of(&f, vcx);
+    editor.update_in(vcx, |v, _, cx| v.update_editor(cx, |e| e.set_text("select 5 as five")));
+    f.ws.update_in(vcx, |ws, window, cx| ws.run_active(run::RunReq::All, window, cx));
+    wait_for(vcx, "the result", |vcx| {
+        f.ws.read_with(vcx, |ws, cx| ws.results.read(cx).grid.read(cx).result().is_some())
+    });
+    assert!(store.read_with(vcx, |s, _| s.state(&id).is_connected()));
+}
+
+/// Explain takes the same path (SQLite has no plan support, but it must get as far as asking).
+#[gpui_kit::test]
+fn explain_on_a_disconnected_console_connects_first(cx: &mut TestAppContext) {
+    let (f, vcx) = setup_with(cx, false, ":memory:");
+    let id = f.ws.read_with(vcx, |ws, _| ws.tabs[0].connection_id.clone().unwrap());
+    let store = f.ws.read_with(vcx, |ws, _| ws.store.clone());
+    let editor = editor_of(&f, vcx);
+    editor.update_in(vcx, |v, _, cx| v.update_editor(cx, |e| e.set_text("select 5 as five")));
+    f.ws.update_in(vcx, |ws, window, cx| ws.explain_active(false, window, cx));
+    wait_for(vcx, "the connection", |vcx| store.read_with(vcx, |s, _| s.state(&id).is_connected()));
+    wait_for(vcx, "the explain outcome", |vcx| {
+        f.ws.read_with(vcx, |ws, _| ws.last_explain.is_some())
+    });
+}
+
+#[gpui_kit::test]
+fn run_on_a_connection_that_cannot_connect_shows_the_error_in_messages(cx: &mut TestAppContext) {
+    let (f, vcx) = setup_with(cx, false, "/nonexistent-dir/quarry/none.db");
+    let editor = editor_of(&f, vcx);
+    editor.update_in(vcx, |v, _, cx| v.update_editor(cx, |e| e.set_text("select 1")));
+    f.ws.update_in(vcx, |ws, window, cx| ws.run_active(run::RunReq::Statement, window, cx));
+    wait_for(vcx, "the error", |vcx| messages(&f, vcx).iter().any(|m| m.contains("Could not connect")));
+    assert!(f.ws.read_with(vcx, |ws, cx| ws.results.read(cx).grid.read(cx).result().is_none()));
 }

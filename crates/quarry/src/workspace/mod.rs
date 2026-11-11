@@ -174,6 +174,8 @@ pub struct Workspace {
     map_badge: Option<usize>,
     runs: HashMap<String, run::RunInfo>,
     txn: HashSet<String>,
+    /// Consoles whose Run / Explain is waiting for their connection to come up.
+    awaiting_connection: HashSet<u64>,
     ticker: Option<gpui_kit::Task<()>>,
     editor_status: Option<EditorStatus>,
     last_explain: Option<run::ExplainTarget>,
@@ -262,6 +264,7 @@ impl Workspace {
             map_badge: None,
             runs: HashMap::new(),
             txn: HashSet::new(),
+            awaiting_connection: HashSet::new(),
             ticker: None,
             editor_status: None,
             last_explain: None,
