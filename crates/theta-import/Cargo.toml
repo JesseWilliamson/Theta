@@ -13,6 +13,10 @@ theta-sql.workspace = true
 encoding_rs.workspace = true
 serde_json.workspace = true
 
+[features]
+# The DuckDB round-trip test needs the bundled DuckDB build, which is slow to compile; off by default.
+duckdb = ["theta-drivers/duckdb"]
+
 [dev-dependencies]
 theta-drivers = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process"] }

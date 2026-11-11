@@ -398,3 +398,53 @@ async fn cancelled_dump_leaves_no_file() {
     assert_eq!(rep.outcome, DumpOutcome::Cancelled);
     assert!(!out.exists() && !out.with_file_name("c.sql.part").exists());
 }
+
+#[cfg(feature = "duckdb")]
+const DUCKDB_SOURCE: &[&str] = &[
+    "CREATE TABLE stores (id INTEGER PRIMARY KEY, name VARCHAR NOT NULL UNIQUE, opened DATE)",
+    "CREATE TABLE products (id INTEGER PRIMARY KEY, sku VARCHAR NOT NULL, price DOUBLE DEFAULT 9.5, photo BLOB, note VARCHAR)",
+    "CREATE INDEX products_sku ON products (sku)",
+    "CREATE TABLE stock (store_id INTEGER NOT NULL REFERENCES stores(id), product_id INTEGER NOT NULL REFERENCES products(id), qty INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (store_id, product_id))",
+    "CREATE VIEW low_stock AS SELECT store_id, product_id FROM stock WHERE qty < 5",
+    "INSERT INTO stores VALUES (1, 'Main St', DATE '2020-01-02'), (2, 'O''Brien''s; \"quoted\"', NULL)",
+    "INSERT INTO products VALUES (1, 'a-1', 1.25, '\\x00\\xff\\x10'::BLOB, 'line1\nline2 -- not a comment'), (2, 'b-2', NULL, NULL, 'ünïcode ✓ 漢字'), (3, 'c-3', 3, ''::BLOB, '')",
+    "INSERT INTO stock VALUES (1, 1, 10), (1, 2, 3), (2, 3, 0)",
+];
+
+#[cfg(feature = "duckdb")]
+#[tokio::test(flavor = "multi_thread")]
+async fn duckdb_round_trips() {
+    let kind = DatabaseKind::DuckDb;
+    let open = |p: &std::path::Path| {
+        let mut c = ConnectionConfig::new("t", "duck", kind);
+        c.path = p.to_string_lossy().into_owned();
+        async move { theta_drivers::connect(&c).await.expect("duckdb") }
+    };
+    let (src_path, dst_path) = (tmp("src.duckdb"), tmp("dst.duckdb"));
+    let src = open(&src_path).await;
+    for s in DUCKDB_SOURCE {
+        q(src.as_ref(), s).await;
+    }
+    let mut o = DumpOptions::new(kind);
+    o.tables = ["stores", "products", "stock"].map(|t| ("main".to_string(), t.to_string())).to_vec();
+    o.views = vec![("main".into(), "low_stock".into())];
+    o.qualify = false;
+    o.rows_per_insert = 2;
+    let file = tmp("duck.sql");
+    dump_file(src.as_ref(), &o, &file).await;
+    let dst = open(&dst_path).await;
+    restore(dst.as_ref(), kind, &file, false).await;
+    let c = compare(
+        src.as_ref(),
+        dst.as_ref(),
+        kind,
+        Some("main"),
+        Some("main"),
+        &["stores", "products", "stock"].map(String::from),
+    )
+    .await;
+    assert_eq!(c.rows, 8);
+    for p in [&src_path, &dst_path, &file] {
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+}

@@ -384,6 +384,9 @@ pub fn plan(catalog: &Catalog, opts: &DumpOptions) -> Plan {
             let (s, v) = remaining.remove(pick);
             placed.push(&v.name);
             match v.view_definition.as_deref().map(|d| d.trim().trim_end_matches(';').trim()) {
+                // DuckDB's `duckdb_views().sql` is the whole `CREATE VIEW ... AS ...` statement, the other
+                // products give only the SELECT.
+                Some(def) if def.to_ascii_uppercase().starts_with("CREATE ") => sql(def.to_string()),
                 Some(def) if !def.is_empty() => {
                     sql(format!("CREATE VIEW {} AS {def}", qualify_name(s, &v.name)));
                 }
@@ -786,6 +789,20 @@ mod tests {
             "the trailing ; and space are trimmed: {}",
             all[top]
         );
+    }
+
+    #[test]
+    fn a_definition_that_is_already_a_create_statement_is_not_wrapped() {
+        let mut c = shop();
+        let mut v = table("v1", vec![], &[], vec![]);
+        v.kind = TableKind::View;
+        v.view_definition = Some("CREATE VIEW v1 AS SELECT id FROM customers;".into());
+        c.schemas[0].tables.push(v);
+        let mut o = opts(DatabaseKind::DuckDb, &c);
+        o.tables.retain(|t| t.1 != "v1");
+        o.views = vec![("public".into(), "v1".into())];
+        let all = sql_of(&plan(&c, &o));
+        assert!(all.contains(&"CREATE VIEW v1 AS SELECT id FROM customers".to_string()), "{all:?}");
     }
 
     #[test]
