@@ -280,9 +280,10 @@ impl ConnectionStore {
         let secrets = self.secrets.clone();
         let work = runtime::spawn_result(async move {
             let config = secrets.with_secrets(&config);
-            let connection: Arc<dyn Connection> = Arc::from(open_connection(&config).await?);
+            let (connection, notices) = open_connection(&config).await?;
+            let connection: Arc<dyn Connection> = Arc::from(connection);
             let server = connection.server_info().await?;
-            Ok((connection, server))
+            Ok((connection, server, notices))
         });
         let id = id.to_string();
         cx.spawn(async move |this, cx| {
@@ -290,7 +291,7 @@ impl ConnectionStore {
             this.update(cx, |this, cx| {
                 // The user may have disconnected or deleted it while we waited.
                 if !matches!(this.state(&id), ConnState::Connecting) {
-                    if let Ok((connection, _)) = result {
+                    if let Ok((connection, ..)) = result {
                         runtime::spawn(async move {
                             let _ = connection.close().await;
                         });
@@ -298,7 +299,10 @@ impl ConnectionStore {
                     return;
                 }
                 match result {
-                    Ok((connection, server)) => {
+                    Ok((connection, server, notices)) => {
+                        for message in notices {
+                            cx.emit(StoreEvent::Notice { kind: NoticeKind::Info, message });
+                        }
                         let name = this.config(&id).map(|c| c.name.clone()).unwrap_or_default();
                         this.set_state(
                             &id,
@@ -414,7 +418,7 @@ impl ConnectionStore {
 pub async fn test_connection(config: ConnectionConfig) -> Result<TestOutcome, Error> {
     runtime::spawn_result(async move {
         let started = Instant::now();
-        let connection = open_connection(&config).await?;
+        let (connection, _) = open_connection(&config).await?;
         let info = connection.server_info().await;
         let latency = started.elapsed();
         let _ = connection.close().await;
@@ -459,8 +463,8 @@ impl Connection for NullConnection {
 }
 
 /// The single place the app calls into the driver crate.
-async fn open_connection(config: &ConnectionConfig) -> Result<Box<dyn Connection>, Error> {
-    quarry_drivers::connect(config).await
+async fn open_connection(config: &ConnectionConfig) -> Result<(Box<dyn Connection>, Vec<String>), Error> {
+    quarry_drivers::connect_with_notices(config).await
 }
 
 pub fn connections_path() -> PathBuf {

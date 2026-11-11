@@ -252,6 +252,21 @@ impl ResultGrid {
         self.result.as_ref()
     }
 
+    /// Select (and scroll to) the row that is row `row` of the result set, whatever the current
+    /// sort or filter shows. Does nothing when a filter hides it. Does not take focus, so a
+    /// click on the map can drive the grid without leaving the map tab.
+    pub fn select_row(&mut self, row: usize, cx: &mut Context<Self>) {
+        let Some(result) = &self.result else { return };
+        let Some(display) = crate::view::display_position(self.view.as_deref(), result.rows.len(), row)
+        else {
+            return;
+        };
+        if self.n_cols() == 0 {
+            return;
+        }
+        self.set_selection(Some(Selection::row(display, 0)), true, cx);
+    }
+
     pub fn has_pending_changes(&self) -> bool {
         self.pending.as_ref().is_some_and(|p| !p.is_empty())
     }

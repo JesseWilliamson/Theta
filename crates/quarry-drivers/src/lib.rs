@@ -66,13 +66,20 @@ pub fn driver_for(kind: DatabaseKind) -> Box<dyn Driver> {
 /// Connect, opening an SSH tunnel first when `config.ssh` is set. The returned
 /// connection owns the tunnel and tears it down on close/drop.
 pub async fn connect(config: &ConnectionConfig) -> Result<Box<dyn Connection>> {
+    connect_with_notices(config).await.map(|(c, _)| c)
+}
+
+/// Like [`connect`], also returning things worth telling the user once (for example that an SSH
+/// host key was added to known_hosts on first contact).
+pub async fn connect_with_notices(config: &ConnectionConfig) -> Result<(Box<dyn Connection>, Vec<String>)> {
     let Some(ssh_cfg) = config.ssh.as_ref().filter(|_| !config.kind.is_file_based()) else {
-        return driver_for(config.kind).connect(config).await;
+        return driver_for(config.kind).connect(config).await.map(|c| (c, Vec::new()));
     };
     let port = if config.port == 0 { config.kind.default_port().unwrap_or(0) } else { config.port };
     let host = if config.host.is_empty() { "localhost" } else { config.host.as_str() };
     let tunnel = ssh::Tunnel::open(ssh_cfg, host, port).await?;
     let local = tunnel.local_port();
+    let notices = tunnel.notices().to_vec();
     let inner: Result<Box<dyn Connection>> = match config.kind {
         DatabaseKind::Postgres => {
             postgres::PgConnection::connect(config, Some(postgres::LocalEndpoint { port: local }))
@@ -87,7 +94,7 @@ pub async fn connect(config: &ConnectionConfig) -> Result<Box<dyn Connection>> {
         DatabaseKind::Sqlite => unreachable!("file-based databases never tunnel"),
     };
     match inner {
-        Ok(inner) => Ok(Box::new(Tunneled { inner, tunnel: Mutex::new(Some(tunnel)) })),
+        Ok(inner) => Ok((Box::new(Tunneled { inner, tunnel: Mutex::new(Some(tunnel)) }), notices)),
         Err(e) => {
             tunnel.close().await;
             Err(e)

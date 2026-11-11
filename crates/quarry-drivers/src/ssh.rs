@@ -11,14 +11,73 @@ use russh::keys::agent::client::AgentClient;
 use russh::keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate, ssh_key};
 use russh::{ChannelMsg, Disconnect};
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex as StdMutex;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
+/// Outcome of comparing the key a server offered with `known_hosts`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostKeyCheck {
+    /// The recorded key matches.
+    Known,
+    /// First contact: the key was appended to `file` (trust on first use).
+    Added { fingerprint: String, file: PathBuf },
+    /// A different key is recorded for this host: refused.
+    Changed { fingerprint: String, file: PathBuf, line: usize },
+    /// known_hosts could not be read or written; the tunnel is allowed (like `StrictHostKeyChecking=no`
+    /// would) because refusing would make the feature unusable on a machine without a home directory.
+    Unchecked,
+}
+
+fn known_hosts_file() -> Option<PathBuf> {
+    std::env::home_dir().map(|h| h.join(".ssh").join("known_hosts"))
+}
+
+/// The `known_hosts` name of a host: bare for port 22, `[host]:port` otherwise.
+pub fn known_hosts_name(host: &str, port: u16) -> String {
+    if port == 22 || port == 0 { host.to_string() } else { format!("[{host}]:{port}") }
+}
+
+/// Trust-on-first-use check against `file`. Pure apart from appending an unknown key to it.
+pub fn check_host_key(host: &str, port: u16, pk: &ssh_key::PublicKey, file: &Path) -> HostKeyCheck {
+    let port = if port == 0 { 22 } else { port };
+    let fingerprint = pk.fingerprint(ssh_key::HashAlg::Sha256).to_string();
+    match russh::keys::known_hosts::check_known_hosts_path(host, port, pk, file) {
+        Ok(true) => HostKeyCheck::Known,
+        Ok(false) => match russh::keys::known_hosts::learn_known_hosts_path(host, port, pk, file) {
+            Ok(()) => HostKeyCheck::Added { fingerprint, file: file.to_path_buf() },
+            Err(_) => HostKeyCheck::Unchecked,
+        },
+        Err(russh::keys::Error::KeyChanged { line }) => {
+            HostKeyCheck::Changed { fingerprint, file: file.to_path_buf(), line }
+        }
+        Err(_) => HostKeyCheck::Unchecked,
+    }
+}
+
+/// The message for a refused, changed host key: what was seen, where the old key lives and what
+/// to do about it.
+pub fn changed_key_message(host: &str, port: u16, fingerprint: &str, file: &Path, line: usize) -> String {
+    let name = known_hosts_name(host, port);
+    format!(
+        "The SSH host key for {name} has changed. The server offered {fingerprint}, but {} (line {line}) \
+         records a different key. If you expected this (the server was reinstalled or re-keyed), remove \
+         the stale entry with: ssh-keygen -R \"{name}\"  and connect again. If not, someone may be \
+         intercepting the connection: do not continue.",
+        file.display()
+    )
+}
+
+/// What the handler learned during the handshake, read back by `Tunnel::open`.
+type Report = Arc<StdMutex<Option<HostKeyCheck>>>;
+
 struct Handler {
     host: String,
     port: u16,
+    report: Report,
 }
 
 impl client::Handler for Handler {
@@ -36,22 +95,20 @@ impl client::Handler for Handler {
             // Certificates are validated against a CA we do not manage here.
             PublicKeyOrCertificate::Certificate(_) => return Ok(true),
         };
-        match russh::keys::check_known_hosts(&self.host, self.port, pk) {
-            Ok(true) => Ok(true),
-            // Not present in known_hosts (or no such file): remember it.
-            Ok(false) => {
-                let _ = russh::keys::known_hosts::learn_known_hosts(&self.host, self.port, pk);
-                Ok(true)
-            }
-            // A different key is recorded for this host.
-            Err(russh::keys::Error::KeyChanged { .. }) => Ok(false),
-            // known_hosts unreadable/unparseable: do not make the tunnel unusable.
-            Err(_) => Ok(true),
+        let result = match known_hosts_file() {
+            Some(file) => check_host_key(&self.host, self.port, pk, &file),
+            None => HostKeyCheck::Unchecked,
+        };
+        let allow = !matches!(result, HostKeyCheck::Changed { .. });
+        if let Ok(mut slot) = self.report.lock() {
+            *slot = Some(result);
         }
+        Ok(allow)
     }
 }
 
 pub struct Tunnel {
+    notices: Vec<String>,
     local_port: u16,
     session: Arc<Handle<Handler>>,
     accept_task: JoinHandle<()>,
@@ -143,13 +200,32 @@ impl Tunnel {
             keepalive_interval: Some(Duration::from_secs(30)),
             ..Default::default()
         });
-        let handler = Handler { host: ssh.host.clone(), port: ssh.port };
+        let report: Report = Arc::default();
+        let handler = Handler { host: ssh.host.clone(), port: ssh.port, report: report.clone() };
         let addr = (ssh.host.as_str(), if ssh.port == 0 { 22 } else { ssh.port });
-        let mut session =
+        let connected =
             tokio::time::timeout(Duration::from_secs(15), client::connect(config, addr, handler))
                 .await
-                .map_err(|_| Error::Tunnel(format!("timed out connecting to {}:{}", ssh.host, ssh.port)))?
-                .map_err(|e| Error::Tunnel(format!("cannot connect to {}:{}: {e}", ssh.host, ssh.port)))?;
+                .map_err(|_| Error::Tunnel(format!("timed out connecting to {}:{}", ssh.host, ssh.port)))?;
+        let seen = report.lock().ok().and_then(|r| r.clone());
+        let mut session = match connected {
+            Ok(session) => session,
+            Err(_) if matches!(seen, Some(HostKeyCheck::Changed { .. })) => {
+                let Some(HostKeyCheck::Changed { fingerprint, file, line }) = seen else { unreachable!() };
+                return Err(Error::Tunnel(changed_key_message(&ssh.host, ssh.port, &fingerprint, &file, line)));
+            }
+            Err(e) => {
+                return Err(Error::Tunnel(format!("cannot connect to {}:{}: {e}", ssh.host, ssh.port)));
+            }
+        };
+        let mut notices = Vec::new();
+        if let Some(HostKeyCheck::Added { fingerprint, file }) = seen {
+            notices.push(format!(
+                "Added host key for {} ({fingerprint}) to {}",
+                known_hosts_name(&ssh.host, ssh.port),
+                file.display()
+            ));
+        }
         authenticate(&mut session, ssh).await?;
 
         // Prove the remote endpoint is reachable now, so a wrong host/port is
@@ -177,7 +253,12 @@ impl Tunnel {
                 });
             }
         });
-        Ok(Tunnel { local_port, session, accept_task })
+        Ok(Tunnel { notices, local_port, session, accept_task })
+    }
+
+    /// Things worth telling the user once, e.g. that a new host key was added to known_hosts.
+    pub fn notices(&self) -> &[String] {
+        &self.notices
     }
 
     pub fn local_port(&self) -> u16 {
@@ -233,4 +314,54 @@ async fn forward(
     let _ = tokio::io::AsyncWriteExt::shutdown(&mut wr).await;
     let _ = channel.close().await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(which: u8) -> ssh_key::PublicKey {
+        let line = match which {
+            1 => "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO2MA82KOmGvKezpIYN3YI/iUdPv3DfnVbQqwXkBO/JZ",
+            _ => "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFhVQStMpBTWFwWs9wx9NUxjKQlSUbE4d4BNyrv5TZk8",
+        };
+        ssh_key::PublicKey::from_openssh(line).unwrap()
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("quarry-ssh-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("known_hosts")
+    }
+
+    #[test]
+    fn first_contact_is_remembered_then_known_then_changed_is_refused() {
+        let file = scratch("tofu");
+        let a = key(1);
+        let HostKeyCheck::Added { fingerprint, .. } = check_host_key("db.example", 2222, &a, &file) else {
+            panic!("expected Added");
+        };
+        assert!(fingerprint.starts_with("SHA256:"));
+        assert_eq!(check_host_key("db.example", 2222, &a, &file), HostKeyCheck::Known);
+        match check_host_key("db.example", 2222, &key(2), &file) {
+            HostKeyCheck::Changed { line, file: f, fingerprint } => {
+                let text = std::fs::read_to_string(&file).unwrap();
+                assert!(text.lines().nth(line - 1).is_some_and(|l| l.starts_with("[db.example]:2222")), "{line}");
+                assert_eq!(f, file);
+                assert!(fingerprint.starts_with("SHA256:"));
+            }
+            other => panic!("expected Changed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn changed_key_message_names_host_fingerprint_file_line_and_remedy() {
+        let m = changed_key_message("db.example", 2222, "SHA256:abc", Path::new("/h/.ssh/known_hosts"), 7);
+        for needle in ["[db.example]:2222", "SHA256:abc", "/h/.ssh/known_hosts", "line 7", "ssh-keygen -R \"[db.example]:2222\""]
+        {
+            assert!(m.contains(needle), "{needle} in {m}");
+        }
+        assert!(changed_key_message("h", 22, "x", Path::new("f"), 1).contains("ssh-keygen -R \"h\""));
+    }
 }

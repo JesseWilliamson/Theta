@@ -1135,8 +1135,11 @@ impl Workspace {
 
     pub(super) fn on_map_event(&mut self, e: MapEvent, window: &mut Window, cx: &mut Context<Self>) {
         match e {
-            // The grid exposes no "select row" call, so a click on the map cannot move the grid selection.
-            MapEvent::FeatureClicked { .. } => {}
+            // Select the row in the grid without switching tabs or stealing focus from the map.
+            MapEvent::FeatureClicked { row } => {
+                let grid = self.results.read(cx).grid.clone();
+                grid.update(cx, |g, cx| g.select_row(row, cx));
+            }
             MapEvent::ExportGeoJson(text) => {
                 self.save_text_file("result.geojson".into(), text, "Exported GeoJSON".into(), window, cx)
             }

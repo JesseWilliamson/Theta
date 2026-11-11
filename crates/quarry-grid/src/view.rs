@@ -92,3 +92,26 @@ mod tests {
         assert_eq!(v, vec![1, 2, 0, 3]);
     }
 }
+
+/// Where original row `row` sits in the display order, if it is visible (a filter may hide it).
+pub fn display_position(view: Option<&[u32]>, n_rows: usize, row: usize) -> Option<usize> {
+    match view {
+        None => (row < n_rows).then_some(row),
+        Some(v) => v.iter().position(|&r| r as usize == row),
+    }
+}
+
+#[cfg(test)]
+mod display_position_tests {
+    use super::display_position;
+
+    #[test]
+    fn identity_and_reordered_views() {
+        assert_eq!(display_position(None, 5, 3), Some(3));
+        assert_eq!(display_position(None, 5, 5), None);
+        let v = [4u32, 0, 2];
+        assert_eq!(display_position(Some(&v), 5, 2), Some(2));
+        assert_eq!(display_position(Some(&v), 5, 4), Some(0));
+        assert_eq!(display_position(Some(&v), 5, 1), None, "filtered out");
+    }
+}
