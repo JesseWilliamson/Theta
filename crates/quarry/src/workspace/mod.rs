@@ -40,7 +40,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyView, App, AppContext as _, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, PathPromptOptions, Render,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, px,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window, deferred, div, px,
 };
 use persist::*;
 use quarry_editor_view::EditorStatus;
@@ -980,7 +980,9 @@ impl Render for Workspace {
                             }),
                     ),
             )
-            .child(status)
+            // Deferred so it paints above the toast layer: toasts slide 96 px as they leave and
+            // would otherwise be seen sliding over the status bar.
+            .child(deferred(status).priority(1))
             .when_some(self.modal.as_ref().map(|m| m.view.clone()), |this, view| this.child(view))
     }
 }

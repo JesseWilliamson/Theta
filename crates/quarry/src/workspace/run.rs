@@ -446,8 +446,8 @@ impl Workspace {
         {
             self.log(&conn_id, &p.sql, MessageKind::Error, vec![why.clone()], None, cx);
             self.set_status(id, Some((p.range.clone(), StatementStatus::Failed)), cx);
+            // The Messages tab (brought to the front) and the status bar already say it.
             self.set_bottom_tab(BottomTab::Messages, cx);
-            self.notify(NoticeKind::Error, why, window, cx);
             return;
         }
         if let Some((p, why)) =
@@ -626,8 +626,8 @@ impl Workspace {
                 if let Some(c) = self.consoles.get_mut(&id) {
                     c.summary = Some((e.to_string(), true));
                 }
+                // No toast: `finish_run` raises the Messages tab and the status bar shows the text.
                 self.log(conn_id, &p.sql, MessageKind::Error, vec![e.to_string()], Some(&e), cx);
-                self.notify(NoticeKind::Error, e.to_string(), window, cx);
                 false
             }
         }
@@ -1323,7 +1323,7 @@ impl Workspace {
         let c = connection.clone();
         cx.spawn_in(window, async move |this, cx| {
             let r = runtime::spawn_result(async move { c.execute(sql, &ExecOptions::default()).await }).await;
-            this.update_in(cx, |this, window, cx| {
+            this.update_in(cx, |this, _window, cx| {
                 match r {
                     Ok(out) => {
                         this.log(
@@ -1339,7 +1339,7 @@ impl Workspace {
                     }
                     Err(e) => {
                         this.log(&conn_id, sql, MessageKind::Error, vec![e.to_string()], Some(&e), cx);
-                        this.notify(NoticeKind::Error, e.to_string(), window, cx);
+                        this.set_bottom_tab(BottomTab::Messages, cx);
                     }
                 }
                 this.refresh_txn(conn_id.clone(), connection.clone(), cx);
