@@ -159,6 +159,8 @@ pub struct Workspace {
     modal: Option<Modal>,
     layout_dirty: bool,
     tabs_scroll: gpui_kit::ScrollHandle,
+    /// The tab last scrolled into view, so activation reveals it once.
+    revealed_tab: Option<u64>,
     consoles: HashMap<u64, Console>,
     console_counter: usize,
     results: Entity<ResultsPanel>,
@@ -246,6 +248,7 @@ impl Workspace {
             modal: None,
             layout_dirty: false,
             tabs_scroll: gpui_kit::ScrollHandle::new(),
+            revealed_tab: None,
             consoles: HashMap::new(),
             console_counter: 0,
             results: results.clone(),
