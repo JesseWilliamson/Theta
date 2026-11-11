@@ -1,0 +1,42 @@
+Theta UI bundled assets
+========================
+
+Themes (assets/themes/*.json, except theta.json)
+-------------------------------------------------
+Copied from the gpui-kit project (https://github.com/longbridge/gpui-kit),
+Copyright 2024 - 2026 Longbridge, licensed under the Apache License 2.0
+(assets/themes/LICENSE-gpui-kit-themes.txt). Original theme authors:
+
+  - Adventure (Adventure, Adventure Time): iTerm2-Color-Schemes
+  - Alduin (Alduin): AlessandroYorba
+  - Asciinema (Asciinema): asciinema.org
+  - Aurora (Aurora Light): Longbridge
+  - Ayu (Ayu Light, Ayu Dark): Zed Industries
+  - Catppuccin (Catppuccin Latte, Catppuccin Frappe, Catppuccin Macchiato, Catppuccin Mocha): Catppuccino
+  - Everforest (Everforest Light, Everforest Dark): sainnhe
+  - Fahrenheit (Fahrenheit): iTerm2-Color-Schemes
+  - Flexoki (Flexoki Light, Flexoki Dark): kepano
+  - Gruvbox (Gruvbox Light, Gruvbox Dark): Pavel Pertsev
+  - Harper (Harper): iTerm2-Color-Schemes
+  - Hybrid (Hybrid Light, Hybrid Dark): Andrew Wong
+  - Jellybeans (Jellybeans): nanotech
+  - Kibble (Kibble): iTerm2-Color-Schemes
+  - macOS Classic (macOS Classic Light, macOS Classic Dark): huacnlee
+  - Mellifluous (Mellifluous Light, Mellifluous Dark): Ramojus Lapinskas
+  - Molokai (Molokai Light, Molokai Dark): Tomas Restrepo
+  - Solarized (Solarized Light, Solarized Dark): Ethan Schoonover
+  - Spaceduck (Spaceduck): Guillermo Rodriguez
+  - Tokyo (Tokyo Night, Tokyo Storm, Tokyo Moon): Folke Lemaitre
+  - Twilight (Twilight): MacroMates
+
+theta.json (Theta Dark / Theta Light) is original to Theta, modelled on the
+look of Zed's One Dark / One Light palettes.
+
+Fonts (assets/fonts)
+--------------------
+IBM Plex Sans: Copyright 2017 IBM Corp. SIL Open Font License 1.1 (assets/fonts/IBMPlexSans-OFL.txt).
+Lilex: Copyright 2019 The Lilex Project Authors. SIL Open Font License 1.1 (assets/fonts/Lilex-OFL.txt).
+
+Icons
+-----
+Lucide icons are bundled via the gpui-kit-assets crate (ISC License, Lucide Contributors).

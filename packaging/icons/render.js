@@ -13,7 +13,7 @@ const fs = require('fs'), path = require('path');
     const svg = s <= 24 ? small : s <= 48 ? mid : full;
     const p = await b.newPage({ viewport: { width: s, height: s } });
     await p.setContent(`<html><body style="margin:0;background:transparent"><div style="width:${s}px;height:${s}px">${svg.replace(/width="512" height="512"/, `width="${s}" height="${s}"`)}</div></body></html>`);
-    await p.screenshot({ path: path.join(out, `quarry-${s}.png`), omitBackground: true });
+    await p.screenshot({ path: path.join(out, `theta-${s}.png`), omitBackground: true });
     await p.close();
   }
   await b.close();

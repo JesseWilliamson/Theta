@@ -76,7 +76,7 @@ jobs:
       - name: Version
         id: v
         shell: bash
-        run: echo "version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="quarry"))')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="theta"))')" >> "$GITHUB_OUTPUT"
       - name: Linux build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -88,12 +88,12 @@ jobs:
       # The GUI subsystem keeps Windows from opening a console window behind the app. Done with
       # linker flags so no source change is needed; because --target is given, they do not leak
       # into build scripts. (Adding #![cfg_attr(not(debug_assertions), windows_subsystem =
-      # "windows")] to crates/quarry/src/main.rs makes this unnecessary.)
+      # "windows")] to crates/theta/src/main.rs makes this unnecessary.)
       - name: Build
         shell: bash
         env:
           RUSTFLAGS: ${{ runner.os == 'Windows' && '-C link-args=/SUBSYSTEM:WINDOWS -C link-args=/ENTRY:mainCRTStartup' || '' }}
-        run: cargo build --release -p quarry --locked --target ${{ matrix.target }}
+        run: cargo build --release -p theta --locked --target ${{ matrix.target }}
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
@@ -101,12 +101,12 @@ jobs:
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage || true
           chmod +x appimagetool || true
           [ -s appimagetool ] && export APPIMAGETOOL=$PWD/appimagetool
-          packaging/linux/package.sh target/${{ matrix.target }}/release/quarry ${{ steps.v.outputs.version }} dist
+          packaging/linux/package.sh target/${{ matrix.target }}/release/theta ${{ steps.v.outputs.version }} dist
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
           mkdir dist
-          packaging/macos/bundle.sh target/${{ matrix.target }}/release/quarry \
+          packaging/macos/bundle.sh target/${{ matrix.target }}/release/theta \
             ${{ steps.v.outputs.version }} "${{ endsWith(matrix.name, 'arm64') && 'arm64' || 'x86_64' }}" dist
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -117,25 +117,25 @@ jobs:
           # string (pre-release suffix included) goes into the ProductVersion/FileVersion text.
           $num = ($v -split '-')[0]
           New-Item -ItemType Directory dist, stage | Out-Null
-          $exe = "target/${{ matrix.target }}/release/quarry.exe"
+          $exe = "target/${{ matrix.target }}/release/theta.exe"
           # Embed the icon and version info into the exe (no build script needed).
           Invoke-WebRequest -Uri https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe -OutFile rcedit.exe
-          ./rcedit.exe $exe --set-icon packaging/windows/quarry.ico `
+          ./rcedit.exe $exe --set-icon packaging/windows/theta.ico `
             --set-file-version "$num.0" --set-product-version "$num.0" `
             --set-version-string FileVersion "$v" --set-version-string ProductVersion "$v" `
-            --set-version-string ProductName Quarry --set-version-string FileDescription "Quarry database IDE" `
-            --set-version-string InternalName quarry --set-version-string OriginalFilename quarry.exe `
-            --set-version-string LegalCopyright "Quarry contributors"
+            --set-version-string ProductName Theta --set-version-string FileDescription "Theta database IDE" `
+            --set-version-string InternalName theta --set-version-string OriginalFilename theta.exe `
+            --set-version-string LegalCopyright "Theta contributors"
           # Verify the subsystem really is GUI (2) and not console (3).
           $b = [IO.File]::ReadAllBytes((Resolve-Path $exe))
           $pe = [BitConverter]::ToInt32($b, 0x3c)
           $sub = [BitConverter]::ToUInt16($b, $pe + 24 + 68)
           Write-Host "PE subsystem: $sub"
-          if ($sub -ne 2) { throw "quarry.exe is not a GUI-subsystem binary" }
-          Copy-Item $exe stage/quarry.exe
-          Copy-Item README.md, CHANGELOG.md, docs/THIRD_PARTY.md, crates/quarry-ui/NOTICE stage/
+          if ($sub -ne 2) { throw "theta.exe is not a GUI-subsystem binary" }
+          Copy-Item $exe stage/theta.exe
+          Copy-Item README.md, CHANGELOG.md, docs/THIRD_PARTY.md, crates/theta-ui/NOTICE stage/
           Get-ChildItem LICENSE* -ErrorAction SilentlyContinue | Copy-Item -Destination stage/
-          Compress-Archive -Path stage/* -DestinationPath "dist/quarry-$v-windows-x86_64.zip"
+          Compress-Archive -Path stage/* -DestinationPath "dist/theta-$v-windows-x86_64.zip"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -196,8 +196,8 @@ jobs:
               draft=
             fi
             gh release create "$NEW_TAG" $draft $pre --target "$(git rev-parse HEAD)" \
-              --title "Quarry ${NEW_TAG#v}" --notes-file RELEASE_NOTES.md dist/*
+              --title "Theta ${NEW_TAG#v}" --notes-file RELEASE_NOTES.md dist/*
           else
             git show-ref --verify --quiet "refs/tags/$REF" || { echo "$REF is not a tag"; exit 1; }
-            gh release create "$REF" --draft --title "Quarry ${REF#v}" --notes-file RELEASE_NOTES.md dist/*
+            gh release create "$REF" --draft --title "Theta ${REF#v}" --notes-file RELEASE_NOTES.md dist/*
           fi

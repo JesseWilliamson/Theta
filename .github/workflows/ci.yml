@@ -84,23 +84,23 @@ jobs:
           docker exec "$id" mariadb -uroot -proot \
             -e "GRANT ALL ON *.* TO 'quarry'@'%'; FLUSH PRIVILEGES;"
       - run: >
-          cargo clippy -p quarry-core -p quarry-sql -p quarry-geo -p quarry-editor -p quarry-drivers
+          cargo clippy -p theta-core -p theta-sql -p theta-geo -p theta-editor -p theta-drivers
           --all-targets -- -D warnings
-      - run: cargo test -p quarry-core -p quarry-sql -p quarry-geo -p quarry-editor -p quarry-drivers
-      # A throw-away sshd on 127.0.0.1:2222; see crates/quarry-drivers/tests/ssh/setup.sh. The key
+      - run: cargo test -p theta-core -p theta-sql -p theta-geo -p theta-editor -p theta-drivers
+      # A throw-away sshd on 127.0.0.1:2222; see crates/theta-drivers/tests/ssh/setup.sh. The key
       # directory must be world-traversable (/tmp, not the runner's home): sshd reads
       # authorized_keys as the test user.
       - name: SSH tunnel tests
         env:
-          QUARRY_TEST_SSH: "1"
-          QUARRY_TEST_SSH_DIR: /tmp/quarry-ssh-test
+          THETA_TEST_SSH: "1"
+          THETA_TEST_SSH_DIR: /tmp/theta-ssh-test
         run: |
           sudo apt-get install -y openssh-server
-          sudo -E crates/quarry-drivers/tests/ssh/setup.sh
+          sudo -E crates/theta-drivers/tests/ssh/setup.sh
           # the tests read the client keys as the unprivileged runner user
-          sudo chown -R "$(id -u):$(id -g)" "$QUARRY_TEST_SSH_DIR"
-          cargo test -p quarry-drivers --test ssh
-          sudo -E crates/quarry-drivers/tests/ssh/setup.sh stop
+          sudo chown -R "$(id -u):$(id -g)" "$THETA_TEST_SSH_DIR"
+          cargo test -p theta-drivers --test ssh
+          sudo -E crates/theta-drivers/tests/ssh/setup.sh stop
 
   # The GPUI application on every platform we ship: build everything, run all
   # tests (the Linux ones under a virtual X server with a software Vulkan driver).
@@ -138,10 +138,10 @@ jobs:
       - run: cargo build --workspace --all-targets
       - name: Tests (headless)
         if: runner.os == 'Linux'
-        run: xvfb-run -a cargo test --workspace --exclude quarry-drivers
+        run: xvfb-run -a cargo test --workspace --exclude theta-drivers
       - name: Tests
         if: runner.os != 'Linux'
-        run: cargo test --workspace --exclude quarry-drivers
+        run: cargo test --workspace --exclude theta-drivers
 
   # Non-blocking until the whole workspace is warning-free.
   clippy:

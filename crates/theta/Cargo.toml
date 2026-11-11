@@ -1,0 +1,43 @@
+[package]
+name = "theta"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+theta-ui.workspace = true
+theta-core.workspace = true
+theta-drivers.workspace = true
+theta-sql.workspace = true
+theta-geo.workspace = true
+theta-editor.workspace = true
+theta-grid.workspace = true
+theta-map-view.workspace = true
+theta-editor-view.workspace = true
+theta-plan-view.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+url.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+image.workspace = true
+
+# The platform keychain. On Linux the pure-Rust Secret Service client is used
+# (no libdbus headers needed) with the kernel keyring as a session cache; when
+# neither is reachable (headless CI, containers) the store falls back to memory.
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6", default-features = false, features = ["linux-native-async-persistent", "crypto-rust", "async-io"] }
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6", default-features = false, features = ["apple-native"] }
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6", default-features = false, features = ["windows-native"] }
+
+[dev-dependencies]
+tempfile = "3"
+gpui-kit = { workspace = true, features = ["test-support"] }

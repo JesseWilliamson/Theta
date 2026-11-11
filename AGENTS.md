@@ -1,12 +1,12 @@
 # Working in this repository
 
-Quarry is a keyboard-first database IDE built on GPUI (via the `gpui-kit` crate).
+Theta is a keyboard-first database IDE built on GPUI (via the `gpui-kit` crate).
 Read `docs/ARCHITECTURE.md` before changing anything.
 
 ## Rules
 
 - **Stay inside your assigned crate/paths.** Other agents work in sibling crates at
-  the same time. Never edit `crates/quarry-core` unless your task says so — it is the
+  the same time. Never edit `crates/theta-core` unless your task says so — it is the
   shared contract. If the contract is genuinely missing something, stop and report
   it in your final message instead of working around it.
 - **No stubs, no `todo!()`, no placeholder data in shipped code paths.** If something
@@ -47,7 +47,7 @@ Do not push, do not rebase, do not touch other agents' uncommitted files, never 
 
 ## Seeing the UI
 
-`cargo build -p quarry && script/shot /tmp/shots/name.png [steps.sh]` renders the
+`cargo build -p theta && script/shot /tmp/shots/name.png [steps.sh]` renders the
 real app under Xvfb and writes a PNG (read `script/shot` for the step language).
 Look at the PNG with the Read tool. A UI task is not done until you have looked at
 a screenshot of it and it looks right: aligned, no clipped text, consistent spacing.

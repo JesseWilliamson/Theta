@@ -1,7 +1,7 @@
 # Key bindings
 
 `mod` means `cmd` on macOS and `ctrl` on Linux and Windows. Everything is checked against the code
-(`crates/quarry/src/keymap/`, `crates/quarry/src/actions.rs`, the editor and view crates) and against the
+(`crates/theta/src/keymap/`, `crates/theta/src/actions.rs`, the editor and view crates) and against the
 running application. Platform differences are marked where they exist.
 
 - **Key maps.** The editor has three key maps: Helix (default), Vim and Standard. Choose in Settings › Editor ›
@@ -20,7 +20,7 @@ running application. Platform differences are marked where they exist.
 
 ## Application (global)
 
-Defined in `crates/quarry/src/keymap/mod.rs`. `mod` is `ctrl` or `cmd`. Each chord is active everywhere except
+Defined in `crates/theta/src/keymap/mod.rs`. `mod` is `ctrl` or `cmd`. Each chord is active everywhere except
 where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 
 | Keys | Action |
@@ -76,12 +76,12 @@ The same holds for the other focused views: the results grid keeps its `mod-0` (
 and the pickers keep `ctrl-n` / `ctrl-p`. The map and the plan panel use no chords, so the application's apply
 there.
 
-How it is enforced: the editor publishes its state as key context (`QuarryEditor`,
+How it is enforced: the editor publishes its state as key context (`ThetaEditor`,
 `keymap=helix|vim|standard`, `mode=normal|insert|select|visual|visual-line|visual-block|replace|standard`,
 `prompt` while the `:` or `/` bar is open, `completion` while the popup is open, and in Vim `pending` while an
 operator, `g`, `z`, a register or a count waits for the rest of its command). The application asks the engine which keystrokes it uses in which state and adds
-`!(QuarryEditor && <those states>)` to every global binding on such a keystroke
-(`crates/quarry/src/keymap/ownership.rs`). Nothing is a hand-written list, and a headless test
+`!(ThetaEditor && <those states>)` to every global binding on such a keystroke
+(`crates/theta/src/keymap/ownership.rs`). Nothing is a hand-written list, and a headless test
 (`every_global_binding_is_handled_by_exactly_one_side`, `focused_views_win_their_own_keys…`) presses every
 application binding in every state of all three key maps (Vim: Normal, Insert, Visual, V-LINE, V-BLOCK, Replace,
 operator-pending, prompt open, popup open) and checks that exactly one side handled it.
@@ -165,7 +165,7 @@ owned by the popup in both key maps; see [Who wins a key](#who-wins-a-key).)
 
 ## Results grid
 
-Handled in `crates/quarry-grid/src/input.rs` when the grid has focus. `mod` is `ctrl` or `cmd`.
+Handled in `crates/theta-grid/src/input.rs` when the grid has focus. `mod` is `ctrl` or `cmd`.
 
 | Keys | Action |
 | --- | --- |
@@ -198,7 +198,7 @@ opens the context menu.
 
 ## Map
 
-Handled in `crates/quarry-map-view/src/panel.rs` when the map has focus (chords with `ctrl`, `alt` or `cmd`
+Handled in `crates/theta-map-view/src/panel.rs` when the map has focus (chords with `ctrl`, `alt` or `cmd`
 are ignored).
 
 | Keys | Action |
@@ -214,7 +214,7 @@ picks a feature, right-click opens a menu (*Copy coordinates*, *Copy as WKT poin
 
 ## Plan panel
 
-Handled in `crates/quarry-plan-view/src/panel.rs` in the tree and flame views (not in *Raw*).
+Handled in `crates/theta-plan-view/src/panel.rs` in the tree and flame views (not in *Raw*).
 
 | Keys | Action |
 | --- | --- |
@@ -227,7 +227,7 @@ Handled in `crates/quarry-plan-view/src/panel.rs` in the tree and flame views (n
 
 ## Editor
 
-The tables below are the editor engine's own (`crates/quarry-editor/README.md`), which the application also
+The tables below are the editor engine's own (`crates/theta-editor/README.md`), which the application also
 shows in Settings › Keymap. Read them together with [Who wins a key](#who-wins-a-key).
 
 ### Helix key map
@@ -564,7 +564,7 @@ Anything else becomes `Effect::HostCommand(text)`. `tab` completes command names
 `ctrl-shift-enter` RunAll · `ctrl-space` RequestCompletion · `F5` RunAll.
 
 The deviations from real Vim (what `space` means, fixed options, no `:map` or Vimscript, no windows) are listed in
-[the engine README](../crates/quarry-editor/README.md#deviations-from-vim) and summarised in the
+[the engine README](../crates/theta-editor/README.md#deviations-from-vim) and summarised in the
 [user guide](USER_GUIDE.md#vim-keymap).
 
 ### Standard key map

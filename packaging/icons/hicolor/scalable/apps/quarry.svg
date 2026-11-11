@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <title>Quarry</title>
-  <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b3d42"/><stop offset="1" stop-color="#18191b"/></linearGradient><linearGradient id="hi" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.16"/><stop offset="0.12" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
-  <rect width="512" height="512" rx="115" fill="url(#bg)"/>
-  <rect x="0.5" y="0.5" width="511" height="511" rx="114.5" fill="none" stroke="url(#hi)"/>
-  <g fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linejoin="miter" stroke-linecap="butt" stroke-miterlimit="4" opacity="0.92"><path d="M128 168 L256 104 L384 168 L384 208 L256 272 L128 208Z" fill="#FFFFFF" fill-opacity="0.04" stroke="none"/><path d="M128 236 L256 300 L384 236 L384 276 L256 340 L128 276Z" fill="#FFFFFF" fill-opacity="0.04" stroke="none"/><path d="M128 304 L256 368 L384 304 L384 344 L256 408 L128 344Z" fill="#FFFFFF" fill-opacity="0.04" stroke="none"/><path d="M128 168 L256 104 L384 168 L384 208 L256 272 L128 208Z"/><path d="M128 168 L256 232 L384 168"/><path d="M256 232 L256 272"/><path d="M128 236 L256 300 L384 236 L384 276 L256 340 L128 276Z"/><path d="M256 300 L256 340"/><path d="M128 304 L256 368 L384 304 L384 344 L256 408 L128 344Z"/><path d="M256 368 L256 408"/></g>
-</svg>

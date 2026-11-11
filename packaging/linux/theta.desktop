@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Theta
+GenericName=Database IDE
+Comment=Keyboard-first database IDE for PostgreSQL, MySQL/MariaDB and SQLite
+Exec=theta %U
+Icon=theta
+Terminal=false
+Categories=Development;Database;IDE;
+Keywords=sql;database;postgres;postgresql;mysql;mariadb;sqlite;postgis;query;
+StartupNotify=true
+StartupWMClass=theta

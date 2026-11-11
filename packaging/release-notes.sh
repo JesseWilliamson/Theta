@@ -26,9 +26,9 @@ cat <<'NOTE'
 ## Installing
 
 - **Linux**: extract the `.tar.gz` and run `./install.sh`, or make the `.AppImage` executable.
-- **macOS**: unzip and drag `Quarry.app` to Applications. The app is ad-hoc signed but not
+- **macOS**: unzip and drag `Theta.app` to Applications. The app is ad-hoc signed but not
   notarised: on first launch right-click the app and choose Open (see the user guide).
-- **Windows**: unzip and run `quarry.exe`.
+- **Windows**: unzip and run `theta.exe`.
 
 Verify downloads against `SHA256SUMS`.
 NOTE

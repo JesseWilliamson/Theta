@@ -1,0 +1,18 @@
+[package]
+name = "theta-grid"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+theta-core.workspace = true
+theta-geo.workspace = true
+theta-ui = { path = "../theta-ui" }
+serde_json.workspace = true
+
+[[example]]
+name = "grid_demo"
+path = "examples/grid_demo.rs"

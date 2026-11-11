@@ -3,7 +3,8 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
+repository = "https://github.com/JesseWilliamson/Quarry"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
@@ -18,19 +19,19 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "fs"] }
-quarry-core = { path = "crates/quarry-core" }
-quarry-drivers = { path = "crates/quarry-drivers" }
-quarry-sql = { path = "crates/quarry-sql" }
-quarry-geo = { path = "crates/quarry-geo" }
-quarry-editor = { path = "crates/quarry-editor" }
+theta-core = { path = "crates/theta-core" }
+theta-drivers = { path = "crates/theta-drivers" }
+theta-sql = { path = "crates/theta-sql" }
+theta-geo = { path = "crates/theta-geo" }
+theta-editor = { path = "crates/theta-editor" }
 dirs = "6"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-quarry-ui = { path = "crates/quarry-ui" }
-quarry-grid = { path = "crates/quarry-grid" }
-quarry-map-view = { path = "crates/quarry-map-view" }
-quarry-editor-view = { path = "crates/quarry-editor-view" }
-quarry-plan-view = { path = "crates/quarry-plan-view" }
+theta-ui = { path = "crates/theta-ui" }
+theta-grid = { path = "crates/theta-grid" }
+theta-map-view = { path = "crates/theta-map-view" }
+theta-editor-view = { path = "crates/theta-editor-view" }
+theta-plan-view = { path = "crates/theta-plan-view" }
 
 [profile.dev]
 opt-level = 1

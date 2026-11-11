@@ -1,0 +1,350 @@
+//! Theme registry glue: bundled themes, user themes, applying a theme together
+//! with the font settings, and Zed theme import.
+//!
+//! gpui-kit's own `ThemeRegistry::watch_dir` rebuilds the registry from the
+//! watched directory only, which would drop the embedded themes, so user themes
+//! are loaded once at start-up and newly imported files are registered
+//! directly.
+
+use crate::settings::{Settings, config_dir};
+use gpui_kit::component::{ActiveTheme as _, Theme, ThemeRegistry};
+use gpui_kit::{App, SharedString, px};
+use std::path::{Path, PathBuf};
+
+pub const THETA_DARK: &str = "Theta Dark";
+pub const THETA_LIGHT: &str = "Theta Light";
+
+pub(crate) const THETA_THEMES_JSON: &str = include_str!("../assets/themes/theta.json");
+
+/// (file name, contents) of every bundled theme file, Theta's own first.
+pub(crate) const BUNDLED: &[(&str, &str)] = &[
+    ("theta.json", THETA_THEMES_JSON),
+    ("adventure.json", include_str!("../assets/themes/adventure.json")),
+    ("alduin.json", include_str!("../assets/themes/alduin.json")),
+    ("asciinema.json", include_str!("../assets/themes/asciinema.json")),
+    ("aurora.json", include_str!("../assets/themes/aurora.json")),
+    ("ayu.json", include_str!("../assets/themes/ayu.json")),
+    ("catppuccin.json", include_str!("../assets/themes/catppuccin.json")),
+    ("everforest.json", include_str!("../assets/themes/everforest.json")),
+    ("fahrenheit.json", include_str!("../assets/themes/fahrenheit.json")),
+    ("flexoki.json", include_str!("../assets/themes/flexoki.json")),
+    ("gruvbox.json", include_str!("../assets/themes/gruvbox.json")),
+    ("harper.json", include_str!("../assets/themes/harper.json")),
+    ("hybrid.json", include_str!("../assets/themes/hybrid.json")),
+    ("jellybeans.json", include_str!("../assets/themes/jellybeans.json")),
+    ("kibble.json", include_str!("../assets/themes/kibble.json")),
+    ("macos-classic.json", include_str!("../assets/themes/macos-classic.json")),
+    ("mellifluous.json", include_str!("../assets/themes/mellifluous.json")),
+    ("molokai.json", include_str!("../assets/themes/molokai.json")),
+    ("solarized.json", include_str!("../assets/themes/solarized.json")),
+    ("spaceduck.json", include_str!("../assets/themes/spaceduck.json")),
+    ("tokyonight.json", include_str!("../assets/themes/tokyonight.json")),
+    ("twilight.json", include_str!("../assets/themes/twilight.json")),
+];
+
+pub fn themes_dir() -> PathBuf {
+    config_dir().join("themes")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThemeInfo {
+    pub name: SharedString,
+    pub dark: bool,
+}
+
+pub(crate) fn register_bundled(cx: &mut App) {
+    let registry = ThemeRegistry::global_mut(cx);
+    for (file, json) in BUNDLED {
+        if let Err(e) = registry.load_themes_from_str(json) {
+            eprintln!("theta-ui: bundled theme {file} is invalid: {e}");
+        }
+    }
+}
+
+/// Register every `*.json` in `<config_dir>/themes/`. Returns one warning per
+/// unreadable or invalid file.
+pub(crate) fn load_user_themes(cx: &mut App) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let Ok(entries) = std::fs::read_dir(themes_dir()) else { return warnings };
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("json"))
+        .collect();
+    files.sort();
+    for path in files {
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                if let Err(e) = ThemeRegistry::global_mut(cx).load_themes_from_str(&text) {
+                    warnings.push(format!("theme {}: {e}", path.display()));
+                }
+            }
+            Err(e) => warnings.push(format!("theme {}: {e}", path.display())),
+        }
+    }
+    warnings
+}
+
+/// Every registered theme: Theta's first, then light before dark by name.
+pub fn available(cx: &App) -> Vec<ThemeInfo> {
+    let mut list: Vec<ThemeInfo> = ThemeRegistry::global(cx)
+        .themes()
+        .values()
+        .map(|t| ThemeInfo { name: t.name.clone(), dark: t.mode.is_dark() })
+        .collect();
+    list.sort_by_key(|t| {
+        let rank = match t.name.as_ref() {
+            THETA_DARK => 0,
+            THETA_LIGHT => 1,
+            _ => 2,
+        };
+        (rank, t.dark, t.name.to_lowercase())
+    });
+    list
+}
+
+pub fn current_name(cx: &App) -> SharedString {
+    cx.theme().theme_name().clone()
+}
+
+/// The theme name the settings ask for right now, honouring "follow system".
+pub fn desired_name(cx: &App) -> String {
+    let s = Settings::get(cx);
+    if s.follow_system_appearance {
+        match cx.window_appearance() {
+            gpui_kit::WindowAppearance::Light | gpui_kit::WindowAppearance::VibrantLight => {
+                s.light_theme.clone()
+            }
+            _ => s.dark_theme.clone(),
+        }
+    } else {
+        s.theme.clone()
+    }
+}
+
+/// Apply a theme by name without touching the saved settings (used for live
+/// preview). Returns false when no such theme is registered.
+pub fn preview(name: &str, cx: &mut App) -> bool {
+    let Some(config) = ThemeRegistry::global(cx).themes().get(name).cloned() else {
+        return false;
+    };
+    let (ui_family, ui_size, mono_family, mono_size) = {
+        let s = Settings::get(cx);
+        (s.ui_font_family.clone(), s.ui_font_size, s.buffer_font_family.clone(), s.buffer_font_size)
+    };
+    Theme::update(cx, |theme| {
+        theme.apply_config(&config);
+        ensure_readable_muted_text(theme);
+        // Fonts are a user setting, not part of a colour theme, so they win
+        // over whatever a theme file might say.
+        theme.font_family = ui_family.into();
+        theme.font_size = px(ui_size);
+        theme.mono_font_family = mono_family.into();
+        theme.mono_font_size = px(mono_size);
+    });
+    true
+}
+
+/// Minimum contrast for secondary text (labels, hints, line numbers, column types).
+const MUTED_MIN_CONTRAST: f32 = 4.0;
+
+/// Many themes, bundled and imported, ship a `muted.foreground` that is barely readable on
+/// their own surfaces (2.2:1 on Catppuccin Latte, 2.4:1 on Ayu Dark and Tokyo Storm). Every
+/// panel draws secondary text with it, so rather than patching individual themes the colour
+/// is pulled toward the foreground until it passes on every surface it is drawn on.
+fn ensure_readable_muted_text(theme: &mut Theme) {
+    let surfaces = [theme.background, theme.sidebar, theme.tab_bar, theme.secondary, theme.muted];
+    let mut muted = theme.muted_foreground;
+    for surface in surfaces {
+        muted = crate::contrast::ensure_contrast(muted, surface, theme.foreground, MUTED_MIN_CONTRAST);
+    }
+    theme.muted_foreground = muted;
+}
+
+/// (Re)apply whatever the settings say; falls back to the mode defaults when
+/// the saved theme no longer exists.
+pub fn apply_from_settings(cx: &mut App) {
+    let name = desired_name(cx);
+    if !preview(&name, cx) {
+        let fallback = if matches!(
+            cx.window_appearance(),
+            gpui_kit::WindowAppearance::Light | gpui_kit::WindowAppearance::VibrantLight
+        ) {
+            THETA_LIGHT
+        } else {
+            THETA_DARK
+        };
+        preview(fallback, cx);
+    }
+}
+
+/// Persist `name` as the active theme and apply it immediately (observers
+/// only run after the current update cycle, which is too late during start-up).
+pub fn set_theme(name: &str, cx: &mut App) {
+    let name = name.to_string();
+    Settings::update(cx, |s| s.theme = name.clone());
+    preview(&name, cx);
+}
+
+/// Convert a Zed theme file, store it in `<config_dir>/themes/` and register
+/// it. Returns the names of the imported themes.
+pub fn import_zed_theme_file(src: &Path, cx: &mut App) -> anyhow::Result<Vec<String>> {
+    let text = std::fs::read_to_string(src)?;
+    let converted = crate::zed_import::import_zed_theme(&text)?;
+    let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("imported");
+    let dest = themes_dir().join(format!("{}.json", crate::zed_import::slug(stem)));
+    crate::settings::write_atomic(&dest, converted.as_bytes())?;
+    let names = crate::zed_import::theme_names(&converted);
+    ThemeRegistry::global_mut(cx).load_themes_from_str(&converted)?;
+    Ok(names)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_bundled_file_parses_as_a_theme_set() {
+        for (file, json) in BUNDLED {
+            let set: gpui_kit::component::ThemeSet =
+                serde_json::from_str(json).unwrap_or_else(|e| panic!("{file}: {e}"));
+            assert!(!set.themes.is_empty(), "{file} has no themes");
+        }
+        assert_eq!(BUNDLED.len(), 22, "21 gpui-kit theme files plus theta.json");
+    }
+
+    #[test]
+    fn bundled_themes_get_readable_muted_text() {
+        use crate::contrast::ratio;
+        use gpui_kit::component::ThemeRegistry;
+        let app = gpui_kit::TestAppContext::single();
+        app.update(|cx| {
+            crate::init(cx);
+            let names: Vec<_> = ThemeRegistry::global(cx).themes().keys().cloned().collect();
+            assert!(names.len() >= 38);
+            for name in names {
+                assert!(preview(&name, cx));
+                let t = cx.theme();
+                let rgb = |c: gpui_kit::Hsla| {
+                    let r = c.to_rgb();
+                    [r.r, r.g, r.b]
+                };
+                // On the editor/panel background: the surface all text sits on.
+                let r = ratio(rgb(t.muted_foreground), rgb(t.background));
+                assert!(r >= MUTED_MIN_CONTRAST - 0.05, "{name}: muted text is {r:.2}:1 on the background");
+            }
+        });
+    }
+
+    fn lum(c: gpui_kit::Hsla) -> f32 {
+        let r = c.to_rgb();
+        crate::contrast::luminance([r.r, r.g, r.b])
+    }
+
+    fn ratio_of(a: gpui_kit::Hsla, b: gpui_kit::Hsla) -> f32 {
+        let (a, b) = (a.to_rgb(), b.to_rgb());
+        crate::contrast::ratio([a.r, a.g, a.b], [b.r, b.g, b.b])
+    }
+
+    /// The surface ladder of Theta Dark: data (editor, gutter, grid rows, active tab) is the darkest,
+    /// panels and tab strips are lighter, the title and status bars lighter still. This is what makes
+    /// the text area recede like Zed's; if someone "tidies" the palette back to one grey it fails.
+    #[test]
+    fn theta_dark_ladder_and_contrast_minimums() {
+        let app = gpui_kit::TestAppContext::single();
+        app.update(|cx| {
+            crate::init(cx);
+            assert!(preview(THETA_DARK, cx));
+            let t = cx.theme().clone();
+            let ed = crate::colors::EditorColors::get(cx);
+            let syn = crate::colors::SyntaxColors::get(cx);
+            let data = crate::colors::data_surface(cx);
+
+            assert_eq!(ed.background, data);
+            assert_eq!(ed.gutter_background, data, "gutter joins the text area");
+            assert_eq!(t.tab_active, data, "the active tab and the editor are one surface");
+            assert_eq!(t.table, data, "grid rows are a data surface");
+            assert!(lum(data) < lum(t.sidebar), "editor must be darker than the panels");
+            assert!(lum(data) < lum(t.tab_bar));
+            assert!(lum(data) < lum(t.table_head), "grid header is chrome");
+            assert!(lum(t.sidebar) < lum(t.title_bar) && lum(t.sidebar) < lum(t.status_bar));
+            assert!(lum(data) < lum(t.popover), "popups lift off the editor");
+            // the steps must be visible, not just ordered
+            assert!(
+                ratio_of(t.sidebar, data) >= 1.15,
+                "editor vs panel step {:.2}",
+                ratio_of(t.sidebar, data)
+            );
+            assert!(ratio_of(t.title_bar, t.sidebar) >= 1.15);
+
+            let line = data.blend(ed.active_line);
+            assert!(lum(line) > lum(data) && lum(line) <= lum(t.sidebar), "active line is a subtle lift");
+
+            assert!(ratio_of(ed.foreground, data) >= 7.0);
+            assert!(ratio_of(t.muted_foreground, data) >= 4.5);
+            assert!(ratio_of(ed.active_line_number, line) >= 4.5);
+            assert!(
+                ratio_of(ed.line_number, data) >= 3.0,
+                "line numbers {:.2}",
+                ratio_of(ed.line_number, data)
+            );
+            assert!(ratio_of(syn.comment, data) >= 4.0, "comments {:.2}", ratio_of(syn.comment, data));
+            assert!(ratio_of(syn.comment, line) >= 3.6, "comments on the active line");
+        });
+    }
+
+    /// Theta Light mirrors the rule (editor lightest, chrome a step darker) and must not regress.
+    #[test]
+    fn theta_light_keeps_editor_lightest_and_readable() {
+        let app = gpui_kit::TestAppContext::single();
+        app.update(|cx| {
+            crate::init(cx);
+            assert!(preview(THETA_LIGHT, cx));
+            let t = cx.theme().clone();
+            let ed = crate::colors::EditorColors::get(cx);
+            let syn = crate::colors::SyntaxColors::get(cx);
+            let data = crate::colors::data_surface(cx);
+            assert!(lum(data) > lum(t.sidebar) && lum(t.sidebar) >= lum(t.title_bar) - 0.05);
+            assert!(ratio_of(ed.foreground, data) >= 7.0);
+            assert!(ratio_of(t.muted_foreground, data) >= 4.5);
+            assert!(ratio_of(syn.comment, data) >= 4.0, "comments {:.2}", ratio_of(syn.comment, data));
+            assert!(
+                ratio_of(ed.line_number, data) >= 3.0,
+                "line numbers {:.2}",
+                ratio_of(ed.line_number, data)
+            );
+        });
+    }
+
+    /// Themes that name no editor background (or whose editor and window backgrounds differ) still
+    /// get one readable data surface.
+    #[test]
+    fn every_bundled_theme_has_a_readable_data_surface() {
+        use gpui_kit::component::ThemeRegistry;
+        let app = gpui_kit::TestAppContext::single();
+        app.update(|cx| {
+            crate::init(cx);
+            let names: Vec<_> = ThemeRegistry::global(cx).themes().keys().cloned().collect();
+            for name in names {
+                assert!(preview(&name, cx));
+                let t = cx.theme().clone();
+                let data = crate::colors::data_surface(cx);
+                let r = ratio_of(t.foreground, data);
+                assert!(r >= 4.5, "{name}: foreground is {r:.2}:1 on the data surface");
+            }
+        });
+    }
+
+    #[test]
+    fn theta_themes_have_the_reference_palette() {
+        let set: gpui_kit::component::ThemeSet = serde_json::from_str(THETA_THEMES_JSON).unwrap();
+        let names: Vec<_> = set.themes.iter().map(|t| t.name.to_string()).collect();
+        assert_eq!(names, vec![THETA_DARK, THETA_LIGHT]);
+        let dark = &set.themes[0];
+        assert!(dark.mode.is_dark());
+        assert_eq!(dark.colors.background.as_ref().unwrap().as_ref(), "#21252b");
+        assert_eq!(dark.colors.border.as_ref().unwrap().as_ref(), "#464b57");
+        let light = &set.themes[1];
+        assert!(!light.mode.is_dark());
+        assert_eq!(light.colors.background.as_ref().unwrap().as_ref(), "#fafafa");
+    }
+}

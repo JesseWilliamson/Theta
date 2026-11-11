@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Generates the Quarry icon SVGs (run from anywhere; writes next to this file, stdlib only).
+"""Generates the Theta icon SVGs (run from anywhere; writes next to this file, stdlib only).
 
 The mark is three isometric slabs stacked on each other, drawn as thin white lines: it reads as a
 database stack and as quarried marble blocks at the same time. The tile is a quiet dark grey
 gradient; there is no second colour.
 
 Outputs
-  quarry.svg        full-detail 512 tile, used for every size >= 64 px
-  quarry-mid.svg    simplified tile with a heavier stroke, used for 32 and 48 px
-  quarry-small.svg  minimal tile (top rhombus and two chevrons), used for 16 and 24 px
-  quarry-light.svg  dark lines on a light grey gradient, for docs
-  quarry-mark.svg   glyph only, `currentColor`, tight square viewBox (embedded in the app)
+  theta.svg        full-detail 512 tile, used for every size >= 64 px
+  theta-mid.svg    simplified tile with a heavier stroke, used for 32 and 48 px
+  theta-small.svg  minimal tile (top rhombus and two chevrons), used for 16 and 24 px
+  theta-light.svg  dark lines on a light grey gradient, for docs
+  theta-mark.svg   glyph only, `currentColor`, tight square viewBox (embedded in the app)
 
 Why three detail levels: a stroke that is elegant at 512 px (about 2% of the tile) is a
 sub-pixel smudge at 32 px, and the slab seams are narrower than a pixel there. Each variant
@@ -158,7 +158,7 @@ def defs(bg, uid="bg"):
     return f"<defs>{grad}{hi}</defs>"
 
 
-def svg_tile(P, bg, ink, ink_opacity=INK_OPACITY, highlight=True, title="Quarry"):
+def svg_tile(P, bg, ink, ink_opacity=INK_OPACITY, highlight=True, title="Theta"):
     g, _ = glyph_group(P, ink, ink_opacity)
     hl = (f'<rect x="0.5" y="0.5" width="511" height="511" rx="{TILE_RX - 0.5}" fill="none" stroke="url(#hi)"/>'
           if highlight else "")
@@ -178,7 +178,7 @@ def svg_mark(P, side_pad=8):
     side = 2 * max(half_h, half_w) + side_pad * 2
     cy = (bb[0] + bb[1]) / 2
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{fmt(C - side / 2)} {fmt(cy - side / 2)} {fmt(side)} {fmt(side)}">\n'
-            f'  <title>Quarry</title>\n  {g}\n</svg>\n')
+            f'  <title>Theta</title>\n  {g}\n</svg>\n')
 
 
 # The in-app renderer ignores fill-opacity, so the faint face fill is dropped; slab height and gap grow so the
@@ -193,11 +193,11 @@ def main():
         with open(os.path.join(here, name), "w") as f:
             f.write(text)
 
-    w("quarry.svg", svg_tile(FULL, DARK_BG, INK))
-    w("quarry-mid.svg", svg_tile(MID, DARK_BG, INK))
-    w("quarry-small.svg", svg_tile(SMALL, DARK_BG, INK, highlight=False))
-    w("quarry-light.svg", svg_tile(FULL, LIGHT_BG, LIGHT_INK, 0.9, highlight=False))
-    w("quarry-mark.svg", svg_mark(MARK))
+    w("theta.svg", svg_tile(FULL, DARK_BG, INK))
+    w("theta-mid.svg", svg_tile(MID, DARK_BG, INK))
+    w("theta-small.svg", svg_tile(SMALL, DARK_BG, INK, highlight=False))
+    w("theta-light.svg", svg_tile(FULL, LIGHT_BG, LIGHT_INK, 0.9, highlight=False))
+    w("theta-mark.svg", svg_mark(MARK))
 
 
 if __name__ == "__main__":

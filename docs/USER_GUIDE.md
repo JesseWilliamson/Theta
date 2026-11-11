@@ -1,9 +1,9 @@
-# Quarry user guide
+# Theta user guide
 
-Task-oriented notes for using Quarry 0.1.0-alpha.3. Key bindings are summarised where they matter and
+Task-oriented notes for using Theta 0.1.0-alpha.3. Key bindings are summarised where they matter and
 listed in full in [KEYBINDINGS.md](KEYBINDINGS.md). `mod` means `cmd` on macOS and `ctrl` elsewhere.
 Names of menu items, buttons and dialog fields are written the way the application shows them. The
-examples use the demo database (`quarry --demo`).
+examples use the demo database (`theta --demo`).
 
 Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH tunnel](#connect-through-an-ssh-tunnel) ·
 [Explorer](#the-explorer) · [Write and run SQL](#write-and-run-sql) · [Transactions](#transactions) ·
@@ -43,11 +43,11 @@ Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH
 Panel sizes and visibility, and the selected bottom tab, are remembered in `workspace.json`.
 
 When there is no connection the console area shows a welcome screen with **Add Connection** and **Try the
-Demo Database** (the same as `quarry --demo`), three buttons to choose the key map (*Helix*, *Vim*, *Standard*; the first thing a new user has to decide, and the choice can be changed any time) and a short list of key bindings for the selected one.
+Demo Database** (the same as `theta --demo`), three buttons to choose the key map (*Helix*, *Vim*, *Standard*; the first thing a new user has to decide, and the choice can be changed any time) and a short list of key bindings for the selected one.
 
 ## Connect to a database
 
-Try it without a server first: `quarry --demo` creates `demo.sqlite` in the configuration directory, saves
+Try it without a server first: `theta --demo` creates `demo.sqlite` in the configuration directory, saves
 it as *Demo (SQLite)* and connects to it.
 
 For your own database choose *New Connection…* (`mod-shift-n`, the command palette, or the **+** in the
@@ -66,7 +66,7 @@ round-trip time ("Connection successful · PostgreSQL 16.15 · 53 ms").
 | SSL mode | *Disable*; *Prefer* (try TLS, fall back to plain); *Require* (TLS, certificate not verified); *Verify full* (TLS, certificate chain and host name verified) |
 | Database file (SQLite) | *Browse…*, or turn on *Create if missing* |
 | SSH tunnel | see the next section |
-| Read-only | Quarry refuses statements that change data or schema on this connection (see [Read-only connections](#read-only-connections)) |
+| Read-only | Theta refuses statements that change data or schema on this connection (see [Read-only connections](#read-only-connections)) |
 | Colour | none, red, orange, green, blue or purple; a coloured bar marks the connection in the title bar and explorer, handy for production |
 
 Passwords go to the operating-system keychain, never to `connections.json`. If there is no keychain (see
@@ -78,22 +78,22 @@ Console*, *Refresh*, *Edit…*, *Duplicate* and *Delete…* (the stored password
 is not touched). Editing a connected connection closes its session. Switch the active connection with
 `mod-alt-c` (*Connect…* in the palette) or the title-bar switcher; this also rebinds the current console.
 
-Saved connections are not opened when Quarry starts. Double-click the connection in the explorer, pick it
-in the switcher, or press run in a console bound to it: Quarry shows "Connecting…", waits for the
+Saved connections are not opened when Theta starts. Double-click the connection in the explorer, pick it
+in the switcher, or press run in a console bound to it: Theta shows "Connecting…", waits for the
 connection and then runs the statement (a connection error appears in *Messages*; *Explain* behaves the
-same). Start-up flags open connections from the command line (`quarry --help` lists all of them):
+same). Start-up flags open connections from the command line (`theta --help` lists all of them):
 
 ```sh
-quarry --connect postgres://postgres:postgres@127.0.0.1:5432/quarry_demo     # temporary, not saved
-quarry --demo --run "select count(*) from orders"                            # run SQL after connecting
-quarry --connect mysql://quarry:quarry@127.0.0.1:3306/quarry_demo --script report.sql
+theta --connect postgres://postgres:postgres@127.0.0.1:5432/quarry_demo     # temporary, not saved
+theta --demo --run "select count(*) from orders"                            # run SQL after connecting
+theta --connect mysql://quarry:quarry@127.0.0.1:3306/quarry_demo --script report.sql
 ```
 
 `--run SQL` and `--script FILE` open a console on the first start-up connection and run every statement in it.
 
 ### Read-only connections
 
-Before running a statement Quarry classifies it. On a read-only connection, anything classified as a data
+Before running a statement Theta classifies it. On a read-only connection, anything classified as a data
 change (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `COPY`, `TRUNCATE` …) or a schema change (`CREATE`, `ALTER`,
 `DROP` …) is refused with "This connection is read-only: statements that modify data or schema are not
 run." Edits made in the grid are refused too. This is a safety net in the application, not a permission in
@@ -111,9 +111,9 @@ Turn on **SSH tunnel** in the connection dialog and fill in *SSH host*, *Port* (
 - **SSH agent**: uses the agent named by `SSH_AUTH_SOCK` (on Windows, the OpenSSH agent).
 
 The main *Host* and *Port* are then read **from the SSH server's point of view**: for a database on the SSH
-machine itself use `localhost`. Quarry opens one SSH session and one local listener for the connection and
+machine itself use `localhost`. Theta opens one SSH session and one local listener for the connection and
 closes them when the connection closes. Host keys are checked against `~/.ssh/known_hosts`: an unknown host
-is accepted and recorded (Quarry tells you), a *changed* key is refused. SQLite connections have no tunnel.
+is accepted and recorded (Theta tells you), a *changed* key is refused. SQLite connections have no tunnel.
 
 ## The explorer
 
@@ -127,7 +127,7 @@ declare but that column names imply (`orders.customer_id` → `customers.id`), e
   `down` moves into the tree; `esc` clears the filter.
 - `mod-shift-e` focuses the tree. `up`/`down` (or `ctrl-p`/`ctrl-n`), `left`/`right` to collapse and expand,
   `enter` to activate, `esc` to return to the editor. With the Helix key map `j k h l` work too.
-- **Open a table**: double-click it, or select it and press `enter`. Quarry opens a console titled with the
+- **Open a table**: double-click it, or select it and press `enter`. Theta opens a console titled with the
   table name, fills it with a `SELECT` of every column limited to 100 rows, and runs it. `mod-p` (*Go to
   Table…*) does the same from anywhere by fuzzy name.
 - **Refresh** the catalog after a schema change with `F5` (*Refresh Schema*) or the refresh button. The
@@ -195,7 +195,7 @@ opened it; the title-bar switcher (or `:connect NAME` in Helix) rebinds it. Cons
   `ON`, `INTO`, `UPDATE`, `TABLE` or a comma in a `FROM` list. `ctrl-space` opens it by hand (Helix: `ctrl-x` in
   Insert mode, `space k` in Normal mode). It knows the tables and columns of the connection, what is in
   scope (aliases, CTEs), dialect functions and snippets. After `JOIN`, `JOIN other ON …` clauses built from
-  foreign keys come first; declared keys rank above keys Quarry infers from column names, and the footer of
+  foreign keys come first; declared keys rank above keys Theta infers from column names, and the footer of
   the popup shows the whole `ON` clause.
   - `up`/`down` move, `tab` accepts, `esc` closes the popup (in Helix a second `esc` leaves Insert mode).
   - `enter` accepts only after you moved the selection, or when the popup was opened by hand, or when the
@@ -217,7 +217,7 @@ opened it; the title-bar switcher (or `:connect NAME` in Helix) rebinds it. Cons
 
 Each connection is one server session, so `BEGIN`, `COMMIT` and `ROLLBACK` behave as in `psql` or `mysql`.
 The palette has *Begin Transaction*, *Commit Transaction* and *Roll Back Transaction*, and you can type the
-statements yourself. While a transaction is open (Quarry asks the server after every run) the title bar
+statements yourself. While a transaction is open (Theta asks the server after every run) the title bar
 shows **TXN open** with **Commit** and **Roll Back** buttons. Grid edits submitted inside an open transaction
 run in it and are not committed ("Applied 2 changes (in your open transaction, not yet committed)"). Closing
 the last console of a connection or quitting with an open transaction opens a dialog with *Roll Back and
@@ -309,7 +309,7 @@ a file, `:q` close the tab, `:wq`, `:qa` quit, `:run` run the statement, `:run-a
 `enter` accepts only a useful suggestion (otherwise it is a newline), `ctrl-n` / `ctrl-p` open it by hand and then
 move, and the first `esc` closes the popup while the second leaves Insert mode. In Normal mode nothing opens it.
 
-**Clipboard.** Real Vim keeps yanks to itself unless told otherwise. Quarry's setting `vim.clipboard_unnamed`
+**Clipboard.** Real Vim keeps yanks to itself unless told otherwise. Theta's setting `vim.clipboard_unnamed`
 (Settings › Editor › *Vim: share the clipboard*, default **on**, like `set clipboard=unnamedplus`) makes yanks and
 deletes land on the system clipboard, and `p` paste what you copied in another application (a multi-line copy from
 another console pastes line by line). Turn it off and only `"+y` and `"+p` (and `space y` / `space p`) use the
@@ -318,7 +318,7 @@ clipboard. Whatever the setting, `"_` is the black hole.
 **The mouse** works as in a GUI Vim: a click moves the cursor, a drag or double-click starts Visual mode, a
 triple-click selects the line (V-LINE).
 
-**Deviations worth knowing.** The full list is in [the engine README](../crates/quarry-editor/README.md#deviations-from-vim).
+**Deviations worth knowing.** The full list is in [the engine README](../crates/theta-editor/README.md#deviations-from-vim).
 
 - `space` is the leader, so it no longer moves right (`d<space>` is `dl`).
 - The options are fixed: `shiftwidth=4`, `expandtab`, `autoindent`, `ignorecase smartcase wrapscan hlsearch`,
@@ -388,7 +388,7 @@ be edited, not views", …). Connections marked *Read-only* never write.
    rows through. The bar above the grid shows "2 pending changes", **Revert** and **Submit**.
 2. *Set NULL* in the context menu (cell or menu, not `mod-0`; see below) sets the cell to NULL. `mod-z`
    undoes the last staged edit.
-3. Press **Submit** (or `mod-enter` while the grid has focus). Quarry shows **Apply changes?** with the
+3. Press **Submit** (or `mod-enter` while the grid has focus). Theta shows **Apply changes?** with the
    generated statements:
 
    ```sql
@@ -411,7 +411,7 @@ cannot express.
 
 Press `mod-e` (Helix `space e`) to explain the statement under the cursor and `mod-shift-alt-e`
 (`space E`) to explain **analyze**, which really executes it. The writes of an analysed statement are rolled
-back, but triggers, sequences and other side effects can still happen, which is why Quarry asks first.
+back, but triggers, sequences and other side effects can still happen, which is why Theta asks first.
 The Plan tab also has **Explain** and **Explain Analyze** buttons that rerun the same statement.
 
 The plan panel always shows the **Insights** list next to one of three views of the plan:
@@ -469,7 +469,7 @@ grid.
   tile) and `{r}` (retina suffix; always empty, standard tiles), an attribution, a max zoom and a *dark*
   flag. An old `map_tile_url` that was changed is migrated into a custom entry named *Custom tiles*.
 - **Why only OpenStreetMap and OpenTopoMap are built in** (checked 2026-11-11). The OpenStreetMap tile
-  policy allows interactive use by a client that identifies itself (Quarry sends `Quarry/<version>` as the
+  policy allows interactive use by a client that identifies itself (Theta sends `Theta/<version>` as the
   User-Agent), shows attribution and does not prefetch or download in bulk; availability is best-effort.
   OpenTopoMap is CC-BY-SA with attribution. CARTO's Positron, Dark Matter and Voyager basemaps are reachable,
   but CARTO's current terms (version 2026-09-29) require a free API key on every request (`?key=`), so they
@@ -496,9 +496,9 @@ too.
 ## Themes
 
 Open the theme picker with `mod-k mod-t` (Helix: `space t`, `:theme`). The picker groups themes as
-*Quarry*, *Light* and *Dark* and previews each as you move. `:theme tokyo` in Helix picks the only theme
-whose name contains that text. *Quarry Dark* is the default; its text area (editor, results grid, plan) is the darkest surface and the
-chrome around it (explorer, tabs, toolbars) one step lighter, so the code and data stand out. 38 themes are bundled (the two Quarry themes
+*Theta*, *Light* and *Dark* and previews each as you move. `:theme tokyo` in Helix picks the only theme
+whose name contains that text. *Theta Dark* is the default; its text area (editor, results grid, plan) is the darkest surface and the
+chrome around it (explorer, tabs, toolbars) one step lighter, so the code and data stand out. 38 themes are bundled (the two Theta themes
 and 36 from 21 gpui-kit theme files: Catppuccin, Gruvbox, Solarized, Tokyo Night, Ayu, Everforest and
 others), plus gpui-kit's own *Default Light* and *Default Dark*.
 
@@ -507,8 +507,8 @@ Appearance (`follow_system_appearance` in the file); `light_theme` and `dark_the
 themes alternate.
 
 **Zed themes**: choose *Import Zed Theme…* in the command palette and select a Zed theme JSON file (the
-format of `~/.config/zed/themes/*.json`). Quarry converts it, saves it to `<config>/themes/` and opens the
-picker. Colours Zed does not define fall back to the Quarry theme of the same appearance. You can also drop
+format of `~/.config/zed/themes/*.json`). Theta converts it, saves it to `<config>/themes/` and opens the
+picker. Colours Zed does not define fall back to the Theta theme of the same appearance. You can also drop
 a gpui-kit theme file into that folder yourself.
 
 ## Settings
@@ -530,9 +530,9 @@ with a wrong type is ignored with a warning, so one typo never resets the rest.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `theme` | `"Quarry Dark"` | current theme |
+| `theme` | `"Theta Dark"` | current theme |
 | `follow_system_appearance` | `false` | switch between `light_theme` and `dark_theme` with the OS |
-| `light_theme`, `dark_theme` | `"Quarry Light"`, `"Quarry Dark"` | used when following the system |
+| `light_theme`, `dark_theme` | `"Theta Light"`, `"Theta Dark"` | used when following the system |
 | `keymap` | `"helix"` | `"helix"`, `"vim"` or `"standard"` |
 | `vim.clipboard_unnamed` | `true` | Vim key map: yanks and deletes also go to the system clipboard and `p` pastes from it |
 | `ui_font_family`, `ui_font_size` | `"IBM Plex Sans"`, `14` | interface font (size 8 to 40; file only) |
@@ -568,28 +568,28 @@ connection's session.
 
 ## Troubleshooting
 
-**The window does not open on Linux, or says no Vulkan device was found.** Quarry draws through Vulkan.
+**The window does not open on Linux, or says no Vulkan device was found.** Theta draws through Vulkan.
 Install a driver: `mesa-vulkan-drivers` (Debian/Ubuntu), `vulkan-radeon` / `vulkan-intel` (Arch, Fedora's
 `mesa-vulkan-drivers`), or your GPU vendor's driver. Check with `vulkaninfo --summary`. In a virtual
 machine or container with no GPU, Mesa's software renderer (`lavapipe`, part of `mesa-vulkan-drivers`) works,
 slowly. The AppImage does not carry these libraries; it uses the host's.
 
-**Passwords are not remembered on Linux.** Quarry stores secrets through the freedesktop Secret Service (GNOME
+**Passwords are not remembered on Linux.** Theta stores secrets through the freedesktop Secret Service (GNOME
 Keyring, KDE Wallet, KeePassXC) over D-Bus. In a minimal window manager session, over plain SSH, or in a
-container there is none, so Quarry keeps secrets in memory for that run only, and the connection dialog
+container there is none, so Theta keeps secrets in memory for that run only, and the connection dialog
 tells you ("Password will not be saved"). Start a keyring daemon (`gnome-keyring-daemon --start
 --components=secrets`) and unlock it, or type the password again at each start.
 
 **macOS says the app "is damaged" or "cannot be opened because the developer cannot be verified".** Releases
-are ad-hoc signed but not notarised. Right-click `Quarry.app`, choose *Open* and confirm once; or, after
-copying the app to Applications, run `xattr -dr com.apple.quarantine /Applications/Quarry.app`. Building
+are ad-hoc signed but not notarised. Right-click `Theta.app`, choose *Open* and confirm once; or, after
+copying the app to Applications, run `xattr -dr com.apple.quarantine /Applications/Theta.app`. Building
 from source avoids the quarantine flag altogether.
 
 **Windows SmartScreen says "Windows protected your PC".** The executable is not code-signed. Choose *More
 info*, then *Run anyway*. Verify the download against `SHA256SUMS` if you want to be careful.
 
 **The map is grey or says "Basemap unavailable".** The tile server could not be reached (offline, proxy,
-firewall) or rejected the request. Quarry trusts the operating system's certificate store, so corporate
+firewall) or rejected the request. Theta trusts the operating system's certificate store, so corporate
 proxies with their own CA normally work. Click *Retry*, or choose another basemap or add a custom one for a server you can reach.
 Geometries are still drawn without a basemap.
 
@@ -597,7 +597,7 @@ Geometries are still drawn without a basemap.
 without TLS, *Require* for self-signed certificates, and *Verify full* only when the server certificate
 chains to a root your system trusts and matches the host name.
 
-**A query seems stuck.** Press `mod-.` to cancel. Quarry asks the server to abort the statement (a cancel
+**A query seems stuck.** Press `mod-.` to cancel. Theta asks the server to abort the statement (a cancel
 request for PostgreSQL, `KILL QUERY` for MySQL/MariaDB, `sqlite3_interrupt` for SQLite) and the console stays
 usable.
 
