@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Same geometry as theta-mark.svg (ellipse rx:ry = 0.7 plus a bar), on a dark tile. -->
+  <rect width="64" height="64" rx="14" fill="#21252b"/>
+  <g transform="translate(14.4 7.8) scale(1.1)" fill="none" stroke="#ffffff" stroke-width="2.6">
+    <ellipse cx="16" cy="22" rx="9.8" ry="14"/>
+    <path d="M6.2 22H25.8"/>
+  </g>
+</svg>

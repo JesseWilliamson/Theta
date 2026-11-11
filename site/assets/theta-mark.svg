@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 44" width="32" height="44">
+  <!--
+    The theta mark, drawn as geometry: an ellipse ring (rx:ry = 0.7) crossed by a horizontal bar.
+    This is the ONE source of the mark. tools/build_pages.py copies the <g id="theta"> below into every page (a hidden
+    sprite; pages draw it with <use href="#theta">). To swap the mark, replace the contents of
+    <g id="theta"> (keep the id and the 32 x 44 viewBox) and re-run build_pages.py. Colour comes from `currentColor`; stroke width from the CSS variable --mark-w
+    (default 2 units) so a large mark can stay thin.
+    favicon.svg is the same drawing with fixed colours on a dark tile, because a favicon cannot inherit
+    colour; update both when the mark changes.
+  -->
+  <g id="theta" fill="none" stroke="currentColor" style="stroke-width:var(--mark-w,2)" stroke-linecap="butt">
+    <ellipse cx="16" cy="22" rx="9.8" ry="14"/>
+    <path d="M6.2 22H25.8"/>
+  </g>
+</svg>
