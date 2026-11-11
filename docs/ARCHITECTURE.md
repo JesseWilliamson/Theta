@@ -474,10 +474,10 @@ reason in the capability table.
 
 ## Status
 
-0.1.0-alpha.6 is the sixth pre-release (0.1.0-alpha.1 to -alpha.5 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
+0.1.0-alpha.7 is the seventh pre-release (0.1.0-alpha.1 to -alpha.6 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
 that every crate in the workspace is wired into it and used:
 
-- All twelve crates exist and are used; the application runs against PostgreSQL, MySQL/MariaDB and SQLite, and (alpha.7, part 1) CockroachDB, Redshift, TimescaleDB, YugabyteDB, TiDB, DuckDB, SQL Server and ClickHouse, of which only DuckDB and ClickHouse (against an old server) have been run locally; see the README's table.
+- All twelve crates exist and are used; the application runs against PostgreSQL, MySQL/MariaDB and SQLite, and (since alpha.7) CockroachDB, Redshift, TimescaleDB, YugabyteDB, TiDB, DuckDB, SQL Server and ClickHouse. DuckDB runs locally; ClickHouse, CockroachDB, TimescaleDB, TiDB and SQL Server pass live tests in CI; Redshift and YugabyteDB are unverified. See the README's table.
 - Editor (Helix, Vim and Standard keymaps), completion, formatting, diagnostics, explorer, consoles, results grid with editing,
   export, query plans with insights, map, history, transactions, themes and settings are in.
 - Verified by hand on Linux (X11). The macOS and Windows builds compile and pass the unit tests in CI but

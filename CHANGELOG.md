@@ -6,6 +6,8 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+## [0.1.0-alpha.7] - 2026-11-11
+
 ### Fixed
 
 - A console run (or `--run`) that contained DDL left the explorer showing the old schema on every product. The
@@ -58,7 +60,8 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
   - **SQL Server** (TDS via `tiberius` with rustls): SQL authentication, Encrypt off / on / trust certificate,
     `sys.*` introspection (identity and computed columns, keys, checks, indexes, routines), `SET ROWCOUNT` row
     limit, cancel by `KILL`, showplan XML for EXPLAIN (estimated) and STATISTICS XML (actual), `geometry` /
-    `geography` as EWKB, `[bracket]` quoting, `TOP`, `GO` batches and T-SQL keywords. Not yet run against a server.
+    `geography` as EWKB, `[bracket]` quoting, `TOP`, `GO` batches and T-SQL keywords. The live test passes in CI
+    against SQL Server 2022; the app has not been driven by hand against one.
   - **ClickHouse** over HTTP: engine, sorting key, primary key and partition key in the explorer (*Storage*),
     `KILL QUERY` cancel, `EXPLAIN json = 1`, Nullable / Array / Map / Tuple / LowCardinality / DateTime64 /
     Decimal / UUID / IPv4 / IPv6 values, backtick quoting, ClickHouse functions; the grid is read-only with the
@@ -535,7 +538,10 @@ Packaging and docs
 - The AppImage does not bundle the Vulkan or Wayland libraries.
 - The map basemap needs network access (cached tiles still draw offline).
 
-[Unreleased]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.4...HEAD
+[Unreleased]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.7...HEAD
+[0.1.0-alpha.7]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.6...v0.1.0-alpha.7
+[0.1.0-alpha.6]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.5...v0.1.0-alpha.6
+[0.1.0-alpha.5]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.4...v0.1.0-alpha.5
 [0.1.0-alpha.4]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.3...v0.1.0-alpha.4
 [0.1.0-alpha.3]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.2...v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.1...v0.1.0-alpha.2

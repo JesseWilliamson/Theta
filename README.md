@@ -13,7 +13,7 @@ editor are plain Rust libraries with ordinary tests, and the UI crates are thin 
 
 ## What works today
 
-Theta 0.1.0-alpha.6 is an alpha. The application is fully wired together: every feature below is
+Theta 0.1.0-alpha.7 is an alpha. The application is fully wired together: every feature below is
 implemented and was run by hand on Linux (X11) against PostgreSQL 16 with PostGIS, MariaDB 10.11 and
 SQLite. SSH tunnelling is covered by the driver integration tests only. The macOS and Windows builds are
 compiled and unit-tested in CI but nobody has used them by hand yet. See
@@ -36,8 +36,9 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 
 How each product is connected, and **what has actually been run against a real server**. "Live locally" means
 the driver's integration tests and the application were run against that server on the development machine;
-"CI, not yet run" means a test and a service container are in `.github/workflows/ci.yml` but nobody has seen
-them pass yet; "unverified" means no server of that product has been used at all (the parsers are unit-tested
+"live in CI" means the driver's live test (connect, typed values, introspection, EXPLAIN, row limit, cancel,
+errors) passes against a service container in `.github/workflows/ci.yml`, but nobody has driven the app by hand
+against that product; "unverified" means no server of that product has been used at all (the parsers are unit-tested
 on text from the vendor's documentation, which is weaker evidence than captured output).
 
 | Database | Driver | Verified | Notes |
@@ -46,11 +47,11 @@ on text from the vendor's documentation, which is weaker evidence than captured 
 | MySQL / MariaDB | `mysql_async` | live locally (MariaDB 10.11) and in CI; MySQL 8 plans from fixtures only | |
 | SQLite | `rusqlite` (bundled) | live locally | |
 | DuckDB | `duckdb` (bundled, cargo feature `duckdb`, default on) | live locally (DuckDB 2.0.0 via duckdb-rs 1.20000.1), in memory and file | no extension downloads, so no spatial functions; adds about 55 MB to the binary and 15 minutes to a clean build |
-| ClickHouse | HTTP (`ureq`, rustls) | live locally against ClickHouse 18.16.1 (the version Ubuntu packages): connect, typed values, introspection, row limit, cancel, errors, sessions; modern types and `EXPLAIN` not run locally; CI (24.8) not yet run | read-only grid |
-| CockroachDB | PostgreSQL driver | CI, not yet run | its own EXPLAIN parser |
-| TimescaleDB | PostgreSQL driver | CI, not yet run | hypertables listed |
-| TiDB | MySQL driver | CI, not yet run | its own EXPLAIN parser |
-| SQL Server | `tiberius` (rustls) | CI, not yet run; **never run against a server** | SQL authentication only; showplan XML parser unit-tested on a hand-written document |
+| ClickHouse | HTTP (`ureq`, rustls) | live locally against ClickHouse 18.16.1 (the version Ubuntu packages): connect, typed values, introspection, row limit, cancel, errors, sessions; modern types and `EXPLAIN` not run locally; also passes in CI against ClickHouse 24.8 (typed values including DateTime64, IPv4/IPv6 and Map) | read-only grid |
+| CockroachDB | PostgreSQL driver | live in CI against CockroachDB v24.3.4 (not run by hand in the app) | its own EXPLAIN parser |
+| TimescaleDB | PostgreSQL driver | live in CI against the TimescaleDB image (not run by hand in the app) | hypertables listed |
+| TiDB | MySQL driver | live in CI against TiDB v8.1.1 (not run by hand in the app) | its own EXPLAIN parser |
+| SQL Server | `tiberius` (rustls) | live in CI against SQL Server 2022 (not run by hand in the app; sessions, roles and spatial values are not covered by that test) | SQL authentication only; showplan XML parser unit-tested on a hand-written document |
 | Amazon Redshift | PostgreSQL driver | unverified | own introspection queries from the documented views; no CI service exists |
 | YugabyteDB | PostgreSQL driver | unverified | no CI service exists |
 
