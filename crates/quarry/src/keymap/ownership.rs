@@ -37,7 +37,14 @@ impl EditorState {
             (Keymap::Helix, &[Mode::Normal, Mode::Insert, Mode::Select][..]),
             (
                 Keymap::Vim,
-                &[Mode::Normal, Mode::Insert, Mode::Visual, Mode::VisualLine, Mode::VisualBlock, Mode::Replace][..],
+                &[
+                    Mode::Normal,
+                    Mode::Insert,
+                    Mode::Visual,
+                    Mode::VisualLine,
+                    Mode::VisualBlock,
+                    Mode::Replace,
+                ][..],
             ),
             (Keymap::Standard, &[Mode::Standard][..]),
         ] {
@@ -243,8 +250,8 @@ impl Term {
             self.pending.is_none(),
         ]
         .iter()
-            .filter(|b| **b)
-            .count()
+        .filter(|b| **b)
+        .count()
     }
 
     fn predicate(&self) -> String {
@@ -346,7 +353,8 @@ mod tests {
 
     #[test]
     fn vim_owns_its_control_keys_in_every_state() {
-        let vim: Vec<EditorState> = EditorState::all().into_iter().filter(|s| s.keymap == Keymap::Vim).collect();
+        let vim: Vec<EditorState> =
+            EditorState::all().into_iter().filter(|s| s.keymap == Keymap::Vim).collect();
         assert!(vim.len() >= 20, "all the Vim modes, prompt, popup and pending states: {}", vim.len());
         for k in VIM_RESERVED {
             let key = engine_key(&format!("ctrl-{k}")).unwrap();
@@ -371,7 +379,13 @@ mod tests {
     #[test]
     fn known_conflicts_are_found() {
         let key = engine_key("ctrl-w").unwrap();
-        let s = |keymap, mode, prompt, completion| EditorState { keymap, mode, prompt, completion, pending: false };
+        let s = |keymap, mode, prompt, completion| EditorState {
+            keymap,
+            mode,
+            prompt,
+            completion,
+            pending: false,
+        };
         assert!(engine_owns(s(Keymap::Helix, Mode::Insert, false, false), &key));
         assert!(engine_owns(s(Keymap::Helix, Mode::Normal, true, false), &key));
         assert!(engine_owns(s(Keymap::Standard, Mode::Standard, false, false), &key));
@@ -381,4 +395,3 @@ mod tests {
         assert!(!engine_owns(s(Keymap::Helix, Mode::Insert, false, false), &n));
     }
 }
-

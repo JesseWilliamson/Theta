@@ -103,7 +103,9 @@ pub(crate) struct VLine {
 }
 
 pub(crate) enum CursorShape {
-    Block { glyph: Option<Box<ShapedLine>> },
+    Block {
+        glyph: Option<Box<ShapedLine>>,
+    },
     Bar,
     /// A 2px line under the cell (Vim Replace mode).
     Underline,
@@ -674,7 +676,8 @@ impl EditorView {
         // The engine decides how its cursor looks (block / bar / underline) for every keymap.
         let cursor_style = self.editor.cursor_style();
         // Vim's block-wise Visual mode is one selection per line, but there is only one cursor.
-        let single_cursor = keymap == Keymap::Vim && matches!(mode, Mode::Visual | Mode::VisualLine | Mode::VisualBlock);
+        let single_cursor =
+            keymap == Keymap::Vim && matches!(mode, Mode::Visual | Mode::VisualLine | Mode::VisualBlock);
         let block_visual = keymap == Keymap::Vim && mode == Mode::VisualBlock;
         let mut block_rows: Vec<(usize, Span)> = Vec::new();
         let first_char = self.editor.line_to_char(vis.start);
@@ -723,7 +726,8 @@ impl EditorView {
                 if block_visual {
                     // Rows of a rectangular block are separate selections; they are outlined
                     // together below so the corners of the rectangle are rounded, not each row's.
-                    block_rows.extend(parts.iter().filter_map(|p| by_line.get(&p.line).map(|_| p.line)).zip(spans));
+                    block_rows
+                        .extend(parts.iter().filter_map(|p| by_line.get(&p.line).map(|_| p.line)).zip(spans));
                 } else if let (Some(first), false) = (parts.first(), spans.is_empty()) {
                     let y0 = line_top(first.line);
                     let shapes = selection_geom::outline(&spans, y0, line_h, CORNER);
@@ -835,8 +839,8 @@ impl EditorView {
         let mut outlines: Vec<(Bounds<Pixels>, Hsla)> = Vec::new();
         // Vim's `hlsearch` keeps the matches painted after the prompt closes (`:noh` clears them
         // inside the engine, which then reports none).
-        let searching =
-            self.editor.prompt().is_some_and(|p| matches!(p.prefix, "/" | "?" | "find:")) || keymap == Keymap::Vim;
+        let searching = self.editor.prompt().is_some_and(|p| matches!(p.prefix, "/" | "?" | "find:"))
+            || keymap == Keymap::Vim;
         let push_range = |this: &EditorView,
                           from: usize,
                           to: usize,

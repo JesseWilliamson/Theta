@@ -937,7 +937,8 @@ impl EditorView {
     /// selection per line, joined here by newlines like a blockwise yank.
     fn menu_selection_text(&self) -> Option<String> {
         if self.editor.keymap() == Keymap::Vim && self.editor.mode() == Mode::VisualBlock {
-            let rows: Vec<String> = self.editor.selections().iter().map(|s| self.editor.slice(s.range())).collect();
+            let rows: Vec<String> =
+                self.editor.selections().iter().map(|s| self.editor.slice(s.range())).collect();
             return (!rows.is_empty()).then(|| rows.join("\n"));
         }
         self.editor.selected_text()

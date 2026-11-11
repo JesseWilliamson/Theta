@@ -663,7 +663,8 @@ mod tests {
                 assert!(256.0 * v.zoom.exp2() < size[0], "{size:?}: more than one world fits");
                 assert_covers(&v);
                 // the repeated columns refer to the same tile ids (the world wraps)
-                let xs: std::collections::HashSet<u32> = v.visible_tiles().iter().map(|(t, _, _)| t.x).collect();
+                let xs: std::collections::HashSet<u32> =
+                    v.visible_tiles().iter().map(|(t, _, _)| t.x).collect();
                 assert!(xs.len() <= 1 << (v.zoom.round().max(0.0) as u32));
             }
         }

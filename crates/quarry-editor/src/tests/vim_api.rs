@@ -905,13 +905,19 @@ fn ctrl_shift_letters_are_host_chords_not_vim_keys() {
     // ctrl-shift-f / -e / -n / -t are application shortcuts (format, focus explorer, new
     // connection, reopen tab); they must not act as ctrl-f / ctrl-e / ctrl-n / ctrl-t.
     for (mode_keys, text) in [("", "[a]\nb\nc\nd\n"), ("i", "[a]bc\n")] {
-        for key in ["ctrl-shift-f", "ctrl-shift-e", "ctrl-shift-n", "ctrl-shift-t", "ctrl-shift-d", "ctrl-shift-r"] {
+        for key in
+            ["ctrl-shift-f", "ctrl-shift-e", "ctrl-shift-n", "ctrl-shift-t", "ctrl-shift-d", "ctrl-shift-r"]
+        {
             let mut e = ed(text);
             feed(&mut e, mode_keys);
             let before = (e.text(), e.selections().to_vec(), e.mode());
             let out = e.handle_key(&KeyInput::parse(key).unwrap());
             assert!(!out.handled, "{key} after {mode_keys:?}");
-            assert!(out.effects.iter().all(|f| matches!(f, Effect::RevealCursor)), "{key}: {:?}", out.effects);
+            assert!(
+                out.effects.iter().all(|f| matches!(f, Effect::RevealCursor)),
+                "{key}: {:?}",
+                out.effects
+            );
             assert_eq!((e.text(), e.selections().to_vec(), e.mode()), before, "{key} changed the editor");
         }
     }

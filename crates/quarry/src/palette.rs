@@ -6,10 +6,10 @@ use crate::connections::ConnectionStore;
 use crate::workspace::Workspace;
 use gpui_kit::assets::IconName;
 use gpui_kit::{Action, App, Entity, SharedString, WeakEntity, Window};
+use quarry_ui::Settings;
 use quarry_ui::picker::{PickerDelegate, PickerItem};
 use quarry_ui::settings::KeymapMode;
 use quarry_ui::themes;
-use quarry_ui::Settings;
 
 struct Command {
     label: &'static str,
@@ -211,7 +211,10 @@ impl PickerDelegate for KeymapPicker {
                     KeymapMode::Vim => "verb, then motion; registers and macros",
                     KeymapMode::Standard => "a conventional editor",
                 };
-                PickerItem::new(k.label(), k.label()).detail(detail).icon(IconName::Keyboard).checked(k == current)
+                PickerItem::new(k.label(), k.label())
+                    .detail(detail)
+                    .icon(IconName::Keyboard)
+                    .checked(k == current)
             })
             .collect()
     }
@@ -219,7 +222,9 @@ impl PickerDelegate for KeymapPicker {
         items.iter().position(|i| i.checked)
     }
     fn confirm(&mut self, item: &PickerItem, window: &mut Window, cx: &mut App) {
-        let Some(keymap) = KeymapMode::ALL.into_iter().find(|k| k.label() == item.id.as_ref()) else { return };
+        let Some(keymap) = KeymapMode::ALL.into_iter().find(|k| k.label() == item.id.as_ref()) else {
+            return;
+        };
         let _ = self.workspace.update(cx, |ws, cx| ws.set_keymap(keymap, window, cx));
     }
 }

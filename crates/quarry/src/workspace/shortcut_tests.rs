@@ -256,7 +256,13 @@ fn helix(mode: Mode) -> EditorState {
 }
 
 fn standard() -> EditorState {
-    EditorState { keymap: Keymap::Standard, mode: Mode::Standard, prompt: false, completion: false, pending: false }
+    EditorState {
+        keymap: Keymap::Standard,
+        mode: Mode::Standard,
+        prompt: false,
+        completion: false,
+        pending: false,
+    }
 }
 
 #[gpui_kit::test]
@@ -692,7 +698,12 @@ fn vim(mode: Mode) -> EditorState {
 /// The first cell of the results grid as text.
 fn first_cell(f: &Fixture, vcx: &mut VisualTestContext) -> Option<String> {
     f.ws.read_with(vcx, |ws, cx| {
-        ws.results.read(cx).grid.read(cx).result().and_then(|r| r.rows.first()?.first().map(|v| format!("{v:?}")))
+        ws.results
+            .read(cx)
+            .grid
+            .read(cx)
+            .result()
+            .and_then(|r| r.rows.first()?.first().map(|v| format!("{v:?}")))
     })
 }
 
@@ -728,7 +739,12 @@ fn ctrl_enter_runs_in_every_vim_mode_and_runs_the_selection_in_visual(cx: &mut T
         let tabs = tab_count(&f, vcx);
         f.fired.borrow_mut().clear();
         press(vcx, &primary("enter"));
-        assert_eq!(f.fired.borrow().last().cloned().flatten(), None, "the engine owns ctrl-enter ({})", state.describe());
+        assert_eq!(
+            f.fired.borrow().last().cloned().flatten(),
+            None,
+            "the engine owns ctrl-enter ({})",
+            state.describe()
+        );
         wait_for(vcx, "the result", |vcx| first_cell(&f, vcx).is_some());
         let cell = first_cell(&f, vcx).unwrap();
         assert!(cell.contains(want), "{}: expected {want}, got {cell} (case {n})", state.describe());
@@ -780,7 +796,8 @@ fn vim_ctrl_keys_are_the_editors_while_the_app_keeps_its_own(cx: &mut TestAppCon
 fn the_keymap_switches_live_helix_vim_standard(cx: &mut TestAppContext) {
     let (f, vcx) = setup(cx);
     let editor = editor_of(&f, vcx);
-    let km = |vcx: &mut VisualTestContext| editor.read_with(vcx, |v, _| (v.editor().keymap(), v.editor().mode()));
+    let km =
+        |vcx: &mut VisualTestContext| editor.read_with(vcx, |v, _| (v.editor().keymap(), v.editor().mode()));
     assert_eq!(km(vcx), (Keymap::Helix, Mode::Normal));
     for (mode, want) in [
         (quarry_ui::KeymapMode::Vim, (Keymap::Vim, Mode::Normal)),

@@ -185,7 +185,10 @@ impl Editor {
                 // the user means by "paste". Otherwise the internal register keeps block/line kinds
                 // that the flat clipboard string cannot carry.
                 if self.vim.opts.clipboard_unnamed
-                    && self.clipboard.as_ref().is_some_and(|c| !c.is_empty() && self.last_mirror.as_ref() != Some(c))
+                    && self
+                        .clipboard
+                        .as_ref()
+                        .is_some_and(|c| !c.is_empty() && self.last_mirror.as_ref() != Some(c))
                 {
                     return self.reg_get(Some('+'));
                 }
@@ -232,7 +235,8 @@ impl Editor {
     /// With `clipboard_unnamed`, whatever lands in the unnamed register is also sent to the host.
     fn mirror_unnamed(&mut self, reg: &Reg) {
         if self.vim.opts.clipboard_unnamed {
-            let text = if self.line_ending == "\r\n" { reg.text.replace('\n', "\r\n") } else { reg.text.clone() };
+            let text =
+                if self.line_ending == "\r\n" { reg.text.replace('\n', "\r\n") } else { reg.text.clone() };
             self.effects.push(Effect::SetClipboard(text.clone()));
             self.last_mirror = Some(text.clone());
             self.clipboard = Some(text);

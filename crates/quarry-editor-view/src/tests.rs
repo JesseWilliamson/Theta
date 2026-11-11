@@ -996,7 +996,11 @@ fn vim_effects_reach_the_host(cx: &mut TestAppContext) {
     f.keys(cx, ":help<ret>");
     assert!(f.effects().iter().any(|e| matches!(e, Effect::HostCommand(c) if c.starts_with("help"))));
     f.keys(cx, ":set bogus<ret>");
-    assert!(f.effects().iter().any(|e| matches!(e, Effect::HostCommand(c) if c == "set bogus")), "{:?}", f.effects());
+    assert!(
+        f.effects().iter().any(|e| matches!(e, Effect::HostCommand(c) if c == "set bogus")),
+        "{:?}",
+        f.effects()
+    );
     f.keys(cx, " r");
     assert!(f.effects().contains(&Effect::RunStatementAtCursor), "space r runs the statement");
 }
@@ -1040,7 +1044,10 @@ fn vim_scroll_commands_and_exact_h_m_l(cx: &mut TestAppContext) {
     let (first, visible) = f.view.read_with(cx, |v, _| v.last_viewport);
     f.keys(cx, "M");
     let m = line(&f, cx);
-    assert!(m > first + 1 && m < first + visible, "M is in the middle of the window: {m} in {first}+{visible}");
+    assert!(
+        m > first + 1 && m < first + visible,
+        "M is in the middle of the window: {m} in {first}+{visible}"
+    );
     // ctrl-d scrolls the view and moves the cursor half a page
     let sy = |f: &Fixture, cx: &mut TestAppContext| f.view.read_with(cx, |v, _| v.scroll_y);
     f.keys(cx, "gg<C-d>");

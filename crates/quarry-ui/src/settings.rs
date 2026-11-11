@@ -416,7 +416,9 @@ mod tests {
         assert!(!s.vim.clipboard_unnamed);
         assert!(Settings::default().vim.clipboard_unnamed, "on by default, like unnamedplus");
         assert!(s.to_pretty_json().contains("\"keymap\": \"vim\""));
-        assert!(KeymapMode::Vim.is_modal() && KeymapMode::Helix.is_modal() && !KeymapMode::Standard.is_modal());
+        assert!(
+            KeymapMode::Vim.is_modal() && KeymapMode::Helix.is_modal() && !KeymapMode::Standard.is_modal()
+        );
     }
 
     #[test]

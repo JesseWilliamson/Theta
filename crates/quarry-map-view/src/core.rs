@@ -451,9 +451,8 @@ impl Core {
             .filter_map(|k| {
                 let k = k as f64;
                 // Data space is `[0, 1]` wide: copies that cannot reach it hold nothing.
-                (x1 - k >= 0.0 && x0 - k <= 1.0).then(|| {
-                    (k, BBox { min: [x0 - k, r.min[1]], max: [x1 - k, r.max[1]] })
-                })
+                (x1 - k >= 0.0 && x0 - k <= 1.0)
+                    .then(|| (k, BBox { min: [x0 - k, r.min[1]], max: [x1 - k, r.max[1]] }))
             })
             .collect()
     }
@@ -852,7 +851,10 @@ mod tests {
                         let s = t.apply([x + **k, 0.0])[0];
                         (-24.0..=size[0] + 24.0).contains(&s)
                     });
-                    assert!(visible_copy.count() <= 1, "{size:?} centre {center_lon}: point {id} copies {at:?}");
+                    assert!(
+                        visible_copy.count() <= 1,
+                        "{size:?} centre {center_lon}: point {id} copies {at:?}"
+                    );
                     assert!(at.len() <= 1, "{size:?} centre {center_lon}: point {id} copies {at:?}");
                 }
             }
@@ -906,7 +908,10 @@ mod tests {
         let ll = c.measure_coord_at(click);
         assert!((ll[0] - 100.0).abs() < 1e-6 || (ll[0] + 260.0).abs() < 1e-6, "{ll:?}");
         let back = c.measure_screen(ll);
-        assert!((back[0] - s[0]).abs() < 1e-6, "stored coordinates are drawn on the central copy: {back:?} {s:?}");
+        assert!(
+            (back[0] - s[0]).abs() < 1e-6,
+            "stored coordinates are drawn on the central copy: {back:?} {s:?}"
+        );
     }
 
     #[test]

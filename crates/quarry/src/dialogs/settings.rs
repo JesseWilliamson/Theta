@@ -114,7 +114,10 @@ fn font_select(
 }
 
 fn editor_reference(mode: KeymapMode) -> Vec<(String, String, String)> {
-    keyref::editor_keys(mode).into_iter().map(|k| (format!("Editor · {}", k.section), k.action, k.keys)).collect()
+    keyref::editor_keys(mode)
+        .into_iter()
+        .map(|k| (format!("Editor · {}", k.section), k.action, k.keys))
+        .collect()
 }
 
 impl SettingsView {
@@ -512,42 +515,38 @@ impl SettingsView {
         v_flex()
             .gap_2()
             .child(Input::new(&self.filter).small().cleanable(true))
-            .child(
-                div().text_size(CHROME_TEXT_SIZE).text_color(theme.muted_foreground).child(format!(
-                    "{} actions and {} editor keys ({} rows shown). Switch keymaps in Editor settings.",
-                    self.rows.len(),
-                    mode.label(),
-                    rows.len()
-                )),
-            )
-            .child(
-                div().id("keymap-rows").h(px(380.)).overflow_y_scroll().child(v_flex().children(
-                    rows.into_iter().take(600).map(|(section, action, keys)| {
-                        h_flex()
-                            .py_1()
-                            .gap_3()
-                            .items_center()
-                            .border_b_1()
-                            .border_color(theme.border.opacity(0.4))
-                            .child(
-                                div()
-                                    .w(px(140.))
-                                    .flex_shrink_0()
-                                    .text_size(CHROME_TEXT_SIZE)
-                                    .text_color(theme.muted_foreground)
-                                    .child(SharedString::from(section.clone())),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_size(px(12.5))
-                                    .child(SharedString::from(action.clone())),
-                            )
-                            .child(div().flex_shrink_0().when(!keys.is_empty(), |d| d.child(KeyHint::new(keys))))
-                    }),
-                )),
-            )
+            .child(div().text_size(CHROME_TEXT_SIZE).text_color(theme.muted_foreground).child(format!(
+                "{} actions and {} editor keys ({} rows shown). Switch keymaps in Editor settings.",
+                self.rows.len(),
+                mode.label(),
+                rows.len()
+            )))
+            .child(div().id("keymap-rows").h(px(380.)).overflow_y_scroll().child(v_flex().children(
+                rows.into_iter().take(600).map(|(section, action, keys)| {
+                    h_flex()
+                        .py_1()
+                        .gap_3()
+                        .items_center()
+                        .border_b_1()
+                        .border_color(theme.border.opacity(0.4))
+                        .child(
+                            div()
+                                .w(px(140.))
+                                .flex_shrink_0()
+                                .text_size(CHROME_TEXT_SIZE)
+                                .text_color(theme.muted_foreground)
+                                .child(SharedString::from(section.clone())),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(12.5))
+                                .child(SharedString::from(action.clone())),
+                        )
+                        .child(div().flex_shrink_0().when(!keys.is_empty(), |d| d.child(KeyHint::new(keys))))
+                }),
+            )))
             .into_any_element()
     }
 
