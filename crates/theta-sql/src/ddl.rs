@@ -425,8 +425,15 @@ fn create_index_sql(d: &TableDraft, i: &IndexDraft, kind: DatabaseKind) -> Strin
         (Some(m), Family::Postgres) if !m.eq_ignore_ascii_case("btree") => format!(" USING {m}"),
         _ => String::new(),
     };
+    // In MySQL, FULLTEXT and SPATIAL are kinds of index (`CREATE SPATIAL INDEX`), not `USING` methods;
+    // `INFORMATION_SCHEMA.STATISTICS.INDEX_TYPE` reports them in the same column as BTREE and HASH.
+    let mysql_kind = match (&i.method, ddl_family(kind)) {
+        (Some(m), Family::MySql) if m.eq_ignore_ascii_case("fulltext") => "FULLTEXT ",
+        (Some(m), Family::MySql) if m.eq_ignore_ascii_case("spatial") => "SPATIAL ",
+        _ => "",
+    };
     let mysql_using = match (&i.method, ddl_family(kind)) {
-        (Some(m), Family::MySql) if !m.eq_ignore_ascii_case("btree") => {
+        (Some(m), Family::MySql) if mysql_kind.is_empty() && !m.eq_ignore_ascii_case("btree") => {
             format!(" USING {}", m.to_ascii_uppercase())
         }
         _ => String::new(),
@@ -446,7 +453,7 @@ fn create_index_sql(d: &TableDraft, i: &IndexDraft, kind: DatabaseKind) -> Strin
         _ => qtable(d, kind),
     };
     format!(
-        "CREATE {}INDEX {name} ON {on}{using} ({}){mysql_using}{predicate}",
+        "CREATE {}{mysql_kind}INDEX {name} ON {on}{using} ({}){mysql_using}{predicate}",
         if i.unique { "UNIQUE " } else { "" },
         cols_list(d, &i.columns, kind)
     )
@@ -2708,5 +2715,45 @@ mod tests {
         let issues = check_changes(&plain, &changed, Some(&catalog), MySql);
         assert_eq!(issues.len(), 1);
         assert!(issues[0].message.contains("orders.orders_cust"), "{}", issues[0].message);
+    }
+
+    #[test]
+    fn mysql_spatial_and_fulltext_are_index_kinds_not_using_methods() {
+        let mut d = TableDraft { name: "stores".into(), ..Default::default() };
+        d.columns.push(ColumnDraft {
+            id: 1,
+            name: "location".into(),
+            data_type: "point".into(),
+            nullable: false,
+            default: None,
+            identity: None,
+            generated: None,
+            comment: None,
+        });
+        let idx = |m: &str| IndexDraft {
+            id: 2,
+            name: "ix".into(),
+            columns: vec![1],
+            unique: false,
+            method: Some(m.into()),
+            predicate: None,
+            raw: None,
+        };
+        assert_eq!(
+            create_index_sql(&d, &idx("spatial"), DatabaseKind::MySql),
+            "CREATE SPATIAL INDEX ix ON stores (location)"
+        );
+        assert_eq!(
+            create_index_sql(&d, &idx("fulltext"), DatabaseKind::MySql),
+            "CREATE FULLTEXT INDEX ix ON stores (location)"
+        );
+        assert_eq!(
+            create_index_sql(&d, &idx("hash"), DatabaseKind::MySql),
+            "CREATE INDEX ix ON stores (location) USING HASH"
+        );
+        assert_eq!(
+            create_index_sql(&d, &idx("btree"), DatabaseKind::MySql),
+            "CREATE INDEX ix ON stores (location)"
+        );
     }
 }
