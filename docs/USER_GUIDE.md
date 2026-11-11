@@ -15,7 +15,7 @@ Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH
 ## The window
 
 ```text
-┌ title bar:  ☰ menu · connection switcher                        TXN open [Commit] [Rollback] ▷ Run  ■  ⚙ ┐
+┌ title bar:  ☰ menu · connection switcher                        TXN open [Commit] [Roll Back] ▷ Run  ■  ⚙ ┐
 ├ Explorer ─┬ console tabs  [console 1] [console 2] [+]                                                       │
 │ (left)    │ editor                                                                                          │
 │           ├ Results | Messages | Plan | Map | History   (bottom panel)                                      │
@@ -26,7 +26,7 @@ Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH
 - **Title bar.** The menu button (☰) has *New Console*, *New Connection…*, *Command Palette…*, *Go to
   Table…* and *Quit*. The connection switcher shows the active connection with a status dot (green:
   connected, amber: connecting, red: failed) and opens the connection picker. **Run** runs the statement
-  under the cursor; the square button cancels the running query. **TXN open**, *Commit* and *Rollback*
+  under the cursor; the square button cancels the running query. **TXN open**, *Commit* and *Roll Back*
   appear only while a transaction is open. The gear opens a menu with *Settings…*, *Select Theme…*,
   *Toggle Keymap (Helix / Standard)*, *Import Zed Theme…*, the font-size items and *Open Settings File*.
   On macOS the same actions are also in the menu bar.
@@ -217,7 +217,7 @@ opened it; the title-bar switcher (or `:connect NAME` in Helix) rebinds it. Cons
 Each connection is one server session, so `BEGIN`, `COMMIT` and `ROLLBACK` behave as in `psql` or `mysql`.
 The palette has *Begin Transaction*, *Commit Transaction* and *Roll Back Transaction*, and you can type the
 statements yourself. While a transaction is open (Quarry asks the server after every run) the title bar
-shows **TXN open** with **Commit** and **Rollback** buttons. Grid edits submitted inside an open transaction
+shows **TXN open** with **Commit** and **Roll Back** buttons. Grid edits submitted inside an open transaction
 run in it and are not committed ("Applied 2 changes (in your open transaction, not yet committed)"). Closing
 the last console of a connection or quitting with an open transaction opens a dialog with *Roll Back and
 Close* / *Commit and Close* (or *Roll Back and Quit* / *Commit and Quit*).

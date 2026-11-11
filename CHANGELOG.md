@@ -79,7 +79,7 @@ Editor
 Running SQL
 - Run the statement under the cursor, the selection or the whole script; cancel a running query; one query
   at a time per connection; each result gets its own tab; a configurable row limit that stops the server.
-- Transactions: *Begin*, *Commit* and *Roll Back*, a **TXN open** indicator with Commit and Rollback
+- Transactions: *Begin Transaction*, *Commit Transaction* and *Roll Back Transaction*, a **TXN open** indicator with Commit and Roll Back
   buttons, and a prompt when closing a console or quitting with a transaction open.
 - Confirmation before `UPDATE` / `DELETE` without `WHERE` and before *Explain Analyze* of a write.
 - Messages tab with per-statement outcomes, notices and errors (code, detail, hint); History tab with

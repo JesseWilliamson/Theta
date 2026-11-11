@@ -125,7 +125,7 @@ crate README of `quarry-editor-view`.
 
 ```text
 Workspace (root view, crates/quarry/src/workspace/mod.rs:146; renders at :820)
-├── title bar        connection switcher, Run / Cancel, TXN open + Commit / Rollback   workspace/title_bar.rs
+├── title bar        connection switcher, Run / Cancel, TXN open + Commit / Roll Back   workspace/title_bar.rs
 ├── Explorer (left)  connections ▸ schemas ▸ tables ▸ columns, keys, indexes            explorer/
 ├── tab strip        console tabs, drag to reorder                                      workspace/tabs.rs
 ├── console area     one EditorView per console, or the welcome screen                  workspace/welcome.rs

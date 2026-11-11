@@ -76,7 +76,7 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
   cancelled. Cancel asks the server to abort the statement.
 - Row limit (default 1,000, a setting): the server stops producing rows at the limit.
 - Transaction controls: *Begin Transaction*, *Commit Transaction*, *Roll Back Transaction*. While a
-  transaction is open the title bar shows **TXN open** with Commit and Rollback buttons, and closing the
+  transaction is open the title bar shows **TXN open** with Commit and Roll Back buttons, and closing the
   tab or quitting asks what to do with it.
 - A confirmation dialog before `UPDATE` or `DELETE` without `WHERE`, and before *Explain Analyze* of a
   statement that writes.
