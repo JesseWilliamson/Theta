@@ -205,8 +205,8 @@ def on_grid(px, outer_w, outer_h, stroke, over=1):
                 bar="over", over=(stroke / 2 + over) * u, bar_w=stroke * u)
 
 
-# 32 px grid (also used at 48): 12 x 18 px ring, 2 px stroke, counters 6 px.
-MID = on_grid(32, 12, 18, 2)
+# 32 px grid (also used at 48): 14 x 18 px ring (the full icon's 0.77 proportion), 2 px stroke, counters 6 px.
+MID = on_grid(32, 14, 18, 2)
 # 16 px grid: 8 x 10 px ring, 2 px stroke, counters 2 px above and below the 2 px bar.
 SMALL = on_grid(16, 8, 10, 2, over=0)
 # 24 px grid: 10 x 14 px ring, 2 px stroke, counters 4 px.
