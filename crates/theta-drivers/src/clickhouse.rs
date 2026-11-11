@@ -537,6 +537,29 @@ fn split_top_colon(e: &str) -> impl Iterator<Item = &str> {
     [a, b].into_iter().filter(|s| !s.is_empty())
 }
 
+/// A decimal's text with the fraction digits its type declares.
+///
+/// Servers since 21.9 print `2.5` for a `Decimal(18, 2)` holding 2.50 unless
+/// `output_format_decimal_trailing_zeros` is set, and older servers reject that setting as unknown.
+/// The scale is part of the value (it is what the column stores and what an editor should show), so
+/// it is restored here from the type instead of depending on a per-version setting.
+fn pad_to_scale(base: &str, text: String) -> String {
+    let scale = base
+        .rsplit_once(['(', ','])
+        .and_then(|(_, s)| s.trim().trim_end_matches(')').trim().parse::<usize>().ok())
+        .unwrap_or(0);
+    let have = text.split_once('.').map_or(0, |(_, f)| f.len());
+    if scale <= have || !text.bytes().all(|b| b.is_ascii_digit() || b == b'-' || b == b'.') {
+        return text;
+    }
+    let mut out = text;
+    if have == 0 {
+        out.push('.');
+    }
+    out.extend(std::iter::repeat_n('0', scale - have));
+    out
+}
+
 /// One TSV field of ClickHouse type `t` as a `Value`.
 fn parse_value(t: &str, field: &str) -> Value {
     if field == "\\N" {
@@ -563,7 +586,9 @@ fn parse_value(t: &str, field: &str) -> Value {
             "-inf" => Value::Float(f64::NEG_INFINITY),
             _ => text.parse().map(Value::Float).unwrap_or(Value::Unknown(text)),
         },
-        "Decimal" | "Decimal32" | "Decimal64" | "Decimal128" | "Decimal256" => Value::Decimal(text),
+        "Decimal" | "Decimal32" | "Decimal64" | "Decimal128" | "Decimal256" => {
+            Value::Decimal(pad_to_scale(base, text))
+        }
         "String" | "FixedString" | "Enum8" | "Enum16" => Value::Text(text),
         "IPv4" | "IPv6" => Value::Text(text),
         "UUID" => Value::Uuid(text),
@@ -903,6 +928,11 @@ mod tests {
             Value::Decimal("170141183460469231731687303715884105727".into())
         );
         assert_eq!(parse_value("Decimal(10, 2)", "2.50"), Value::Decimal("2.50".into()));
+        // Newer servers drop trailing zeros; the declared scale puts them back.
+        assert_eq!(parse_value("Decimal(18, 2)", "2.5"), Value::Decimal("2.50".into()));
+        assert_eq!(parse_value("Decimal(18, 3)", "-7"), Value::Decimal("-7.000".into()));
+        assert_eq!(parse_value("Nullable(Decimal(9, 0))", "42"), Value::Decimal("42".into()));
+        assert_eq!(parse_value("Decimal(38, 4)", "1.23456"), Value::Decimal("1.23456".into()));
         assert_eq!(parse_value("Float64", "inf"), Value::Float(f64::INFINITY));
         assert_eq!(parse_value("String", "h\\tx"), Value::Text("h\tx".into()));
         assert_eq!(
