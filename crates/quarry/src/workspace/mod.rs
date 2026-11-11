@@ -567,8 +567,13 @@ impl Workspace {
                 _ => None,
             }
         };
+        let has_sql = sql.is_some();
         let id = self.open_console(Some(connection_id.clone()), sql, window, cx);
         self.set_tab_title(id, table.clone(), cx);
+        // Opening a table means "show me its rows": the generated query is bounded by a LIMIT.
+        if has_sql {
+            self.run_request(id, run::RunReq::Statement, window, cx);
+        }
         cx.emit(WorkspaceEvent::OpenTableRequested { connection_id, schema, table });
     }
 

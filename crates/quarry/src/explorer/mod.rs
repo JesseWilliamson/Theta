@@ -223,7 +223,7 @@ impl Explorer {
                 phase: match store.state(&c.id) {
                     ConnState::Disconnected => Phase::Disconnected,
                     ConnState::Connecting => Phase::Connecting,
-                    ConnState::Failed(e) => Phase::Failed(e.to_string()),
+                    ConnState::Failed(e) => Phase::Failed(failure_text(e, &c.id, store)),
                     ConnState::Connected { catalog_loading, .. } => Phase::Connected {
                         catalog: catalog.as_deref(),
                         loading: *catalog_loading,
@@ -884,6 +884,20 @@ enum Generate {
     Update,
     Delete,
     Ddl,
+}
+
+/// The error text of a failed connection, plus what to do when the likely cause is a password
+/// that was never saved (no keychain on this machine).
+fn failure_text(e: &quarry_core::Error, id: &str, store: &ConnectionStore) -> String {
+    let mut text = e.to_string();
+    let needs_password =
+        matches!(e, quarry_core::Error::Auth(_)) && store.config_with_secrets(id).is_some_and(|c| {
+            !c.kind.is_file_based() && c.password.as_deref().is_none_or(str::is_empty)
+        });
+    if needs_password {
+        text.push_str("\nNo password is stored for this connection (there is no system keychain). Use Edit Connection to enter it.");
+    }
+    text
 }
 
 fn parse_hex_color(hex: &str) -> Option<gpui_kit::Hsla> {
