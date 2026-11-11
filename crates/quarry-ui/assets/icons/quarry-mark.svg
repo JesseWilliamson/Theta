@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="82.25 88 336 336" fill="currentColor">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="67 67 378 378">
   <title>Quarry</title>
-  <path d="M240 96 L368 160 L368 352 L240 416 L112 352 L112 160Z M160 189.67 L160 322.33 L240 362.33 L320 322.33 L320 189.67 L240 149.67Z M285.25 267.31 L388.49 370.55 L354.55 404.49 L251.31 301.25Z"/>
+  <g fill="none" stroke="currentColor" stroke-width="16" stroke-linejoin="miter" stroke-linecap="butt" stroke-miterlimit="4"><path d="M128 151 L256 87 L384 151 L384 197 L256 261 L128 197Z"/><path d="M128 151 L256 215 L384 151"/><path d="M256 215 L256 261"/><path d="M128 233 L256 297 L384 233 L384 279 L256 343 L128 279Z"/><path d="M256 297 L256 343"/><path d="M128 315 L256 379 L384 315 L384 361 L256 425 L128 361Z"/><path d="M256 379 L256 425"/></g>
 </svg>

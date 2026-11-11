@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Regenerates every icon output from gen_icon.py: the SVGs, the hicolor PNGs, the macOS and Windows
-# masters. quarry-small.svg is used for the 16 and 24 px renders.
+# masters. quarry-mid.svg is used for 32 and 48 px, quarry-small.svg for 16 and 24 px.
 # Needs: python3, node with playwright (Chromium rasterises the SVG exactly), ImageMagick.
 #   PLAYWRIGHT_MODULE=/path/to/node_modules/playwright packaging/icons/build.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 python3 gen_icon.py
 tmp=$(mktemp -d)
-node render.js quarry.svg "$tmp" quarry-small.svg
+node render.js quarry.svg "$tmp" quarry-mid.svg quarry-small.svg
 for s in 16 24 32 48 64 128 256 512; do
   mkdir -p "hicolor/${s}x${s}/apps"
   cp "$tmp/quarry-$s.png" "hicolor/${s}x${s}/apps/quarry.png"

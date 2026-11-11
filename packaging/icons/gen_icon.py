@@ -1,114 +1,49 @@
 #!/usr/bin/env python3
 """Generates the Quarry icon SVGs (run from anywhere; writes next to this file, stdlib only).
 
-The mark is a "Q" built from an isometric cube outline: a hexagonal ring (the block seen
-corner-on) crossed by a 45 degree tail. It is one flat white glyph on a near-black tile, no
-gradients, no second colour.
+The mark is three isometric slabs stacked on each other, drawn as thin white lines: it reads as a
+database stack and as quarried marble blocks at the same time. The tile is a quiet dark grey
+gradient; there is no second colour.
 
 Outputs
-  quarry.svg        full-art 512 tile (rounded square), used for every size >= 32 px
-  quarry-small.svg  same tile with the heavier 16/24 px glyph (build.sh uses it for <= 24 px)
-  quarry-light.svg  dark glyph on a white tile, for docs
+  quarry.svg        full-detail 512 tile, used for every size >= 64 px
+  quarry-mid.svg    simplified tile with a heavier stroke, used for 32 and 48 px
+  quarry-small.svg  minimal tile (top rhombus and two chevrons), used for 16 and 24 px
+  quarry-light.svg  dark lines on a light grey gradient, for docs
   quarry-mark.svg   glyph only, `currentColor`, tight square viewBox (embedded in the app)
 
-Geometry notes
-  * The hexagon uses 2:1 "pixel-art" isometric slopes instead of 30 degrees, so at 16 and 32 px
-    every vertex of the outer outline lands on a whole pixel: the 512 canvas is 32 units per
-    16-px pixel and 16 units per 32-px pixel, and the outer coordinates are multiples of 16.
-"""
-import math
-import os
+Why three detail levels: a stroke that is elegant at 512 px (about 2% of the tile) is a
+sub-pixel smudge at 32 px, and the slab seams are narrower than a pixel there. Each variant
+keeps the same silhouette (an isometric stack) but drops lines and thickens the rest, so it
+never has to rely on anti-aliasing to stay legible.
 
-INK = "#FFFFFF"      # glyph on the dark tile
-FIELD = "#111113"    # tile
-LIGHT_FIELD = "#FFFFFF"
-LIGHT_INK = "#111113"
+Geometry notes
+  * Slopes are 2:1 ("pixel-art isometric", 26.57 degrees) instead of true 30 degrees: a 2:1 line
+    steps one pixel down for every two across, which rasterises evenly at every size.
+  * Hidden edges are omitted. With a gap between the slabs, the only lower-slab edges drawn
+    are its own front edges, so each lower slab is a "cup" of two walls under a chevron.
+"""
+import os
+import re
+
 TILE_RX = 115        # 22.4% of 512, the usual macOS-style squircle approximation
 C = 256
 
+INK = "#FFFFFF"
+INK_OPACITY = 0.92
 
-def add(p, q): return (p[0] + q[0], p[1] + q[1])
-def sub(p, q): return (p[0] - q[0], p[1] - q[1])
-def mul(p, k): return (p[0] * k, p[1] * k)
-def unit(p): n = math.hypot(*p); return (p[0] / n, p[1] / n)
+# Tile backgrounds. Lighter top-left to darker bottom-right; the red/green/blue spread stays
+# within a few units so it reads as neutral grey, not as blue-black.
+DARK_BG = dict(kind="diag", stops=[(0, "#3b3d42"), (1, "#18191b")])
+LIGHT_BG = dict(kind="diag", stops=[(0, "#f4f4f5"), (1, "#d3d4d7")])
+LIGHT_INK = "#1b1c1f"
 
-
-def line_x(p, d, q, e):
-    """Intersection of the lines p + s*d and q + u*e."""
-    det = d[0] * -e[1] - d[1] * -e[0]
-    s = ((q[0] - p[0]) * -e[1] - (q[1] - p[1]) * -e[0]) / det
-    return add(p, mul(d, s))
-
-
-def inset(poly, t):
-    """Offset a convex clockwise (screen coords) polygon inwards by t along every edge normal."""
-    n = len(poly)
-    lines = []
-    for i in range(n):
-        a, b = poly[i], poly[(i + 1) % n]
-        e = unit(sub(b, a))
-        inward = (-e[1], e[0])           # clockwise on screen: the interior is on the left of e
-        lines.append((add(a, mul(inward, t)), e))
-    return [line_x(*lines[i - 1], *lines[i]) for i in range(n)]
-
-
-def glyph(a, r, dy, t, tail_from, tail_to, tail_w):
-    """Return the Q as polygons for one nonzero-fill path: ring outline, hole, tail bar.
-
-    a: half width, r: half height, dy: height of the roof slope (a/2 for 2:1),
-    t: wall thickness, tail_*: the 45-degree bar through the centre, measured along its axis.
-    The ring and the tail are both clockwise and the hole is reversed, so nonzero filling
-    gives ring + tail with a clean hole; no boolean geometry (and no seams) needed.
-    """
-    outer = [(0, -r), (a, -r + dy), (a, r - dy), (0, r), (-a, r - dy), (-a, -r + dy)]
-    hole = inset(outer, t)[::-1]
-    d = (math.sqrt(0.5), math.sqrt(0.5))
-    e = (-d[1], d[0])
-    h = tail_w / 2
-    tail = [add(mul(d, tail_from), mul(e, -h)), add(mul(d, tail_to), mul(e, -h)),
-            add(mul(d, tail_to), mul(e, h)), add(mul(d, tail_from), mul(e, h))]
-    # clockwise on screen: the cross product of consecutive edges must be positive
-    if (tail[1][0] - tail[0][0]) * (tail[2][1] - tail[1][1]) - (tail[1][1] - tail[0][1]) * (tail[2][0] - tail[1][0]) < 0:
-        tail.reverse()
-    return [outer, hole, tail]
-
-
-def inside(poly, x, y):
-    n, c = len(poly), False
-    for k in range(n):
-        (x0, y0), (x1, y1) = poly[k], poly[(k + 1) % n]
-        if (y0 > y) != (y1 > y) and x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
-            c = not c
-    return c
-
-
-def optical_offset(polys, snap=16):
-    """Translation that centres the glyph optically, snapped to the pixel grid.
-
-    The tail sticks out of the lower-right of the ring, so the bounding box is not
-    symmetric. Centring on the bounding box alone would shift the heavy ring up-left of
-    the tile's centre; centring on the ink's centre of mass alone would crop the padding
-    unevenly. The average of the two is the usual compromise. `snap` keeps vertices on whole
-    pixels after the move: 16 units for the full glyph (32 px), 32 for the small one (16 px).
-    """
-    outer, hole, tail = polys
-    xs = [p[0] for q in polys for p in q]; ys = [p[1] for q in polys for p in q]
-    bx, by = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
-    n = sx = sy = 0
-    for y in range(-256, 256, 2):
-        for x in range(-256, 256, 2):
-            if (inside(outer, x, y) and not inside(hole, x, y)) or inside(tail, x, y):
-                n += 1; sx += x; sy += y
-    mx, my = sx / n, sy / n
-    off = (-(bx + mx) / 2, -(by + my) / 2)
-    return tuple(round(v / snap) * snap for v in off)
-
-
-def path_d(polys, off=(0, 0)):
-    out = []
-    for poly in polys:
-        out.append("M" + " L".join(f"{fmt(x + C + off[0])} {fmt(y + C + off[1])}" for x, y in poly) + "Z")
-    return " ".join(out)
+# a: half width of a slab; the top face is a 2:1 rhombus (a wide, a/2 high).
+# h: slab wall height, g: vertical gap between slabs, sw: stroke width.
+FULL = dict(mode="full", n=3, a=128, h=40, g=28, sw=10, join="miter", ring=0.0, fill=0.04, hidden=False)
+MID = dict(mode="mid", n=3, a=152, h=48, g=40, sw=16, join="miter", ring=0.0, fill=0.0, hidden=False, front=False,
+           open_top=True)
+SMALL = dict(mode="mini", n=3, a=176, h=0, g=0, p=96, sw=40, join="miter", ring=0.0, fill=0.0, hidden=False, front=False)
 
 
 def fmt(v):
@@ -116,40 +51,153 @@ def fmt(v):
     return "0" if s == "-0" else s
 
 
-# Full glyph: a 256 x 320 hexagon (50% x 62.5% of the tile) plus the tail bulge.
-FULL = dict(a=128, r=160, dy=64, t=48, tail_from=40, tail_to=186, tail_w=48)
-# Small glyph for 16/24 px: wider, heavier walls (2 px at 16 px), a 2 px tail.
-SMALL = dict(a=128, r=160, dy=64, t=64, tail_from=56, tail_to=190, tail_w=64)
+def pts(points, close=False):
+    d = "M" + " L".join(f"{fmt(x)} {fmt(y)}" for x, y in points)
+    return d + ("Z" if close else "")
 
 
-def svg_tile(d, field, ink, title="Quarry"):
+def slab_lines(P, k):
+    """Visible stroke paths and the visible face polygon of slab k (centre of its top face at y = k*p)."""
+    a, h, g = P["a"], P["h"], P["g"]
+    y = k * (h + g)
+    q = a / 2
+    top = (k == 0)
+    paths = []
+    if top:
+        # outer silhouette including the back edges, closed so the corners join
+        paths.append(pts([(-a, y), (0, y - q), (a, y), (a, y + h), (0, y + h + q), (-a, y + h)], close=True))
+        face = [(-a, y), (0, y - q), (a, y), (a, y + h), (0, y + h + q), (-a, y + h)]
+        if P["hidden"]:
+            paths.append(("hidden", pts([(-a, y + h), (0, y + h - q), (a, y + h)]) + " " + pts([(0, y - q), (0, y + h - q)])))
+    else:
+        # Physically a sliver of the lower slab's back edges would show in each gap, but at icon scale it
+        # reads as a stray tick at the corners. Drawing only the slab's own front edges is cleaner.
+        if P.get("open_top"):
+            # no chevron at the top of the walls: the upper slab's underside already draws one just above
+            paths.append(pts([(-a, y), (-a, y + h), (0, y + h + q), (a, y + h), (a, y)]))
+        else:
+            paths.append(pts([(-a, y), (0, y + q), (a, y), (a, y + h), (0, y + h + q), (-a, y + h)], close=True))
+        face = [(-a, y), (0, y + q), (a, y), (a, y + h), (0, y + h + q), (-a, y + h)]
+    if top:
+        paths.append(pts([(-a, y), (0, y + q), (a, y)]))
+    # The front vertical edge is the one line a 32 px render cannot place on a pixel centre (the
+    # tile centre is a pixel boundary), so the mid variant leaves it out.
+    if P.get("front", True):
+        paths.append(pts([(0, y + q), (0, y + q + h)]))
+    return paths, face
+
+
+def mini_lines(P, k):
+    """Minimal variant: slab 0 is the closed top rhombus, the others are single chevrons."""
+    a, p = P["a"], P["p"]
+    q = a / 2
+    y = k * p
+    if k == 0:
+        return [pts([(-a, y), (0, y - q), (a, y), (0, y + q)], close=True)], [(-a, y), (0, y - q), (a, y), (0, y + q)]
+    return [pts([(-a, y), (0, y + q), (a, y)])], []
+
+
+def build(P):
+    """Returns (svg elements as strings, bbox) in 512 tile coordinates for parameter set P."""
+    n = P["n"]
+    body, faces, hidden = [], [], []
+    for k in range(n):
+        paths, face = (mini_lines if P["mode"] == "mini" else slab_lines)(P, k)
+        for d in paths:
+            if isinstance(d, tuple):
+                hidden.append(d[1])
+            else:
+                body.append(d)
+        if face:
+            faces.append(face)
+    a, h, g = P["a"], P["h"], P["g"]
+    p = P.get("p", h + g)
+    top, bottom = -a / 2, (n - 1) * p + (h + a / 2 if P["mode"] != "mini" else a / 2)
+    dy = -(top + bottom) / 2 + C
+    return body, faces, hidden, dy, (top + dy, bottom + dy)
+
+
+def shift(d, dy):
+    """Move a path produced by pts() to tile coordinates: x centred on C, y moved by dy."""
+    nums = iter(re.findall(r"-?\d+(?:\.\d+)?", d))
+    return re.sub(r"-?\d+(?:\.\d+)? -?\d+(?:\.\d+)?", lambda m: f"{fmt(float(next(nums)) + C)} {fmt(float(next(nums)) + dy)}", d)
+
+
+def glyph_group(P, color, opacity=None, dy_extra=0):
+    body, faces, hidden, dy, bb = build(P)
+    dy += dy_extra
+    sw = P["sw"]
+    parts = []
+    if P["fill"] > 0:
+        for f in faces:
+            parts.append(f'<path d="{shift(pts(f, True), dy)}" fill="{color}" fill-opacity="{P["fill"]}" stroke="none"/>')
+    if P["ring"] > 0:
+        rx = P["a"] * P["ring"]
+        parts.append(f'<ellipse cx="{C}" cy="{fmt(dy)}" rx="{fmt(rx)}" ry="{fmt(rx / 2)}" fill="none"/>')
+    for d in body:
+        parts.append(f'<path d="{shift(d, dy)}"/>')
+    for d in hidden:
+        parts.append(f'<path d="{shift(d, dy)}" stroke-opacity="0.35"/>')
+    op = f' opacity="{opacity}"' if opacity is not None else ""
+    return (f'<g fill="none" stroke="{color}" stroke-width="{sw}" stroke-linejoin="{P["join"]}" '
+            f'stroke-linecap="{"round" if P["join"] == "round" else "butt"}" stroke-miterlimit="4"{op}>'
+            + "".join(parts) + "</g>"), bb
+
+
+def defs(bg, uid="bg"):
+    st = "".join(f'<stop offset="{o}" stop-color="{c}"/>' for o, c in bg["stops"])
+    if bg["kind"] == "vert":
+        grad = f'<linearGradient id="{uid}" x1="0" y1="0" x2="0" y2="1">{st}</linearGradient>'
+    elif bg["kind"] == "radial":
+        grad = f'<radialGradient id="{uid}" cx="0.3" cy="0.22" r="0.95">{st}</radialGradient>'
+    else:
+        grad = f'<linearGradient id="{uid}" x1="0" y1="0" x2="1" y2="1">{st}</linearGradient>'
+    # 1 px inner highlight along the top edge only; fades out within the top quarter
+    hi = ('<linearGradient id="hi" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.16"/>'
+          '<stop offset="0.12" stop-color="#fff" stop-opacity="0"/></linearGradient>')
+    return f"<defs>{grad}{hi}</defs>"
+
+
+def svg_tile(P, bg, ink, ink_opacity=INK_OPACITY, highlight=True, title="Quarry"):
+    g, _ = glyph_group(P, ink, ink_opacity)
+    hl = (f'<rect x="0.5" y="0.5" width="511" height="511" rx="{TILE_RX - 0.5}" fill="none" stroke="url(#hi)"/>'
+          if highlight else "")
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">\n'
-            f'  <title>{title}</title>\n'
-            f'  <rect width="512" height="512" rx="{TILE_RX}" fill="{field}"/>\n'
-            f'  <path d="{d}" fill="{ink}"/>\n</svg>\n')
+            f'  <title>{title}</title>\n  {defs(bg)}\n'
+            f'  <rect width="512" height="512" rx="{TILE_RX}" fill="url(#bg)"/>\n  {hl}\n  {g}\n</svg>\n')
+
+
+def svg_mark(P, side_pad=8):
+    """Glyph only: a square viewBox just big enough for the strokes, so `Icon::size(44)` is 44 px of mark."""
+    g, bb = glyph_group(P, "currentColor")
+    sw = P["sw"]
+    # miter tips of the roof and floor stick out past sw/2; allow for them
+    ext = sw * (0.75 if P["join"] == "miter" else 0.5)
+    half_h = (bb[1] - bb[0]) / 2 + ext
+    half_w = P["a"] + ext
+    side = 2 * max(half_h, half_w) + side_pad * 2
+    cy = (bb[0] + bb[1]) / 2
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{fmt(C - side / 2)} {fmt(cy - side / 2)} {fmt(side)} {fmt(side)}">\n'
+            f'  <title>Quarry</title>\n  {g}\n</svg>\n')
+
+
+# The in-app renderer ignores fill-opacity, so the faint face fill is dropped; slab height and gap grow so the
+# seams stay open at the ~40 px the welcome view draws it.
+MARK = dict(FULL, sw=16, fill=0.0, h=46, g=36)
 
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    def w(name, text): open(os.path.join(here, name), "w").write(text)
 
-    polys = glyph(**FULL)
-    off = optical_offset(polys)
-    d = path_d(polys, off)
-    w("quarry.svg", svg_tile(d, FIELD, INK))
-    w("quarry-light.svg", svg_tile(d, LIGHT_FIELD, LIGHT_INK))
+    def w(name, text):
+        with open(os.path.join(here, name), "w") as f:
+            f.write(text)
 
-    small = glyph(**SMALL)
-    w("quarry-small.svg", svg_tile(path_d(small, optical_offset(small, snap=32)), FIELD, INK))
-
-    # Glyph only, for in-app use: a square viewBox just big enough for the glyph plus a hair of
-    # air, so `Icon::size(34)` means 34 px of mark rather than 34 px of mostly padding.
-    xs = [p[0] + C + off[0] for q in polys for p in q]; ys = [p[1] + C + off[1] for q in polys for p in q]
-    side = max(max(xs) - min(xs), max(ys) - min(ys)) + 16
-    vx, vy = (min(xs) + max(xs)) / 2 - side / 2, (min(ys) + max(ys)) / 2 - side / 2
-    w("quarry-mark.svg",
-      f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{fmt(vx)} {fmt(vy)} {fmt(side)} {fmt(side)}" fill="currentColor">\n'
-      f'  <title>Quarry</title>\n  <path d="{d}"/>\n</svg>\n')
+    w("quarry.svg", svg_tile(FULL, DARK_BG, INK))
+    w("quarry-mid.svg", svg_tile(MID, DARK_BG, INK))
+    w("quarry-small.svg", svg_tile(SMALL, DARK_BG, INK, highlight=False))
+    w("quarry-light.svg", svg_tile(FULL, LIGHT_BG, LIGHT_INK, 0.9, highlight=False))
+    w("quarry-mark.svg", svg_mark(MARK))
 
 
 if __name__ == "__main__":
