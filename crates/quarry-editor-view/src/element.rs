@@ -682,7 +682,7 @@ impl EditorView {
         let mut selection_paths = Vec::new();
         let mut cursors = Vec::new();
         let mut ime_cursor = None;
-        let sel_color = colors.selection;
+        let sel_color = crate::util::visible_selection(colors.selection, colors.background);
         let sel_secondary = Hsla { a: sel_color.a * 0.55, ..sel_color };
         for (i, s) in sels.iter().enumerate().skip(lo) {
             if s.from() > last_char {

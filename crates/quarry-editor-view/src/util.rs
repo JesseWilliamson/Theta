@@ -162,3 +162,52 @@ mod edit_tests {
         assert_eq!(shift_range(10..14, 7, 3, 0), Some(7..11));
     }
 }
+
+fn relative_luminance(c: gpui_kit::Rgba) -> f32 {
+    let lin = |v: f32| if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+    0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+}
+
+fn blend(over: gpui_kit::Rgba, under: gpui_kit::Rgba, alpha: f32) -> gpui_kit::Rgba {
+    gpui_kit::Rgba {
+        r: under.r + (over.r - under.r) * alpha,
+        g: under.g + (over.g - under.g) * alpha,
+        b: under.b + (over.b - under.b) * alpha,
+        a: 1.0,
+    }
+}
+
+/// A selection colour that can be seen: some themes ship a selection so close to the editor
+/// background (Gruvbox Light) that a selected line looks unselected. The alpha is raised until
+/// the selection, composited over `background`, has at least a 1.18:1 contrast ratio to it.
+pub fn visible_selection(selection: gpui_kit::Hsla, background: gpui_kit::Hsla) -> gpui_kit::Hsla {
+    const MIN_RATIO: f32 = 1.18;
+    let bg: gpui_kit::Rgba = background.into();
+    let mut out = selection;
+    let sel_rgb: gpui_kit::Rgba = selection.into();
+    let ratio = |a: f32| {
+        let (x, y) = (relative_luminance(blend(sel_rgb, bg, a)) + 0.05, relative_luminance(bg) + 0.05);
+        x.max(y) / x.min(y)
+    };
+    let mut alpha = selection.a.clamp(0.05, 1.0);
+    while ratio(alpha) < MIN_RATIO && alpha < 0.85 {
+        alpha += 0.05;
+    }
+    out.a = alpha.max(selection.a);
+    out
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::visible_selection;
+    use gpui_kit::{Hsla, hsla};
+
+    #[test]
+    fn faint_selections_are_strengthened_and_good_ones_left_alone() {
+        let bg = hsla(0.12, 0.6, 0.92, 1.0);
+        let faint: Hsla = hsla(0.12, 0.5, 0.80, 0.08);
+        assert!(visible_selection(faint, bg).a > 0.08);
+        let fine: Hsla = hsla(0.6, 0.7, 0.5, 0.35);
+        assert_eq!(visible_selection(fine, bg), fine);
+    }
+}
