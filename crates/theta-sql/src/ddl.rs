@@ -1612,6 +1612,66 @@ pub fn check_foreign_keys(d: &TableDraft, catalog: &Catalog) -> Vec<Issue> {
     out
 }
 
+/// Changes the server will refuse that only the original and the edit together reveal. MySQL / MariaDB do
+/// not change the type of a column while a foreign key uses it, on either side of the key (error 1832 /
+/// 1833); the way through is to drop the key, change the column and add the key again, which is the
+/// user's decision (it re-validates every row), so it is reported rather than scripted.
+pub fn check_changes(
+    original: &TableDraft,
+    edited: &TableDraft,
+    catalog: Option<&Catalog>,
+    kind: DatabaseKind,
+) -> Vec<Issue> {
+    let mut out = Vec::new();
+    if kind != DatabaseKind::MySql {
+        return out;
+    }
+    for e in &edited.columns {
+        let Some(o) = original.col(e.id) else { continue };
+        if norm(&o.data_type) == norm(&e.data_type) {
+            continue;
+        }
+        // A key of this table that still stands (unchanged) and uses the column.
+        let local = original.foreign_keys.iter().find(|f| {
+            f.columns.contains(&e.id) && edited.foreign_keys.iter().any(|x| x.id == f.id && same_fk(f, x))
+        });
+        // A key of another table that points at this one.
+        let remote = catalog.and_then(|c| {
+            c.schemas.iter().flat_map(|s| s.tables.iter().map(move |t| (s, t))).find_map(|(s, t)| {
+                let own = t.name.eq_ignore_ascii_case(&original.name)
+                    && original.schema.as_deref().is_none_or(|os| os.eq_ignore_ascii_case(&s.name));
+                (!own)
+                    .then(|| {
+                        t.foreign_keys
+                            .iter()
+                            .find(|f| {
+                                f.referenced_table.eq_ignore_ascii_case(&original.name)
+                                    && f.referenced_columns.iter().any(|c| c.eq_ignore_ascii_case(&o.name))
+                            })
+                            .map(|f| format!("{}.{}", t.name, f.name))
+                    })
+                    .flatten()
+            })
+        });
+        let because = match (local, remote) {
+            (Some(f), _) => format!("the foreign key {} uses it", f.name.clone().unwrap_or_default()),
+            (None, Some(r)) => format!("the foreign key {r} points at it"),
+            (None, None) => continue,
+        };
+        out.push(Issue {
+            severity: Severity::Error,
+            scope: Scope::Columns,
+            message: format!(
+                "MySQL cannot change the type of {} while {because}. Remove the foreign key, change the type, then add the key again.",
+                o.name
+            ),
+            column: Some(e.id),
+            fix: None,
+        });
+    }
+    out
+}
+
 /// Name clashes the draft cannot see by itself: the table name against the tables of its schema (unless it
 /// is the table's own name before the edit), and constraint or index names used twice in the draft.
 /// PostgreSQL and SQLite keep index names schema-wide, so an index named like another table's index fails
@@ -2466,5 +2526,58 @@ mod tests {
             CheckDraft { id: 31, name: Some("C".into()), expression: "true".into() },
         ];
         assert_eq!(check_names(&d, Some("customers"), &catalog, Postgres).len(), 1);
+    }
+
+    #[test]
+    fn mysql_refuses_a_type_change_on_a_foreign_key_column_and_says_so_up_front() {
+        let mut o = customers(MySql);
+        o.foreign_keys.push(ForeignKeyDraft {
+            id: 9,
+            name: Some("customers_x_fk".into()),
+            columns: vec![3],
+            ref_schema: None,
+            ref_table: "t".into(),
+            ref_columns: vec!["e".into()],
+            on_delete: None,
+            on_update: None,
+            deferrable: false,
+            initially_deferred: false,
+        });
+        let mut e = o.clone();
+        e.columns[2].data_type = "varchar(200)".into();
+        let issues = check_changes(&o, &e, None, MySql);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].message.contains("customers_x_fk"), "{}", issues[0].message);
+        assert_eq!(issues[0].column, Some(3));
+        // Dropping the key in the same edit is the way through.
+        let mut e2 = e.clone();
+        e2.foreign_keys.clear();
+        assert!(check_changes(&o, &e2, None, MySql).is_empty());
+        // Other databases change the type and re-check the key themselves.
+        assert!(check_changes(&o, &e, None, Postgres).is_empty());
+        assert!(check_changes(&o, &o, None, MySql).is_empty(), "no change, no problem");
+        // The other side of a key: another table's key points at this column.
+        let other = Table {
+            name: "orders".into(),
+            foreign_keys: vec![ForeignKey {
+                name: "orders_cust".into(),
+                columns: vec!["c".into()],
+                referenced_table: "customers".into(),
+                referenced_columns: vec!["email".into()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let catalog = Catalog {
+            schemas: vec![theta_core::Schema { name: "d".into(), tables: vec![other], ..Default::default() }],
+            default_schema: Some("d".into()),
+        };
+        let mut plain = customers(MySql);
+        plain.foreign_keys.clear();
+        let mut changed = plain.clone();
+        changed.columns[2].data_type = "varchar(200)".into();
+        let issues = check_changes(&plain, &changed, Some(&catalog), MySql);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].message.contains("orders.orders_cust"), "{}", issues[0].message);
     }
 }

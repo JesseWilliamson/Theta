@@ -378,6 +378,9 @@ impl DraftModel {
                 self.kind,
             ));
         }
+        if let Some(o) = &self.original {
+            issues.extend(ddl::check_changes(o, &self.draft, self.catalog.as_deref(), self.kind));
+        }
         let statements = match &self.original {
             Some(o) => ddl::diff(o, &self.draft, self.kind),
             None => ddl::create_table(&self.draft, self.kind),

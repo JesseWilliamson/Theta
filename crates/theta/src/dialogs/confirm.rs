@@ -161,7 +161,8 @@ pub fn open_items(
     // it, so "ctrl-Enter, Enter" silently discarded the action it was asked to confirm. A dialog
     // whose only choices are Danger ones has no default: those need a deliberate click.
     let default = choices.iter().find(|c| c.tone == Tone::Primary).map(|c| c.run.clone());
-    let view = cx.new(|cx| ConfirmView { intro: intro.into(), statements, choices, focus: cx.focus_handle() });
+    let view =
+        cx.new(|cx| ConfirmView { intro: intro.into(), statements, choices, focus: cx.focus_handle() });
     let focus = view.read(cx).focus.clone();
     let title: SharedString = title.into();
     window.defer(cx, move |window, cx| window.focus(&focus, cx));
