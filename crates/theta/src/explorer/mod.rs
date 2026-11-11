@@ -56,6 +56,26 @@ pub enum ExplorerEvent {
         schema: String,
         table: String,
     },
+    RenameTable {
+        connection_id: String,
+        schema: String,
+        table: String,
+    },
+    TruncateTable {
+        connection_id: String,
+        schema: String,
+        table: String,
+    },
+    DropTable {
+        connection_id: String,
+        schema: String,
+        table: String,
+    },
+    DuplicateStructure {
+        connection_id: String,
+        schema: String,
+        table: String,
+    },
     /// Import a file as a new table.
     ImportNewTable {
         connection_id: String,
@@ -612,6 +632,47 @@ impl Explorer {
                     let (c, s, t) = (c.clone(), s.clone(), t.clone());
                     move |_, cx| {
                         cx.emit(ExplorerEvent::RelatedTables {
+                            connection_id: c.clone(),
+                            schema: s.clone(),
+                            table: t.clone(),
+                        })
+                    }
+                }))
+                .separator()
+                .item(item(&explorer, "Rename…", IconName::Pencil, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::RenameTable {
+                            connection_id: c.clone(),
+                            schema: s.clone(),
+                            table: t.clone(),
+                        })
+                    }
+                }))
+                .item(item(&explorer, "Duplicate Structure…", IconName::Copy, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::DuplicateStructure {
+                            connection_id: c.clone(),
+                            schema: s.clone(),
+                            table: t.clone(),
+                        })
+                    }
+                }))
+                .item(item(&explorer, "Truncate…", IconName::Eraser, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::TruncateTable {
+                            connection_id: c.clone(),
+                            schema: s.clone(),
+                            table: t.clone(),
+                        })
+                    }
+                }))
+                .item(item(&explorer, "Drop…", IconName::Trash, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::DropTable {
                             connection_id: c.clone(),
                             schema: s.clone(),
                             table: t.clone(),

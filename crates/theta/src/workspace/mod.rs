@@ -17,6 +17,7 @@
 mod bottom;
 mod bulk;
 pub mod console;
+mod ddl_actions;
 mod folders;
 mod params;
 pub mod persist;
@@ -584,6 +585,18 @@ impl Workspace {
                 window,
                 cx,
             ),
+            ExplorerEvent::RenameTable { connection_id, schema, table } => {
+                self.rename_table_dialog(connection_id, schema, table, window, cx)
+            }
+            ExplorerEvent::TruncateTable { connection_id, schema, table } => {
+                self.truncate_table_dialog(connection_id, schema, table, window, cx)
+            }
+            ExplorerEvent::DropTable { connection_id, schema, table } => {
+                self.drop_table_dialog(connection_id, schema, table, window, cx)
+            }
+            ExplorerEvent::DuplicateStructure { connection_id, schema, table } => {
+                self.duplicate_structure_dialog(connection_id, schema, table, window, cx)
+            }
             ExplorerEvent::ExportData { connection_id, schema, table } => {
                 self.open_export_dialog(connection_id, schema, table, window, cx)
             }
@@ -920,6 +933,18 @@ impl Render for Workspace {
             )
             .on_action(cx.listener(|this, _: &ImportAsNewTable, window, cx| {
                 this.import_from_palette(true, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &RenameTable, window, cx| {
+                this.pick_table_for(palette::TablePurpose::Rename, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &DuplicateTableStructure, window, cx| {
+                this.pick_table_for(palette::TablePurpose::Duplicate, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &TruncateTable, window, cx| {
+                this.pick_table_for(palette::TablePurpose::Truncate, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &DropTable, window, cx| {
+                this.pick_table_for(palette::TablePurpose::Drop, window, cx)
             }))
             .on_action(cx.listener(|this, _: &ExportTableData, window, cx| {
                 this.pick_table_for(palette::TablePurpose::Export, window, cx)
