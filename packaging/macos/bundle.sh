@@ -12,7 +12,11 @@ app="$stage/Quarry.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/quarry"
 chmod +x "$app/Contents/MacOS/quarry"
-sed "s/@VERSION@/$version/g" "$here/Info.plist.in" > "$app/Contents/Info.plist"
+# CFBundleShortVersionString / CFBundleVersion must be numeric (1-3 dot-separated integers):
+# 0.1.0-alpha.1 -> 0.1.0. The full string stays in the zip name and in the plist's
+# QuarryVersion key.
+numeric=${version%%-*}
+sed -e "s/@VERSION@/$numeric/g" -e "s/@FULL_VERSION@/$version/g" "$here/Info.plist.in" > "$app/Contents/Info.plist"
 
 # .icns from the 1024px master (itself rendered from icons/quarry.svg by icons/build.sh).
 set_dir=$(mktemp -d)/Quarry.iconset && mkdir -p "$set_dir"

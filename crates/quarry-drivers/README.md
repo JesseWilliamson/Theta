@@ -88,4 +88,4 @@ the key directory must be world-traversable because `sshd` reads `authorized_key
 and one unauthorised key), creates the user `quarrytest` (password `quarry-test-pw`)
 and runs `/usr/sbin/sshd -f <dir>/sshd_config -p 2222` with password and public-key
 authentication. Everything lives under `QUARRY_TEST_SSH_DIR`
-(default `/home/user/targets/drivers/ssh-test`); `QUARRY_TEST_SSH_PORT` changes the port.
+(default `${TMPDIR:-/tmp}/quarry-ssh-test`); `QUARRY_TEST_SSH_PORT` changes the port.

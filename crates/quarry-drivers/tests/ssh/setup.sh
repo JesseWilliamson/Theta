@@ -8,7 +8,7 @@
 # openssh-server / openssh-client packages. Everything lives under $DIR.
 set -euo pipefail
 
-DIR="${QUARRY_TEST_SSH_DIR:-/home/user/targets/drivers/ssh-test}"
+DIR="${QUARRY_TEST_SSH_DIR:-${TMPDIR:-/tmp}/quarry-ssh-test}"
 PORT="${QUARRY_TEST_SSH_PORT:-2222}"
 USER_NAME="${QUARRY_TEST_SSH_USER:-quarrytest}"
 PASSWORD="quarry-test-pw"

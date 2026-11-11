@@ -27,7 +27,12 @@ macro_rules! ssh_test {
 fn dir() -> PathBuf {
     std::env::var("QUARRY_TEST_SSH_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| "/home/user/targets/drivers/ssh-test".into())
+        .unwrap_or_else(|_| {
+            std::env::var_os("TMPDIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| "/tmp".into())
+                .join("quarry-ssh-test")
+        })
 }
 
 fn port() -> u16 {

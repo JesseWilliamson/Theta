@@ -107,12 +107,16 @@ jobs:
         shell: pwsh
         run: |
           $v = "${{ steps.v.outputs.version }}"
+          # Windows version resources are four numbers: 0.1.0-alpha.1 -> 0.1.0.0. The full
+          # string (pre-release suffix included) goes into the ProductVersion/FileVersion text.
+          $num = ($v -split '-')[0]
           New-Item -ItemType Directory dist, stage | Out-Null
           $exe = "target/${{ matrix.target }}/release/quarry.exe"
           # Embed the icon and version info into the exe (no build script needed).
           Invoke-WebRequest -Uri https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe -OutFile rcedit.exe
           ./rcedit.exe $exe --set-icon packaging/windows/quarry.ico `
-            --set-file-version "$v.0" --set-product-version "$v" `
+            --set-file-version "$num.0" --set-product-version "$num.0" `
+            --set-version-string FileVersion "$v" --set-version-string ProductVersion "$v" `
             --set-version-string ProductName Quarry --set-version-string FileDescription "Quarry database IDE" `
             --set-version-string InternalName quarry --set-version-string OriginalFilename quarry.exe `
             --set-version-string LegalCopyright "Quarry contributors"
@@ -164,6 +168,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NEW_TAG: ${{ github.event.inputs.tag }}
         run: |
+          # Re-running replaces the draft instead of failing or leaving a duplicate. Only a
+          # DRAFT with exactly this tag name is deleted; a published release is never touched
+          # (creating the new one then fails loudly, which is what we want).
+          TAG="${NEW_TAG:-$REF}"
+          gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" \
+            --jq ".[] | select(.draft == true and .tag_name == \"$TAG\") | .id" |
+            while read -r id; do
+              echo "Deleting the existing draft release $id for $TAG"
+              gh api -X DELETE "repos/${{ github.repository }}/releases/$id"
+            done
           if [ -n "$NEW_TAG" ]; then
             # Draft for a tag that does not exist yet: GitHub creates the tag at
             # this commit when a maintainer publishes the draft.

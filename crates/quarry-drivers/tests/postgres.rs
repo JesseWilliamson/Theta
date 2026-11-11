@@ -647,7 +647,10 @@ async fn a_backend_killed_by_another_session_is_reported_as_connection_lost() {
     let admin = quarry_drivers::connect(&pg_config()).await.expect("connect");
     let pid = scalar(victim.as_ref(), "select pg_backend_pid()::int8").await;
     let Value::Int(pid) = pid else { panic!("pid is an integer") };
-    assert_eq!(scalar(admin.as_ref(), &format!("select pg_terminate_backend({pid})")).await, Value::Bool(true));
+    assert_eq!(
+        scalar(admin.as_ref(), &format!("select pg_terminate_backend({pid})")).await,
+        Value::Bool(true)
+    );
     // Give the server a moment to close the socket.
     tokio::time::sleep(Duration::from_millis(200)).await;
     let err = victim.execute("select 1", &all()).await.expect_err("terminated");
