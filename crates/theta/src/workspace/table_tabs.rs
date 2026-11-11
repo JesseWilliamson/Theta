@@ -14,6 +14,9 @@ use crate::table_editor::model::DraftModel;
 use crate::table_editor::{TableEditor, TableEditorEvent};
 use gpui_kit::assets::IconName;
 use gpui_kit::{App, AppContext as _, Context, Entity, SharedString, WeakEntity, Window};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Duration;
 use theta_core::{DatabaseKind, TableKind};
 use theta_sql::VirtualForeignKey;
 use theta_sql::ddl::{self, Flag, Session, Statement};
@@ -331,9 +334,27 @@ impl Workspace {
         if !self.begin_bulk(&conn_id, window, cx) {
             return;
         }
-        editor.update(cx, |e, cx| e.set_running(cx));
+        let total = stmts.len();
+        editor.update(cx, |e, cx| e.set_running(total, cx));
+        // The task reports how far it got; a poller shows it in the preview while the script runs.
+        let done = Arc::new(AtomicUsize::new(0));
+        let finished = Arc::new(AtomicBool::new(false));
+        {
+            let (done, finished, editor) = (done.clone(), finished.clone(), editor.downgrade());
+            cx.spawn(async move |_, cx| {
+                while !finished.load(Ordering::Relaxed) {
+                    cx.background_executor().timer(Duration::from_millis(100)).await;
+                    let n = done.load(Ordering::Relaxed);
+                    if editor.update(cx, |e, cx| e.set_progress(n, total, cx)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .detach();
+        }
         let shown: Vec<String> = stmts.iter().map(|s| s.sql.clone()).collect();
         let own = script.own_transaction;
+        let (task_done, task_finished) = (done.clone(), finished.clone());
         let task = runtime::spawn(async move {
             let opts = theta_core::ExecOptions { row_limit: Some(10) };
             let mut failure: Option<(Option<usize>, String)> = None;
@@ -354,7 +375,10 @@ impl Workspace {
                     Err(e) => Some(e.to_string()),
                 };
                 match problem {
-                    None if failure.is_none() && step.statement.is_some() => completed += 1,
+                    None if failure.is_none() && step.statement.is_some() => {
+                        completed += 1;
+                        task_done.store(step.statement.map_or(0, |i| i + 1), Ordering::Relaxed);
+                    }
                     None => {}
                     Some(message) if failure.is_none() => {
                         failure = Some((step.statement, message));
@@ -368,6 +392,7 @@ impl Workspace {
                     Some(_) => {}
                 }
             }
+            task_finished.store(true, Ordering::Relaxed);
             match failure {
                 None => Outcome::Done,
                 Some((statement, message)) => Outcome::Failed { statement, message, completed, rolled_back },

@@ -604,7 +604,8 @@ next one, so a whole column can be typed without leaving the keyboard. `Enter` o
 list: `Space` chooses, `Alt-Up` / `Alt-Down` orders what is chosen. `Alt-Left` / `Alt-Right` switch sections and
 `Alt-N` puts the cursor in the table name.
 
-**Execute** (`mod-enter`, or the button) shows the exact SQL with its badges and asks. PostgreSQL and SQLite run
+**Execute** (`mod-enter`, or the button) shows the exact SQL with its badges and asks; while it runs the preview says
+`Running statement 2 of 9…` and marks that block. PostgreSQL and SQLite run
 the whole script in one transaction: if a statement fails, nothing is changed. (SQLite's table rebuild keeps its
 `PRAGMA foreign_keys` outside the transaction, checks foreign keys before it commits, and turns enforcement back
 on whatever happens.) MySQL / MariaDB commit every DDL statement by themselves, so the dialog says so and, if a

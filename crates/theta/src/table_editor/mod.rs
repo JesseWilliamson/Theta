@@ -134,6 +134,8 @@ pub struct TableEditor {
     pub(crate) status: Option<(bool, String)>,
     pub(crate) pending: keys::Pending,
     pub(crate) run: Run,
+    /// While running: how many statements have finished, of how many.
+    pub(crate) progress: Option<(usize, usize)>,
     /// Foreign keys the catalog suggests for this table (from `infer_foreign_keys`).
     pub(crate) suggestions: Vec<VirtualForeignKey>,
     /// After a successful Execute: the table to reload once the refreshed catalog has it.
@@ -187,6 +189,7 @@ impl TableEditor {
             status: None,
             pending: None,
             run: Run::Idle,
+            progress: None,
             suggestions: Vec::new(),
             rebase: None,
             _subs: subs,
@@ -321,6 +324,7 @@ impl TableEditor {
     /// when the change sits in the user's open transaction the database cannot say what it looks like, so
     /// the edit itself becomes the new original.
     pub fn applied(&mut self, in_session: bool, cx: &mut Context<Self>) {
+        self.progress = None;
         self.run = Run::Idle;
         let (schema, name) = (self.model.draft().schema.clone(), self.model.draft().name.clone());
         if in_session {
@@ -682,8 +686,9 @@ impl TableEditor {
         cx.emit(TableEditorEvent::Execute);
     }
 
-    pub fn set_running(&mut self, cx: &mut Context<Self>) {
+    pub fn set_running(&mut self, total: usize, cx: &mut Context<Self>) {
         self.run = Run::Running;
+        self.progress = Some((0, total));
         self.status = None;
         cx.notify();
     }
@@ -695,11 +700,21 @@ impl TableEditor {
         note: String,
         cx: &mut Context<Self>,
     ) {
+        self.progress = None;
         self.run = Run::Failed { statement, message, note };
         cx.notify();
     }
 
+    /// `done` of `total` statements have finished.
+    pub fn set_progress(&mut self, done: usize, total: usize, cx: &mut Context<Self>) {
+        if self.is_running() && self.progress != Some((done, total)) {
+            self.progress = Some((done, total));
+            cx.notify();
+        }
+    }
+
     pub fn set_idle(&mut self, cx: &mut Context<Self>) {
+        self.progress = None;
         self.run = Run::Idle;
         cx.notify();
     }

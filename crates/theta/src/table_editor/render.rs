@@ -886,6 +886,7 @@ impl TableEditor {
             _ => None,
         };
         let running = self.is_running();
+        let progress = self.progress;
         let dirty = self.model.dirty();
         let height = (f32::from(window.viewport_size().height) * 0.36).clamp(180.0, 340.0);
 
@@ -975,6 +976,9 @@ impl TableEditor {
                         d.bg(theme.danger.opacity(0.10)).border_l_2().border_color(theme.danger)
                     })
                     .when(not_run, |d| d.opacity(0.55))
+                    .when(running && progress.is_some_and(|(done, _)| done == i), |d| {
+                        d.bg(theme.info.opacity(0.10)).border_l_2().border_color(theme.info)
+                    })
                     .child(
                         h_flex()
                             .gap_1p5()

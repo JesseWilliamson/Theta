@@ -24,7 +24,7 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
   are editable, and the MySQL engine / charset / collation are shown. Undo and redo within the tab. **Execute**
   confirms the exact SQL with its badges and runs it through the same path as the explorer's table actions: one
   transaction on PostgreSQL and SQLite (SQLite's rebuild keeps its pragmas outside it and checks foreign keys
-  before committing), statement by statement on MySQL / MariaDB (stated, and a failure names what was already
+  before committing; the preview shows which statement is running), statement by statement on MySQL / MariaDB (stated, and a failure names what was already
   applied), inside the open transaction in manual mode, refused on read-only connections. On failure the failing
   statement is marked with the server's error and every edit is kept; on success the tab reloads as *Modify
   <name>* and the table is selected in the explorer. Closing a tab with unapplied changes asks.
