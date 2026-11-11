@@ -513,32 +513,32 @@ impl Workspace {
         cx.spawn_in(window, async move |this, cx| {
             let waited = wait_connected(&this, cx, &conn_id).await;
             this.update_in(cx, |this, window, cx| {
-                    this.awaiting_connection.remove(&id);
-                    match waited {
-                        Ok(_) => {
-                            // The console may have been closed or re-pointed while connecting.
-                            let same = this
-                                .tabs
-                                .iter()
-                                .find(|t| t.id == id)
-                                .is_some_and(|t| t.connection_id.as_deref() == Some(conn_id.as_str()));
-                            if same {
-                                then(this, window, cx);
-                            }
-                        }
-                        Err(e) => {
-                            let name = this.conn_name(&conn_id, cx);
-                            this.log(
-                                &conn_id,
-                                &what,
-                                MessageKind::Error,
-                                vec![format!("Could not connect to {name}: {e}")],
-                                Some(&e),
-                                cx,
-                            );
-                            this.set_bottom_tab(BottomTab::Messages, cx);
+                this.awaiting_connection.remove(&id);
+                match waited {
+                    Ok(_) => {
+                        // The console may have been closed or re-pointed while connecting.
+                        let same = this
+                            .tabs
+                            .iter()
+                            .find(|t| t.id == id)
+                            .is_some_and(|t| t.connection_id.as_deref() == Some(conn_id.as_str()));
+                        if same {
+                            then(this, window, cx);
                         }
                     }
+                    Err(e) => {
+                        let name = this.conn_name(&conn_id, cx);
+                        this.log(
+                            &conn_id,
+                            &what,
+                            MessageKind::Error,
+                            vec![format!("Could not connect to {name}: {e}")],
+                            Some(&e),
+                            cx,
+                        );
+                        this.set_bottom_tab(BottomTab::Messages, cx);
+                    }
+                }
             })
             .ok();
         })

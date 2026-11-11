@@ -8,11 +8,22 @@ fn main() {
     let args = match quarry::cli::parse(std::env::args().skip(1), demo_env) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!(
-                "quarry: {e}\nusage: quarry [--demo] [--connect URL]... [--stress-catalog[=N]] [--theme NAME]"
-            );
+            // A GUI-subsystem build on Windows has no console to print to; there the message
+            // is still useful when started from a terminal that attached one.
+            eprintln!("quarry: {e}\n\n{}", quarry::cli::USAGE);
             std::process::exit(2);
         }
     };
+    if args.help {
+        print!("{}", quarry::cli::USAGE);
+        return;
+    }
+    if args.version {
+        println!("{}", quarry::cli::version_line());
+        return;
+    }
+    if let Some(note) = quarry::cli::ssh_auth_note(&args) {
+        eprintln!("{note}");
+    }
     quarry::app::run(args);
 }

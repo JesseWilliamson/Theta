@@ -31,7 +31,11 @@ fn setup(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
 
 /// `connect`: whether the SQLite connection is brought up before the console opens (a
 /// restored console finds its connection disconnected).
-fn setup_with<'a>(cx: &'a mut TestAppContext, connect: bool, path: &str) -> (Fixture, &'a mut VisualTestContext) {
+fn setup_with<'a>(
+    cx: &'a mut TestAppContext,
+    connect: bool,
+    path: &str,
+) -> (Fixture, &'a mut VisualTestContext) {
     let dir = tempfile::tempdir().unwrap();
     cx.executor().allow_parking();
     cx.update(|cx| {
@@ -536,9 +540,7 @@ fn wait_for(vcx: &mut VisualTestContext, what: &str, mut done: impl FnMut(&mut V
 }
 
 fn messages(f: &Fixture, vcx: &mut VisualTestContext) -> Vec<String> {
-    f.ws.read_with(vcx, |ws, cx| {
-        ws.messages.read(cx).entries().iter().map(|m| m.plain_text()).collect()
-    })
+    f.ws.read_with(vcx, |ws, cx| ws.messages.read(cx).entries().iter().map(|m| m.plain_text()).collect())
 }
 
 /// A restored console finds its connection disconnected. Run must connect, wait and then run;
@@ -568,9 +570,7 @@ fn explain_on_a_disconnected_console_connects_first(cx: &mut TestAppContext) {
     editor.update_in(vcx, |v, _, cx| v.update_editor(cx, |e| e.set_text("select 5 as five")));
     f.ws.update_in(vcx, |ws, window, cx| ws.explain_active(false, window, cx));
     wait_for(vcx, "the connection", |vcx| store.read_with(vcx, |s, _| s.state(&id).is_connected()));
-    wait_for(vcx, "the explain outcome", |vcx| {
-        f.ws.read_with(vcx, |ws, _| ws.last_explain.is_some())
-    });
+    wait_for(vcx, "the explain outcome", |vcx| f.ws.read_with(vcx, |ws, _| ws.last_explain.is_some()));
 }
 
 #[gpui_kit::test]

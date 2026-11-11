@@ -119,8 +119,7 @@ fn startup_connections(args: &Args, store: &Entity<ConnectionStore>, cx: &mut gp
             let result = demo::create_demo_database().await;
             cx.update(|cx| match result {
                 Ok(()) => store.update(cx, |s, cx| {
-                    let existing =
-                        s.configs().iter().find(|c| c.name == demo::DEMO_NAME).map(|c| c.id.clone());
+                    let existing = demo::find_existing(s.configs(), &demo::demo_path()).map(|c| c.id.clone());
                     let id = existing.unwrap_or_else(|| s.add(demo::demo_config(&new_connection_id()), cx));
                     s.connect(&id, cx);
                 }),
@@ -171,7 +170,11 @@ pub fn parse_ssh(spec: &str, key: Option<&str>) -> Option<quarry_core::SshConfig
         Some((h, p)) => (h, p.parse().ok()?),
         None => (rest, 22),
     };
-    let auth = quarry_core::SshAuth::KeyFile { path: key?.to_string(), passphrase: None };
+    // Without a key file the running ssh-agent authenticates (the CLI says so at start-up).
+    let auth = match key {
+        Some(path) => quarry_core::SshAuth::KeyFile { path: path.to_string(), passphrase: None },
+        None => quarry_core::SshAuth::Agent,
+    };
     Some(quarry_core::SshConfig { host: host.to_string(), port, user: user.to_string(), auth })
 }
 
@@ -185,5 +188,6 @@ mod tests {
         assert_eq!((c.user.as_str(), c.host.as_str(), c.port), ("bob", "box.example", 2222));
         assert_eq!(parse_ssh("bob@box", Some("/k")).unwrap().port, 22);
         assert!(parse_ssh("nohost", Some("/k")).is_none());
+        assert_eq!(parse_ssh("bob@box", None).unwrap().auth, quarry_core::SshAuth::Agent);
     }
 }
