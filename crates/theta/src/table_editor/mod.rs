@@ -348,18 +348,16 @@ impl TableEditor {
         self.after_edit(cx);
     }
 
+    /// Inference runs on the draft, not on the saved table, so a table being designed (not in the catalog
+    /// yet) gets suggestions as soon as it has a column such as `store_id integer`, and a renamed or
+    /// retyped column is judged by what it is now.
     fn refresh_suggestions(&mut self) {
         self.suggestions.clear();
-        let (Some(catalog), Some(orig)) = (self.model.catalog(), self.model.original()) else { return };
-        let schema = orig.schema.clone().unwrap_or_default();
-        let name = orig.name.clone();
-        self.suggestions = theta_sql::infer_foreign_keys(catalog)
-            .into_iter()
-            .filter(|v| {
-                v.table.eq_ignore_ascii_case(&name)
-                    && (schema.is_empty() || v.schema.eq_ignore_ascii_case(&schema))
-            })
-            .collect();
+        let Some(catalog) = self.model.catalog() else { return };
+        let draft = self.model.draft();
+        let schema = draft.schema.clone().or_else(|| catalog.default_schema.clone()).unwrap_or_default();
+        self.suggestions =
+            theta_sql::infer_foreign_keys_for(catalog, &schema, &theta_sql::draft_as_table(draft));
     }
 
     /// The suggestions not yet taken by a foreign key in the draft.
@@ -435,6 +433,7 @@ impl TableEditor {
 
     /// Everything that follows a change to the model: the title and the dirty mark, a repaint.
     fn after_edit(&mut self, cx: &mut Context<Self>) {
+        self.refresh_suggestions();
         // An edit makes an earlier failure stale: the preview is a new script now.
         if matches!(self.run, Run::Failed { .. }) {
             self.run = Run::Idle;

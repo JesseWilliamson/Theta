@@ -121,6 +121,41 @@ pub enum TypeKind {
     Other,
 }
 
+impl TypeKind {
+    /// Coarse family from a SQL type name as typed or printed (`integer`, `varchar(20)`, `int4[]`). Shared
+    /// by the drivers, which only get text from SQLite and `format_type`, and by the table editor, whose
+    /// draft columns are free text, so both classify a type the same way.
+    pub fn from_type_name(name: &str) -> TypeKind {
+        let n = name.trim().to_ascii_lowercase();
+        if n.ends_with("[]") || n.starts_with('_') {
+            return TypeKind::Array;
+        }
+        let base = n.split(['(', ' ']).next().unwrap_or("");
+        match base {
+            "bool" | "boolean" => TypeKind::Bool,
+            "int" | "integer" | "int2" | "int4" | "int8" | "smallint" | "bigint" | "tinyint"
+            | "mediumint" | "oid" | "serial" | "bigserial" | "smallserial" | "year" => TypeKind::Integer,
+            "float" | "float4" | "float8" | "real" | "double" => TypeKind::Float,
+            "numeric" | "decimal" | "money" | "dec" | "fixed" => TypeKind::Decimal,
+            "text" | "varchar" | "char" | "character" | "bpchar" | "name" | "citext" | "clob"
+            | "nvarchar" | "nchar" | "tinytext" | "mediumtext" | "longtext" | "string" | "enum" | "set"
+            | "xml" => TypeKind::Text,
+            "bytea" | "blob" | "binary" | "varbinary" | "tinyblob" | "mediumblob" | "longblob" | "bit" => {
+                TypeKind::Bytes
+            }
+            "json" | "jsonb" => TypeKind::Json,
+            "uuid" => TypeKind::Uuid,
+            "date" => TypeKind::Date,
+            "time" | "timetz" => TypeKind::Time,
+            "timestamp" | "timestamptz" | "datetime" => TypeKind::Timestamp,
+            "interval" => TypeKind::Interval,
+            "geometry" | "geography" | "point" | "linestring" | "polygon" | "multipoint"
+            | "multilinestring" | "multipolygon" | "geometrycollection" => TypeKind::Geometry,
+            _ => TypeKind::Other,
+        }
+    }
+}
+
 /// Where a result column came from, when the driver can tell. This is what
 /// makes a result grid editable: we can only write back cells whose source
 /// table (and its primary key) is known.

@@ -149,23 +149,98 @@ pub fn infer_foreign_keys(catalog: &Catalog) -> Vec<VirtualForeignKey> {
     let mut out = Vec::new();
     for schema in &catalog.schemas {
         for table in schema.tables.iter().filter(|t| t.kind == TableKind::Table) {
-            for col in &table.columns {
-                if in_declared_fk(table, &col.name) {
-                    continue;
-                }
-                if let Some(v) = infer_for_column(catalog, &index, schema, table, &col.name, col.kind) {
-                    out.push(v);
-                }
-            }
+            infer_table(catalog, &index, schema, table, &mut out);
         }
     }
+    sort_by_confidence(&mut out);
+    out
+}
+
+/// The same inference for a table that is not (yet) in the catalog: the New Table editor's draft, turned
+/// into a `Table` by [`draft_as_table`]. Only the draft's own columns are matched, against the tables the
+/// catalog has, so the heuristics stay in one place and cannot drift between "saved" and "being designed".
+/// A catalog table with the draft's schema and name is ignored as a target, because the draft replaces it.
+pub fn infer_foreign_keys_for(catalog: &Catalog, schema: &str, table: &Table) -> Vec<VirtualForeignKey> {
+    let index = TableIndex::new(catalog);
+    // A throwaway schema with the draft's name: only its name is read (same-schema bonus, self reference).
+    let holder = Schema { name: schema.to_string(), ..Schema::default() };
+    let mut out = Vec::new();
+    infer_table(catalog, &index, &holder, table, &mut out);
+    sort_by_confidence(&mut out);
+    out
+}
+
+/// A `Table` carrying what inference reads from a draft: column names and type families, the primary key
+/// and single-column unique constraints, and the columns already in a foreign key.
+pub fn draft_as_table(draft: &crate::ddl::TableDraft) -> Table {
+    let name_of = |id: u32| draft.columns.iter().find(|c| c.id == id).map(|c| c.name.clone());
+    let names = |ids: &[u32]| -> Vec<String> { ids.iter().filter_map(|i| name_of(*i)).collect() };
+    Table {
+        name: draft.name.clone(),
+        kind: TableKind::Table,
+        columns: draft
+            .columns
+            .iter()
+            .map(|c| theta_core::ColumnInfo {
+                name: c.name.clone(),
+                data_type: c.data_type.clone(),
+                kind: TypeKind::from_type_name(&c.data_type),
+                nullable: c.nullable,
+                ..Default::default()
+            })
+            .collect(),
+        primary_key: draft.primary_key.as_ref().map(|k| names(&k.columns)).unwrap_or_default(),
+        foreign_keys: draft
+            .foreign_keys
+            .iter()
+            .map(|f| theta_core::ForeignKey { columns: names(&f.columns), ..Default::default() })
+            .collect(),
+        unique_constraints: draft
+            .uniques
+            .iter()
+            .map(|u| theta_core::UniqueConstraint {
+                name: u.name.clone().unwrap_or_default(),
+                columns: names(&u.columns),
+            })
+            .collect(),
+        indexes: draft
+            .uniques
+            .iter()
+            .map(|u| theta_core::Index {
+                name: u.name.clone().unwrap_or_default(),
+                columns: names(&u.columns),
+                unique: true,
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+fn infer_table(
+    catalog: &Catalog,
+    index: &TableIndex,
+    schema: &Schema,
+    table: &Table,
+    out: &mut Vec<VirtualForeignKey>,
+) {
+    for col in &table.columns {
+        if in_declared_fk(table, &col.name) {
+            continue;
+        }
+        if let Some(v) = infer_for_column(catalog, index, schema, table, &col.name, col.kind) {
+            out.push(v);
+        }
+    }
+}
+
+fn sort_by_confidence(out: &mut [VirtualForeignKey]) {
     out.sort_by(|a, b| {
         b.confidence
             .partial_cmp(&a.confidence)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| (&a.schema, &a.table, &a.column).cmp(&(&b.schema, &b.table, &b.column)))
     });
-    out
 }
 
 fn infer_for_column(
@@ -220,7 +295,8 @@ fn infer_for_column(
         for (vi, variant) in plural_variants(&stem).into_iter().enumerate() {
             let Some(cands) = index.by_name.get(&variant) else { continue };
             for (ts, tt) in cands {
-                if std::ptr::eq(*tt, table) {
+                // By name, not address: the candidate may be a draft that is not in the catalog.
+                if tt.name.eq_ignore_ascii_case(&table.name) && ts.name.eq_ignore_ascii_case(&schema.name) {
                     continue;
                 }
                 // Target column: same name as the suffix, else the single-column key.
@@ -246,7 +322,7 @@ fn infer_for_column(
                 if exact_name {
                     conf += 0.1;
                 }
-                if std::ptr::eq(*ts, schema) {
+                if ts.name.eq_ignore_ascii_case(&schema.name) {
                     conf += 0.1;
                 } else if catalog.default_schema.as_deref().is_some_and(|d| d.eq_ignore_ascii_case(&ts.name))
                 {
@@ -819,5 +895,81 @@ mod tests {
         // `CI` (set by GitHub Actions) widens wall-clock bounds for slow, shared runners.
         let slack = if std::env::var_os("CI").is_some() { 10 } else { 1 };
         assert!(t.elapsed().as_millis() < 100 * slack, "{:?}", t.elapsed());
+    }
+
+    fn draft(name: &str, cols: &[(&str, &str)]) -> crate::ddl::TableDraft {
+        crate::ddl::TableDraft {
+            schema: Some("public".into()),
+            name: name.into(),
+            columns: cols
+                .iter()
+                .enumerate()
+                .map(|(i, (n, t))| crate::ddl::ColumnDraft {
+                    id: i as u32 + 1,
+                    name: (*n).into(),
+                    data_type: (*t).into(),
+                    nullable: true,
+                    default: None,
+                    identity: None,
+                    generated: None,
+                    comment: None,
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_draft_not_in_the_catalog_gets_suggestions() {
+        let cat = fixtures::shop();
+        let d = draft("visits", &[("id", "integer"), ("customer_id", "integer"), ("note", "text")]);
+        let v = infer_foreign_keys_for(&cat, "public", &draft_as_table(&d));
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!((v[0].table.as_str(), v[0].column.as_str()), ("visits", "customer_id"));
+        assert_eq!(v[0].referenced_table, "customers");
+        assert_eq!(v[0].referenced_column, "id");
+    }
+
+    #[test]
+    fn draft_matches_catalog_inference_for_the_same_table() {
+        // The same heuristics must answer for a saved table and for its draft.
+        let cat = fixtures::shop();
+        let saved: Vec<_> = infer_foreign_keys(&cat).into_iter().filter(|v| v.table == "reviews").collect();
+        let (s, t) = cat.find_table(Some("public"), "reviews").unwrap();
+        let d = crate::ddl::TableDraft::from_table(&s.name, t);
+        let from_draft = infer_foreign_keys_for(&cat, "public", &draft_as_table(&d));
+        assert!(!saved.is_empty());
+        assert_eq!(saved, from_draft);
+    }
+
+    #[test]
+    fn draft_types_must_agree_and_declared_keys_are_skipped() {
+        let cat = fixtures::shop();
+        let d = draft("visits", &[("customer_id", "text")]);
+        assert!(infer_foreign_keys_for(&cat, "public", &draft_as_table(&d)).is_empty());
+        let mut d = draft("visits", &[("customer_id", "integer")]);
+        d.foreign_keys.push(crate::ddl::ForeignKeyDraft {
+            id: 9,
+            name: None,
+            columns: vec![1],
+            ref_schema: None,
+            ref_table: "customers".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: None,
+            on_update: None,
+            deferrable: false,
+            initially_deferred: false,
+        });
+        assert!(infer_foreign_keys_for(&cat, "public", &draft_as_table(&d)).is_empty());
+    }
+
+    #[test]
+    fn a_draft_can_reference_itself() {
+        let cat = fixtures::shop();
+        let mut d = draft("nodes", &[("id", "integer"), ("parent_id", "integer")]);
+        d.primary_key = Some(crate::ddl::KeyDraft { id: 5, name: None, columns: vec![1] });
+        let v = infer_foreign_keys_for(&cat, "public", &draft_as_table(&d));
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].referenced_table, "nodes");
     }
 }

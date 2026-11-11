@@ -1127,6 +1127,31 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn a_new_table_suggests_foreign_keys_before_it_exists(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, false);
+        sql(&f, vcx, "create table stores (id integer primary key, name text)").unwrap();
+        refresh(&f, vcx);
+        let (_, editor) = open_new(&f, vcx);
+        editor.update_in(vcx, |e, window, cx| e.set_name("visits", window, cx));
+        assert!(editor.read_with(vcx, |e, _| e.open_suggestions().is_empty()));
+        editor.update_in(vcx, |e, window, cx| {
+            e.add_row(false, window, cx);
+            e.cancel_edit(window, cx);
+        });
+        let col = editor.read_with(vcx, |e, _| e.current_row()).unwrap();
+        editor.update(vcx, |e, cx| {
+            assert!(e.set_cell(col, Field::Name, CellValue::Text("store_id".into()), cx));
+            assert!(e.set_cell(col, Field::Type, CellValue::Text("integer".into()), cx));
+        });
+        let open = editor.read_with(vcx, |e, _| e.open_suggestions());
+        let got: Vec<_> = open
+            .iter()
+            .map(|v| (v.column.as_str(), v.referenced_table.as_str(), v.referenced_column.as_str()))
+            .collect();
+        assert_eq!(got, vec![("store_id", "stores", "id")], "{open:?}");
+    }
+
+    #[gpui_kit::test]
     fn execute_creates_the_table_and_the_tab_reloads_as_modify(cx: &mut TestAppContext) {
         let (f, vcx) = setup(cx, false);
         let (tab, editor) = open_new(&f, vcx);

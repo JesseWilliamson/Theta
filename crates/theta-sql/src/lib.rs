@@ -27,7 +27,8 @@ pub mod fixtures;
 pub use complete::{CompletionItem, CompletionKind, CompletionList, CompletionRequest, complete};
 pub use export::{ExportEncoder, ExportFormat, export};
 pub use fk::{
-    JoinSuggestion, TableRef, VirtualForeignKey, infer_foreign_keys, suggest_joins, tables_in_scope,
+    JoinSuggestion, TableRef, VirtualForeignKey, draft_as_table, infer_foreign_keys, infer_foreign_keys_for,
+    suggest_joins, tables_in_scope,
 };
 pub use format::{FormatOptions, format};
 pub use generate::{build_delete, build_insert, build_update, select_top, sql_literal, table_ddl};

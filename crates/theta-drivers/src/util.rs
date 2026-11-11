@@ -87,34 +87,7 @@ pub fn hex(bytes: &[u8]) -> String {
 /// Coarse family from a (lower-cased) SQL type name, for dialects that expose
 /// only a textual type (SQLite declared types, Postgres `format_type` output).
 pub fn kind_from_type_name(name: &str) -> TypeKind {
-    let n = name.trim().to_ascii_lowercase();
-    if n.ends_with("[]") || n.starts_with('_') {
-        return TypeKind::Array;
-    }
-    let base = n.split(['(', ' ']).next().unwrap_or("");
-    match base {
-        "bool" | "boolean" => TypeKind::Bool,
-        "int" | "integer" | "int2" | "int4" | "int8" | "smallint" | "bigint" | "tinyint" | "mediumint"
-        | "oid" | "serial" | "bigserial" | "smallserial" | "year" => TypeKind::Integer,
-        "float" | "float4" | "float8" | "real" | "double" => TypeKind::Float,
-        "numeric" | "decimal" | "money" | "dec" | "fixed" => TypeKind::Decimal,
-        "text" | "varchar" | "char" | "character" | "bpchar" | "name" | "citext" | "clob" | "nvarchar"
-        | "nchar" | "tinytext" | "mediumtext" | "longtext" | "string" | "enum" | "set" | "xml" => {
-            TypeKind::Text
-        }
-        "bytea" | "blob" | "binary" | "varbinary" | "tinyblob" | "mediumblob" | "longblob" | "bit" => {
-            TypeKind::Bytes
-        }
-        "json" | "jsonb" => TypeKind::Json,
-        "uuid" => TypeKind::Uuid,
-        "date" => TypeKind::Date,
-        "time" | "timetz" => TypeKind::Time,
-        "timestamp" | "timestamptz" | "datetime" => TypeKind::Timestamp,
-        "interval" => TypeKind::Interval,
-        "geometry" | "geography" | "point" | "linestring" | "polygon" | "multipoint" | "multilinestring"
-        | "multipolygon" | "geometrycollection" => TypeKind::Geometry,
-        _ => TypeKind::Other,
-    }
+    TypeKind::from_type_name(name)
 }
 
 /// True when `sql` contains a `;` followed by more non-comment text, outside
