@@ -18,7 +18,7 @@ on:
         default: true
       tag:
         description: >-
-          With dry_run=false: name of a tag that does not exist yet (e.g. v0.1.0-alpha.1).
+          With dry_run=false: name of a tag that does not exist yet (e.g. v0.1.0-alpha.2).
           A draft release is created for it at `ref`; the tag itself is only created
           when the draft is published.
         required: false

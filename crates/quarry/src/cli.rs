@@ -118,7 +118,7 @@ pub fn ssh_auth_note(args: &Args) -> Option<String> {
     })
 }
 
-/// `quarry 0.1.0-alpha.1`.
+/// `quarry 0.1.0-alpha.2`.
 pub fn version_line() -> String {
     format!("quarry {}", env!("CARGO_PKG_VERSION"))
 }

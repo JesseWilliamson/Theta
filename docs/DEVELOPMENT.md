@@ -245,8 +245,8 @@ Releases are cut from tags; `.github/workflows/release.yml` does the work.
 
 1. Update `CHANGELOG.md` (move *Unreleased* under the new version) and `version` in the root
    `Cargo.toml` (`[workspace.package]`); run `cargo check` so `Cargo.lock` follows. The file names below use
-   the version of the `quarry` package, not the tag, so they must agree: for the tag `v0.1.0-alpha.1` set
-   `version = "0.1.0-alpha.1"` first (the workspace currently says `0.1.0`).
+   the version of the `quarry` package, not the tag, so they must agree: for the tag `v0.1.0-alpha.2` set
+   `version = "0.1.0-alpha.2"` first (the workspace already says so).
 2. Tag with an annotation, which becomes the top of the release notes: `git tag -a v0.2.0 -m "Headline"` and
    `git push origin v0.2.0`.
 3. The workflow builds four targets: Linux x86_64 (on Ubuntu 22.04 for an older glibc), macOS arm64 and x86_64,
@@ -262,10 +262,10 @@ Releases are cut from tags; `.github/workflows/release.yml` does the work.
    - `SHA256SUMS` and release notes (`packaging/release-notes.sh`: the tag annotation, then the commit log
      since the previous tag).
 4. A **draft** release is created with everything attached (a tag with a `-` in it, such as
-   `v0.1.0-alpha.1`, is marked as a pre-release). Review it, then publish by hand.
+   `v0.1.0-alpha.2`, is marked as a pre-release). Review it, then publish by hand.
 
 To make a draft for a tag that does not exist yet, run the workflow by hand with a tag name: `gh workflow run
-release.yml --ref main -f ref=main -f dry_run=false -f tag=v0.1.0-alpha.1`. GitHub creates the tag at that
+release.yml --ref main -f ref=main -f dry_run=false -f tag=v0.1.0-alpha.2`. GitHub creates the tag at that
 commit when the draft is published.
 
 To test the pipeline without releasing anything: *Actions → Release → Run workflow* (or
