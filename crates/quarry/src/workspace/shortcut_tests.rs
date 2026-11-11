@@ -645,3 +645,30 @@ fn rapid_run_and_cancel_leaves_a_working_console(cx: &mut TestAppContext) {
         f.ws.read_with(vcx, |ws, cx| ws.results.read(cx).grid.read(cx).result().is_some())
     });
 }
+
+/// Disconnect while a statement runs: the statement fails because of the disconnect, and that
+/// must not be "recovered" by silently reconnecting against the user's wish.
+#[gpui_kit::test]
+fn disconnecting_while_a_query_runs_does_not_reconnect(cx: &mut TestAppContext) {
+    let (f, vcx) = setup(cx);
+    editor_of(&f, vcx).update_in(vcx, |v, _, cx| v.update_editor(cx, |e| e.set_text(FOREVER)));
+    f.ws.update_in(vcx, |ws, window, cx| ws.run_active(run::RunReq::All, window, cx));
+    wait_for(vcx, "the query to start", |vcx| running(&f, vcx));
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let store = f.ws.read_with(vcx, |ws, _| ws.store.clone());
+    let id = f.ws.read_with(vcx, |ws, _| ws.tabs[0].connection_id.clone().unwrap());
+    store.update(vcx, |s, cx| s.disconnect(&id, cx));
+    f.ws.update_in(vcx, |ws, window, cx| ws.cancel_active(window, cx));
+    wait_for(vcx, "the run to end", |vcx| !running(&f, vcx));
+    for _ in 0..20 {
+        vcx.run_until_parked();
+        vcx.executor().advance_clock(std::time::Duration::from_millis(100));
+    }
+    assert!(
+        matches!(
+            store.read_with(vcx, |s, _| s.state(&id).clone()),
+            crate::connections::ConnState::Disconnected
+        ),
+        "the connection stays disconnected"
+    );
+}

@@ -335,6 +335,9 @@ impl ConnectionStore {
         self.catalog_errors.remove(id);
         if let Some(ConnState::Connected { connection, .. }) = previous {
             runtime::spawn(async move {
+                // Stop whatever is running first: closing alone leaves a long statement
+                // running on the server (and, for SQLite, in the worker thread) until it ends.
+                let _ = connection.cancel().await;
                 let _ = connection.close().await;
             });
         }

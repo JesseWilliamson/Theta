@@ -2132,6 +2132,12 @@ async fn recover_lost_session(
     txn_open: bool,
     first: Result<StatementOutcome, Error>,
 ) -> (Arc<dyn Connection>, Result<StatementOutcome, Error>, Recovery) {
+    // The user may have disconnected on purpose while the statement ran (that is what made it
+    // fail): do not undo that by reconnecting.
+    let state = this.update(cx, |this, cx| this.store.read(cx).state(conn_id).clone());
+    if matches!(state, Ok(ConnState::Disconnected)) {
+        return (old, first, Recovery::None);
+    }
     let reconnect = |cx: &mut gpui_kit::AsyncWindowContext| {
         let conn = conn_id.to_string();
         this.update(cx, |this, cx| {
