@@ -304,7 +304,7 @@ one handler per action in `Workspace::render` (`crates/quarry/src/workspace/mod.
 
 ## Status
 
-0.1.0-alpha.2 is the second pre-release (0.1.0-alpha.1 was the first). The application is complete in the sense
+0.1.0-alpha.3 is the third pre-release (0.1.0-alpha.1 and -alpha.2 came before it). The application is complete in the sense
 that every crate in the workspace is wired into it and used:
 
 - All eleven crates exist and are used; the application runs against PostgreSQL, MySQL/MariaDB and SQLite.

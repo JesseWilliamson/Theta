@@ -1,6 +1,6 @@
 # Quarry user guide
 
-Task-oriented notes for using Quarry 0.1.0-alpha.2. Key bindings are summarised where they matter and
+Task-oriented notes for using Quarry 0.1.0-alpha.3. Key bindings are summarised where they matter and
 listed in full in [KEYBINDINGS.md](KEYBINDINGS.md). `mod` means `cmd` on macOS and `ctrl` elsewhere.
 Names of menu items, buttons and dialog fields are written the way the application shows them. The
 examples use the demo database (`quarry --demo`).
@@ -497,7 +497,8 @@ too.
 
 Open the theme picker with `mod-k mod-t` (Helix: `space t`, `:theme`). The picker groups themes as
 *Quarry*, *Light* and *Dark* and previews each as you move. `:theme tokyo` in Helix picks the only theme
-whose name contains that text. *Quarry Dark* is the default. 38 themes are bundled (the two Quarry themes
+whose name contains that text. *Quarry Dark* is the default; its text area (editor, results grid, plan) is the darkest surface and the
+chrome around it (explorer, tabs, toolbars) one step lighter, so the code and data stand out. 38 themes are bundled (the two Quarry themes
 and 36 from 21 gpui-kit theme files: Catppuccin, Gruvbox, Solarized, Tokyo Night, Ayu, Everforest and
 others), plus gpui-kit's own *Default Light* and *Default Dark*.
 
