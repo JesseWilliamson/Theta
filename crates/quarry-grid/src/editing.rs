@@ -80,6 +80,13 @@ impl ResultGrid {
                 s.select_all(window, cx);
             }
         });
+        // A double-click opens the editor from inside a mouse-down: the grid's own focus-on-click
+        // runs after this handler and would take focus back, leaving the editor open but deaf to
+        // typing. Focus again once the event has been dispatched.
+        let late = input.clone();
+        window.defer(cx, move |window, cx| {
+            late.update(cx, |s, cx| s.focus(window, cx));
+        });
         self.editor = Some(CellEditor { row, col: cell.col, input, error: None, _subs: subs });
         cx.notify();
     }
