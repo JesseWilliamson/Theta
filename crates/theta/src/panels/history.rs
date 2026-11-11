@@ -92,6 +92,11 @@ impl HistoryPanel {
         self.len() == 0
     }
 
+    #[cfg(test)]
+    pub fn last_sql(&self) -> Option<&str> {
+        self.store.entries().last().map(|e| e.sql.as_str())
+    }
+
     fn refresh(&mut self, cx: &mut Context<Self>) {
         self.shown = self.store.search(&self.query).into_iter().cloned().collect();
         self.selected = None;

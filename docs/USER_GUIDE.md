@@ -181,6 +181,22 @@ opened it; the title-bar switcher (or `:connect NAME` in Helix) rebinds it. Cons
   reconnected and re-ran the statement". Anything else (a write, a DDL statement, a statement inside a
   transaction) is not re-run: *Messages* says so, and open transactions are gone with the session.
 
+### Query parameters
+
+A statement that contains placeholders asks for their values before it runs: `?` (MySQL, SQLite), `$1`
+(Postgres, and SQLite `?1`), and the named forms `:name` and `@name`. **Run**, **Run Selection**, **Run All** (one
+prompt for every placeholder of the script) and **Explain** all show the **Parameters** dialog: one row per
+distinct placeholder with a type (*Auto*, *Text*, *Number*, *Boolean*, *NULL*, *Raw SQL*) and a value. *Auto*
+keeps numbers and `true`/`false` as such and quotes everything else. *Raw SQL* inserts the text verbatim, which is how
+you parameterise an identifier. Enter runs, Escape cancels, Tab moves value → type → next value. The values you used
+are remembered per console and pre-filled next time.
+
+Substitution is **client-side**: Theta writes the value into the statement as an escaped literal and sends ordinary
+SQL, so the history and the Messages tab (which lists the values used) show exactly what ran. Placeholders inside
+strings, comments and dollar-quoted bodies, Postgres casts (`x::int`) and the jsonb operators `?`, `?|`, `?&`, and
+MySQL user variables (`@x := 1`, `SET @x = 1`, `@@version`) are not parameters. Turn the prompt off with
+`"editor": {"parameters": false}` in settings, Settings, or the palette command **Toggle Query Parameters**.
+
 ### Asking before something risky happens
 
 - `UPDATE` or `DELETE` without `WHERE` opens **Run this statement?** with the statement and the buttons

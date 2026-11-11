@@ -13,6 +13,7 @@ pub mod generate;
 pub mod keywords;
 pub mod lexer;
 pub mod lint;
+pub mod params;
 pub mod plan;
 pub(crate) mod scope;
 pub mod script;

@@ -116,6 +116,7 @@ impl Workspace {
                 summary: None,
                 catalog: CatalogSlot::default(),
                 save_task: None,
+                param_values: Default::default(),
                 _subs: vec![sub, grid_sub],
             },
         );
@@ -431,7 +432,7 @@ impl Workspace {
         }
     }
 
-    fn console_kind(&self, id: u64, cx: &App) -> DatabaseKind {
+    pub(super) fn console_kind(&self, id: u64, cx: &App) -> DatabaseKind {
         self.tabs
             .iter()
             .find(|t| t.id == id)
@@ -478,7 +479,9 @@ impl Workspace {
             self.notify(NoticeKind::Info, "There is no statement to run here", window, cx);
             return;
         }
-        self.start_run(id, picks, window, cx);
+        self.with_params(id, picks, window, cx, move |this, picks, window, cx| {
+            this.start_run(id, picks, window, cx)
+        });
     }
 
     /// Resolve the console's connection, or explain why there is none.
@@ -956,7 +959,7 @@ impl Workspace {
 
     // ------------------------------------------------------- logging/history
 
-    fn log(
+    pub(super) fn log(
         &mut self,
         conn_id: &str,
         sql: &str,
@@ -1498,9 +1501,25 @@ impl Workspace {
             self.notify(NoticeKind::Info, "There is no statement to explain here", window, cx);
             return;
         };
+        self.with_params(id, vec![p], window, cx, move |this, mut picks, window, cx| {
+            if let Some(p) = picks.pop() {
+                this.explain_picked(id, p, analyze, window, cx);
+            }
+        });
+    }
+
+    fn explain_picked(
+        &mut self,
+        id: u64,
+        p: Picked,
+        analyze: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let again = p.sql.clone();
+        let p2 = p.clone();
         if self.defer_until_connected(id, &again, window, cx, move |this, window, cx| {
-            this.explain_console(id, analyze, window, cx)
+            this.explain_picked(id, p2, analyze, window, cx)
         }) {
             return;
         }
@@ -2110,6 +2129,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Drivers wake GPUI tasks from Tokio threads; the test scheduler must allow that from the start.
         cx.executor().allow_parking();
+        // Settings writes go to the config dir; keep tests away from the real one.
+        // SAFETY: tests only ever point this at their own temporary directory.
+        unsafe { std::env::set_var("THETA_CONFIG_DIR", dir.path().join("config")) };
         cx.update(|cx| {
             theta_ui::init(cx);
             crate::keymap::bind(cx);
@@ -2192,6 +2214,40 @@ mod tests {
             assert_eq!(ws.messages.read(cx).entries().len(), 3);
             assert_eq!(ws.history.read(cx).len(), 3);
         });
+    }
+
+    #[gpui_kit::test]
+    fn parameters_are_asked_for_substituted_and_remembered(cx: &mut TestAppContext) {
+        let (_, ws, vcx, id, _dir) = setup(cx, false);
+        let tab = ws.update_in(vcx, |ws, window, cx| {
+            ws.param_answer =
+                Some(vec![theta_sql::params::ParamValue { ty: Default::default(), text: "41".into() }]);
+            let tab =
+                ws.open_console(Some(id.clone()), Some("select :n + 1 as r, '?' as lit".into()), window, cx);
+            ws.run_request(tab, RunReq::All, window, cx);
+            tab
+        });
+        wait_for(vcx, |vcx| ws.read_with(vcx, |ws, cx| ws.results.read(cx).grid.read(cx).result().is_some()));
+        ws.read_with(vcx, |ws, cx| {
+            let rs = ws.results.read(cx).grid.read(cx).result().unwrap().clone();
+            assert_eq!(rs.rows[0][0], theta_core::Value::Int(42));
+            // History records the substituted statement, the console remembers the value.
+            assert_eq!(ws.history.read(cx).last_sql(), Some("select 41 + 1 as r, '?' as lit"));
+            assert_eq!(ws.consoles[&tab].param_values[":n"].text, "41");
+            let m = ws.messages.read(cx).entries();
+            assert!(m.iter().any(|m| m.lines.iter().any(|l| l.contains(":n = 41"))));
+        });
+    }
+
+    #[gpui_kit::test]
+    fn parameters_setting_off_runs_text_as_is(cx: &mut TestAppContext) {
+        let (_, ws, vcx, id, _dir) = setup(cx, false);
+        vcx.update(|_, cx| theta_ui::Settings::update(cx, |s| s.editor.parameters = false));
+        ws.update_in(vcx, |ws, window, cx| {
+            let tab = ws.open_console(Some(id.clone()), Some("select 1 as r".into()), window, cx);
+            ws.run_request(tab, RunReq::All, window, cx);
+        });
+        wait_for(vcx, |vcx| ws.read_with(vcx, |ws, cx| ws.results.read(cx).grid.read(cx).result().is_some()));
     }
 
     #[gpui_kit::test]

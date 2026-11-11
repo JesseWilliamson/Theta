@@ -9,4 +9,5 @@ pub mod fk_ui;
 pub mod geo;
 pub mod history;
 pub mod keyref;
+pub mod params;
 pub mod pick;

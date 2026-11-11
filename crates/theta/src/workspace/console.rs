@@ -51,6 +51,8 @@ pub struct Console {
     pub summary: Option<(String, bool)>,
     pub catalog: CatalogSlot,
     pub save_task: Option<Task<()>>,
+    /// Parameter values last used in this console, by placeholder label, to pre-fill the dialog.
+    pub param_values: std::collections::HashMap<String, theta_sql::params::ParamValue>,
     pub _subs: Vec<Subscription>,
 }
 

@@ -44,6 +44,7 @@ actions!(
         Explain,
         ExplainAnalyze,
         FormatDocument,
+        ToggleParameters,
         BeginTransaction,
         CommitTransaction,
         RollbackTransaction,

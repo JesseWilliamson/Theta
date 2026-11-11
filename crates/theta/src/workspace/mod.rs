@@ -16,6 +16,7 @@
 
 mod bottom;
 pub mod console;
+mod params;
 pub mod persist;
 mod run;
 mod status_bar;
@@ -186,6 +187,10 @@ pub struct Workspace {
     startup: Option<run::Startup>,
     /// Tests run in windows without a `Root`, where toasts cannot be shown.
     quiet: bool,
+    /// Test windows have no `Root` to host dialogs: when set, the Parameters dialog is answered with
+    /// these values instead of being opened.
+    #[cfg(test)]
+    param_answer: Option<Vec<theta_sql::params::ParamValue>>,
     data_dir: std::path::PathBuf,
     _subscriptions: Vec<Subscription>,
 }
@@ -271,6 +276,8 @@ impl Workspace {
             plan_owner: None,
             startup: None,
             quiet: false,
+            #[cfg(test)]
+            param_answer: None,
             data_dir,
             _subscriptions: subscriptions,
         };
@@ -976,6 +983,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ExplainAnalyze, window, cx| {
                 cx.emit(WorkspaceEvent::Explain { analyze: true });
                 this.explain_active(true, window, cx)
+            }))
+            .on_action(cx.listener(|_, _: &ToggleParameters, _, cx| {
+                theta_ui::Settings::update(cx, |s| s.editor.parameters = !s.editor.parameters)
             }))
             .on_action(cx.listener(|this, _: &FormatDocument, window, cx| {
                 cx.emit(WorkspaceEvent::Format);

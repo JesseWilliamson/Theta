@@ -332,6 +332,15 @@ impl SettingsView {
                 ))
             })
             .child(self.row(
+                "Ask for query parameters",
+                Some("Prompt for values when a statement contains ?, $1, :name or @name; they are substituted into the SQL as literals"),
+                Switch::new("editor-parameters").checked(s.editor.parameters).on_change(|v, _, cx| {
+                    let v = *v;
+                    Settings::update(cx, |s| s.editor.parameters = v)
+                }),
+                cx,
+            ))
+            .child(self.row(
                 "Format: indent width",
                 None,
                 self.stepper(

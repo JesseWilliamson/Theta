@@ -67,6 +67,20 @@ impl Default for FormatSettings {
     }
 }
 
+/// Editor behaviour that is not a keymap or a font (`editor.*` in settings.json).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorSettings {
+    /// Ask for values before running a statement that contains `?`, `$1`, `:name` or `@name`.
+    pub parameters: bool,
+}
+
+impl Default for EditorSettings {
+    fn default() -> Self {
+        Self { parameters: true }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -92,6 +106,7 @@ pub struct Settings {
     /// User-defined basemaps.
     pub map_custom_basemaps: Vec<CustomBasemap>,
     pub format: FormatSettings,
+    pub editor: EditorSettings,
 }
 
 pub const DEFAULT_UI_FONT: &str = "IBM Plex Sans";
@@ -153,6 +168,7 @@ impl Default for Settings {
             map_basemap: "osm".into(),
             map_custom_basemaps: Vec::new(),
             format: FormatSettings::default(),
+            editor: EditorSettings::default(),
         }
     }
 }
