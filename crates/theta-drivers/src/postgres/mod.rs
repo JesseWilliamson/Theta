@@ -495,6 +495,16 @@ async fn resolve_origins(sess: &mut Session, wanted: &[(u32, i16)], columns: &mu
 async fn query_in_transaction(client: &Client, kind: DatabaseKind) -> bool {
     // Redshift documents SYSDATE as the transaction's start and GETDATE() as the statement's; that is
     // the same trick (not exercised against a real cluster).
+    if kind == DatabaseKind::CockroachDb {
+        // CockroachDB's now() and statement_timestamp() differ even outside a transaction (the first
+        // live run took a SAVEPOINT in autocommit because of it); it has a session variable for this.
+        return match client.simple_query("SHOW transaction_status").await {
+            Ok(msgs) => msgs.iter().any(
+                |m| matches!(m, tokio_postgres::SimpleQueryMessage::Row(r) if r.get(0).is_some_and(|s| s != "NoTxn")),
+            ),
+            Err(e) => e.code() == Some(&SqlState::IN_FAILED_SQL_TRANSACTION),
+        };
+    }
     let probe = if kind == DatabaseKind::Redshift {
         "SELECT sysdate = getdate()"
     } else {
