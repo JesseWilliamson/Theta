@@ -113,10 +113,13 @@ Where the application plugs SQL in: `Workspace::configure_console`
 UI thread. The catalog sits in a shared slot (`CatalogSlot`) that is swapped when the schema refreshes, so
 neither provider is rebuilt.
 
-One consequence to know: the application binds chords such as `ctrl-b` and `ctrl-w` globally in
-`crates/quarry/src/keymap.rs:23`, and GPUI delivers bound chords before the focused view's key handler.
-The engine's own versions of those keys are therefore unreachable on Linux and Windows. The list is in
-[KEYBINDINGS.md](KEYBINDINGS.md#shadowed-editor-keys).
+Key precedence: GPUI delivers bound chords before the focused view's key handler, so a plain global
+binding would steal the engine's keys (`ctrl-w`, `ctrl-b`, `ctrl-k` ...). The editor therefore publishes
+its keymap, mode, prompt and popup state as key context, and `crates/quarry/src/keymap/ownership.rs` derives,
+by probing the engine, which states use which keystroke; `keymap::bind` appends the matching
+`!(QuarryEditor && ...)` predicate to every global binding. The editing engine wins inside the editor, the
+application's chord applies elsewhere; see [KEYBINDINGS.md](KEYBINDINGS.md#who-wins-a-key) and the
+crate README of `quarry-editor-view`.
 
 ## The application
 
@@ -260,4 +263,4 @@ workspace is wired into it and used:
   have not been exercised by hand.
 - Known gaps are listed in the README under *Known limitations*; the ones that are architectural are:
   a connection is one session shared by its consoles; the editor has no soft wrap or folding; geometry
-  decoding stops at the non-curved types; the application's global key bindings shadow a few editor keys.
+  decoding stops at the non-curved types.

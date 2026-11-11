@@ -39,8 +39,9 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
   dialog says so.
 - A connection can be marked read-only and given an accent colour (red, orange, green, blue or purple).
   The colour shows in the title bar and the explorer.
-- When a statement fails because the session was lost, Quarry reconnects by itself. Run the statement
-  again once the "Connected to …" message appears. Open transactions are lost with the session.
+- When a statement fails because the session was lost, Quarry reconnects at once and, for a plain query
+  outside a transaction, re-runs it once ("Connection lost — reconnected and re-ran the statement").
+  Other statements are not re-run and *Messages* says so. Open transactions are lost with the session.
 - Start-up flags open connections from the command line (see [Quick start](#quick-start)).
 
 **Explorer**
@@ -204,9 +205,12 @@ Command-line flags:
 | `--connect URL` | open a temporary connection; repeatable; `postgres://`, `mysql://`, `mariadb://` or `sqlite://` URLs |
 | `--run SQL` | run this SQL (every statement) once the first start-up connection is ready |
 | `--script FILE` | the same, from a file |
-| `--ssh user@host[:port]` `--ssh-key PATH` | tunnel the `--connect` connections through SSH with a key file; `--ssh` is ignored without `--ssh-key` |
+| `--ssh user@host[:port]` | tunnel the `--connect` connections through SSH; without `--ssh-key` the running ssh-agent authenticates (Quarry prints which) |
+| `--ssh-key PATH` | authenticate the `--ssh` tunnel with this private key file |
 | `--theme NAME` | start with this theme |
 | `--stress-catalog[=N]` | debug: add a synthetic connection with N (default 5,000) empty tables |
+| `--version`, `-V` | print the version and exit |
+| `--help`, `-h` | list every flag and exit; an unknown flag prints the same text and exits with status 2 |
 
 ## Configuration
 
@@ -291,10 +295,10 @@ Editor
 - Diagnostics are heuristic. The linter is written to stay quiet rather than flag valid SQL, so it misses
   some errors, and it understands only the common parts of each dialect. The database remains the judge:
   a failed statement is underlined from the server's error position.
-- Because the application binds some `ctrl` shortcuts globally, a few editor keys never reach the editor:
-  in the Helix key map `ctrl-b`, `ctrl-o`, `ctrl-w` and `ctrl-k`, `ctrl-n` / `ctrl-p` in the completion
-  popup, and the editor's `F5` (run all). See
-  [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md#shadowed-editor-keys).
+- In the editor the engine's keys win over the application's shortcuts, so a few application chords
+  (`ctrl-b`, `ctrl-o`, `ctrl-w`, `ctrl-k`, `F5`) do something else while the editor has focus in the Helix key
+  map; the actions stay in the palette and space menu. See
+  [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md#who-wins-a-key).
 - Undo is linear (no undo tree).
 
 Databases

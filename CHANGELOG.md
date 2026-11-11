@@ -23,10 +23,35 @@ Connections
   an accent colour per connection; edit, duplicate and delete from the explorer.
 - Passwords in the operating-system keychain, never in `connections.json`; in memory only when there is no
   keychain.
-- Automatic reconnect when a statement fails because the session was lost.
+- Automatic reconnect when a statement fails because the session was lost (PostgreSQL class 08 and
+  57P01/57P02/57P03, MySQL "server has gone away" / "lost connection", broken pipe, EOF): the first
+  failing statement reconnects at once and a plain query outside a transaction is re-run once; anything
+  else is reported as not re-run.
+- Run and Explain on a console whose connection is down connect, wait and then run, and show the connection
+  error in *Messages* when that fails.
+- *Reopen Closed Tab* (`mod-shift-t`, palette, `:reopen`): the last 20 closed consoles (text, connection,
+  cursor) are kept across restarts, so closing a tab never discards work.
+- `--help`, `--version`; `--ssh` without `--ssh-key` authenticates with the ssh-agent; unknown flags print
+  the usage and exit with status 2. `--demo` reuses an existing demo connection.
+- Panics are logged to `<config dir>/logs/panic-*.log` and shown as a notice with the log path.
 - Command-line flags: `--demo`, `--connect URL` (repeatable), `--run SQL`, `--script FILE`,
-  `--ssh user@host[:port]` with `--ssh-key PATH`, `--theme NAME`, `--stress-catalog[=N]`; `QUARRY_DEMO=1`.
+  `--ssh user@host[:port]` with `--ssh-key PATH`, `--theme NAME`, `--stress-catalog[=N]`, `--version`,
+  `--help`; `QUARRY_DEMO=1`.
 - A demo database (`--demo`): customers, orders, products, stores, delivery zones and routes in SQLite.
+
+Key handling
+- While the SQL editor has focus its engine's keys win over application shortcuts, derived from the engine
+  itself and tested for both key maps and every mode: Helix Insert `ctrl-w` deletes a word instead of
+  closing the tab, `ctrl-k` kills to the end of the line, `ctrl-b` pages up, `ctrl-o` is the jumplist,
+  `ctrl-n` / `ctrl-p` move the completion selection, and `F5` runs all. *Refresh Schema* is `F5` in the
+  explorer and `mod-alt-r` everywhere. The editor publishes `keymap`, `mode`, `prompt` and `completion` as
+  key context.
+- The results grid keeps its own chords (`mod-0` set NULL, `mod-enter`, ...), the explorer and pickers keep
+  `ctrl-n` / `ctrl-p`.
+- The editor scrolls horizontally to the caret after every edit, including typing at the end of a long
+  line and text from the input method.
+- Messages hide a meaningless error code (SQLite's "Unknown"); *Cancel Query*, *Commit Transaction* and
+  *Roll Back Transaction* are named the same in menus, palette, tooltips and docs.
 
 Explorer
 - Connections, schemas, tables, views, routines, sequences, columns, keys, foreign keys and indexes, with
@@ -93,15 +118,15 @@ Packaging and docs
 - Application icon; Linux tarball with `install.sh` and an AppImage; macOS `.app` bundle (ad-hoc signed,
   not notarised); Windows zip with an embedded icon (unsigned); `SHA256SUMS`; a release workflow that
   creates a draft GitHub release, with a dry-run mode.
+- Pre-release versions: `0.1.0-alpha.1` is used verbatim for artifact names, `--version` and the User-Agent;
+  macOS bundle versions and Windows version resources use the numeric `0.1.0`. Re-running the release
+  workflow for a tag replaces an existing draft release.
 - README, user guide, key binding reference, architecture and development guides, contributing guide and a
   generated third-party licence list.
 
 ### Known limitations
 
 - No soft wrap or folding in the editor; the linter is heuristic.
-- A few editor keys are shadowed by the application's global key bindings (`F5`, and in the Helix key map
-  `ctrl-b`, `ctrl-o`, `ctrl-w`, `ctrl-k` on Linux and Windows). The grid's `mod-0` (set NULL) is shadowed by
-  *Reset Editor Font Size*.
 - Curved geometry types are not decoded.
 - MySQL 8 plan parsing is tested from fixtures only; live testing was against MariaDB 10.11.
 - Without a keychain (a bare Linux session) passwords are not persisted.

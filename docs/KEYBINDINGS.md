@@ -1,15 +1,16 @@
 # Key bindings
 
 `mod` means `cmd` on macOS and `ctrl` on Linux and Windows. Everything is checked against the code
-(`crates/quarry/src/keymap.rs`, `crates/quarry/src/actions.rs`, the editor and view crates) and against the
+(`crates/quarry/src/keymap/`, `crates/quarry/src/actions.rs`, the editor and view crates) and against the
 running application. Platform differences are marked where they exist.
 
 - **Key maps.** The editor has two key maps, Helix (default) and Standard. Choose in Settings › Editor ›
   *Keymap*, with *Toggle Keymap (Helix / Standard)* in the command palette, or `"keymap"` in
   `settings.json`. The grid, map, plan panel and explorer also take `h j k l` in Helix mode.
-- **Where a key is handled.** The application binds the chords in [Application](#application-global)
-  everywhere. GPUI delivers bound chords before the focused view sees its own key-down, so on a conflict the
-  application's binding wins. [Shadowed editor keys](#shadowed-editor-keys) lists the conflicts.
+- **Where a key is handled.** The application binds the chords in [Application](#application-global),
+  but a focused view that uses the same keystroke itself always wins inside that view: in the SQL editor
+  the editing engine's keys for the active key map win, in the results grid the grid's keys win. See
+  [Who wins a key](#who-wins-a-key).
 - **Look it up in the app.** Settings › Keymap is a searchable list of every action and the editor keys
   for the current key map. The command palette shows the key next to each command.
 - **macOS.** The application menu bar repeats the same actions. Linux and Windows have no menu bar; the
@@ -17,7 +18,8 @@ running application. Platform differences are marked where they exist.
 
 ## Application (global)
 
-Defined in `crates/quarry/src/keymap.rs`. `mod` is `ctrl` or `cmd`.
+Defined in `crates/quarry/src/keymap/mod.rs`. `mod` is `ctrl` or `cmd`. Each chord is active everywhere except
+where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 
 | Keys | Action |
 | --- | --- |
@@ -27,14 +29,16 @@ Defined in `crates/quarry/src/keymap.rs`. `mod` is `ctrl` or `cmd`.
 | `mod-n` | new console |
 | `mod-shift-n` | new connection |
 | `mod-o` | open SQL file |
-| `mod-w` | close tab |
+| `mod-w` | close tab (the console goes on the reopen stack) |
+| `mod-shift-t` | reopen the last closed tab (text, connection and cursor; the last 20 are kept across restarts) |
 | `mod-pagedown`, `mod-pageup` | next / previous tab |
 | `mod-b` | toggle explorer |
 | `mod-j` | toggle bottom panel |
 | `mod-shift-e` | focus explorer |
 | `mod-1` | focus editor |
 | `mod-2` | focus results (opens the bottom panel and the Results tab if needed) |
-| `F5` | refresh schema |
+| `F5` | refresh schema, only while the explorer has focus (in the editor `F5` is *run all*) |
+| `mod-alt-r` | refresh schema, from anywhere |
 | `mod-k mod-t` | select theme (a two-chord sequence) |
 | `mod-=`, `mod-+` | zoom in (editor and results font) |
 | `mod--` | zoom out |
@@ -50,30 +54,51 @@ Defined in `crates/quarry/src/keymap.rs`. `mod` is `ctrl` or `cmd`.
 
 These actions have no key: *Connect…*, *Disconnect*, *Save Console As…*, *Begin Transaction*, *Commit
 Transaction*, *Roll Back Transaction*, *Import Zed Theme…*, *Toggle Keymap*, *Open Settings File*. Use the
-command palette. (`F5` also belongs here as *Refresh Schema*; it does **not** run all statements, see
-below.)
+command palette. *Refresh Schema* and *Reopen Closed Tab* are also in the palette and menus; `:reopen` does the
+latter from the Helix command line.
 
-### Shadowed editor keys
+### Who wins a key
 
-Because the application chords above are matched first, these editor keys never reach the editor. The
-list was checked in the running application for `ctrl-b`, `ctrl-w`, `ctrl-k`, `ctrl-n` (in the completion
-popup) and `F5`; the others follow from the same binding rule.
+GPUI matches key bindings before the focused view's own key-down handler. Left alone, a global binding
+would steal the editor's keys: `ctrl-w` would close the tab (and the console with it) instead of deleting a
+word. So there is one rule:
 
-| Key | Application action that wins | Editor action it hides |
-| --- | --- | --- |
-| `F5` (all platforms, both key maps) | refresh schema | run all (the editor engine's own `F5`) |
-| `ctrl-b` (Helix; Linux, Windows) | toggle explorer | page up |
-| `ctrl-o` (Helix; Linux, Windows) | open SQL file | jumplist back |
-| `ctrl-w` (Helix Insert mode; Linux, Windows) | close tab | delete word back |
-| `ctrl-k` (Helix Insert mode; Linux, Windows) | first key of `ctrl-k ctrl-t` | delete to end of line |
-| `ctrl-n`, `ctrl-p` (completion popup and prompt history; Linux, Windows) | new console / go to table | next / previous suggestion or history entry |
-| `ctrl-e`, `ctrl-b`, `ctrl-w`, `ctrl-k` in the `:` and `/` prompts (Linux, Windows) | explain / toggle explorer / close tab / theme chord | move to end / move back / delete word / delete to end |
+> **While the SQL editor is focused, the editing engine's keys for the active key map, mode and prompt/popup
+> state always win.** An application chord on the same keystroke applies only outside the editor, or in the
+> editor states where the engine does not use that key. In the Standard key map the engine emits the very
+> same action itself (`ctrl-w` is *close tab* there), so every keystroke has exactly one path.
 
-On macOS the application chords use `cmd`, so the Helix `ctrl-` keys and the popup's `ctrl-n` / `ctrl-p`
-are not affected there; only `F5` is. In the Standard key map the conflicting chords are the same action
-in both places (`ctrl-b`, `ctrl-j`, `ctrl-n`, `ctrl-w`, `ctrl-p`, `ctrl-shift-p`, `ctrl-shift-e`,
-`ctrl-k ctrl-t`), so on Linux and Windows only `F5` and the popup's `ctrl-n` / `ctrl-p` differ. Use the
-arrow keys in the completion popup.
+The same holds for the other focused views: the results grid keeps its `mod-0` (set NULL), `mod-enter`
+(submit), `mod-a`, `mod-c`, `mod-f`, `mod-z`, `mod-home` / `mod-end` and (Helix) `mod-d` / `mod-u`; the explorer
+and the pickers keep `ctrl-n` / `ctrl-p`. The map and the plan panel use no chords, so the application's apply
+there.
+
+How it is enforced: the editor publishes its state as key context (`QuarryEditor`, `keymap=helix|standard`,
+`mode=normal|insert|select|standard`, `prompt` while the `:` or `/` bar is open, `completion` while the popup
+is open). The application asks the engine which keystrokes it uses in which state and adds
+`!(QuarryEditor && <those states>)` to every global binding on such a keystroke
+(`crates/quarry/src/keymap/ownership.rs`). Nothing is a hand-written list, and a headless test
+(`every_global_binding_is_handled_by_exactly_one_side`, `focused_views_win_their_own_keys…`) presses every
+application binding in every state of both key maps and checks that exactly one side handled it.
+
+What that means on Linux and Windows (on macOS the application uses `cmd`, so Helix's `ctrl-` keys never
+collide):
+
+| Keystroke | Helix, editor focused | Standard, editor focused | Elsewhere |
+| --- | --- | --- | --- |
+| `ctrl-w` | Insert: delete word back; prompt: delete word; Normal: close tab | close tab (engine) | close tab |
+| `ctrl-b` | Normal / Select: page up; prompt: move back | toggle explorer (engine) | toggle explorer |
+| `ctrl-k` | Insert: delete to end of line (no chord wait) | `ctrl-k ctrl-t` theme chord (engine) | theme chord |
+| `ctrl-o` | Normal / Select: jumplist back; Insert: open SQL file | open SQL file (not an engine key) | open SQL file |
+| `ctrl-n` / `ctrl-p` | completion popup open or prompt open: next / previous; otherwise new console / go to table | same (popup and prompt first) | new console / go to table |
+| `ctrl-e` | prompt open: move to end; otherwise explain | prompt open: move to end; otherwise explain | explain |
+| `F5` | run all | run all | explorer focused: refresh schema |
+| `ctrl-pageup` / `ctrl-pagedown` | previous / next tab | previous / next tab (engine) | previous / next tab |
+
+With the completion popup open, `ctrl-n` / `ctrl-p` / `up` / `down` / `tab` / `enter` / `esc` belong to the
+popup in both key maps. In Helix the application actions that lost a key remain reachable through the space
+menu, `:` commands, the palette (`space ?`, `F1`, `ctrl-shift-p`) and the chords nothing else uses
+(`mod-alt-r` for *Refresh Schema*, `mod-shift-t` for *Reopen Closed Tab*, `mod-shift-n`, `mod-alt-c`).
 
 ## Explorer
 
@@ -116,8 +141,8 @@ keys. `ctrl-n` / `ctrl-p` are literal `ctrl` on every platform.
 | `esc` | close the popup (in Helix Insert mode a second `esc` leaves Insert mode) |
 
 The popup opens by itself while typing a word or `.`, and after a space that follows `FROM`, `JOIN`, `ON`,
-`INTO`, `UPDATE`, `TABLE` or a comma in a `FROM` list. (`ctrl-p` / `ctrl-n` are listed by the view crate but
-shadowed in the application, see above.)
+`INTO`, `UPDATE`, `TABLE` or a comma in a `FROM` list. (`ctrl-p` / `ctrl-n` move the selection like `up` / `down`:
+owned by the popup in both key maps; see [Who wins a key](#who-wins-a-key).)
 
 ## Results grid
 
@@ -140,8 +165,7 @@ Handled in `crates/quarry-grid/src/input.rs` when the grid has focus. `mod` is `
 | `esc` | collapse the selection; when nothing is left to collapse, return to the editor |
 | `mod-1` | return to the editor |
 
-Not available from the keyboard: the grid's `mod-0` ("set NULL") is shadowed by the global *Reset Editor
-Font Size*; use *Set NULL* in the context menu.
+`mod-0` is *Set NULL* while the grid has focus (it is *Reset Editor Font Size* everywhere else).
 
 Inside the cell editor: `enter` keeps the value, `tab` / `shift-tab` keep it and move to the next / previous
 cell, `esc` cancels.
@@ -185,7 +209,7 @@ Handled in `crates/quarry-plan-view/src/panel.rs` in the tree and flame views (n
 ## Editor
 
 The tables below are the editor engine's own (`crates/quarry-editor/README.md`), which the application also
-shows in Settings › Keymap. Read them together with [Shadowed editor keys](#shadowed-editor-keys).
+shows in Settings › Keymap. Read them together with [Who wins a key](#who-wins-a-key).
 
 ### Helix key map
 
@@ -206,9 +230,9 @@ Counts work wherever Helix takes one. In Select mode (`v`) every motion extends.
 | `gj` `gk` | line down / up |
 | `]p` `[p` | next / previous paragraph |
 | `[<space>` `]<space>` | add newline above / below |
-| `ctrl-d` `ctrl-u`, `ctrl-f` `ctrl-b`, `pagedown` `pageup` | half page / page (`ctrl-b` is shadowed on Linux and Windows, see below) |
+| `ctrl-d` `ctrl-u`, `ctrl-f` `ctrl-b`, `pagedown` `pageup` | half page / page |
 | `zz zc zm` `zt` `zb` `zj` `zk` (and `Z`) | scroll the view (centre, top, bottom, line down / up) |
-| `ctrl-o` `ctrl-i`/`tab` `ctrl-s` | jumplist back / forward / save (`ctrl-o` is shadowed on Linux and Windows) |
+| `ctrl-o` `ctrl-i`/`tab` `ctrl-s` | jumplist back / forward / save (Normal and Select mode; in Insert mode `ctrl-o` is the application's *Open SQL File* on Linux and Windows) |
 | `mm` | jump to the matching bracket |
 
 #### Selections
@@ -281,8 +305,8 @@ case-insensitive) and multi-line anchors.
 | `tab` | four spaces (never triggers completion) |
 | `backspace`, `ctrl-h` | delete a grapheme; a whole indent level in leading whitespace; both halves of an empty pair |
 | `del`, `ctrl-d` | delete forward |
-| `ctrl-w`, `alt-backspace` / `alt-d` | delete word back / forward (`ctrl-w` is shadowed on Linux and Windows: it closes the tab) |
-| `ctrl-u` `ctrl-k` | delete to line start / end (`ctrl-k` is shadowed on Linux and Windows: it waits for the `ctrl-k ctrl-t` chord) |
+| `ctrl-w`, `alt-backspace` / `alt-d` | delete word back / forward |
+| `ctrl-u` `ctrl-k` | delete to line start / end |
 | arrows, `home`, `end`, `pageup`, `pagedown`, `alt-left/right` | move |
 | `ctrl-x` | open completion |
 | `esc` | back to Normal (see deviations for the cursor rule) |
@@ -328,20 +352,20 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `:sort` | sort the selections' contents, or the lines of a multi-line selection |
 | `:new` | new console |
 | `:cancel` | cancel the running query |
+| `:reopen` | reopen the last closed tab |
 
 `tab` completes command names (repeat to cycle). An unknown command shows "Unknown command".
 
 Prompt editing: `left right home end ctrl-a ctrl-e ctrl-b ctrl-f alt-b alt-f` movement,
 `backspace del ctrl-w ctrl-u ctrl-k alt-backspace` deletion, `up down ctrl-p ctrl-n` history, `esc ctrl-c`
-cancel (backspace on an empty prompt cancels too). In the application `ctrl-e`, `ctrl-b`, `ctrl-w`, `ctrl-k`,
-`ctrl-p` and `ctrl-n` are bound globally on Linux and Windows and do not reach the prompt.
+cancel (backspace on an empty prompt cancels too). While a prompt is open all of these belong to the prompt,
+including `ctrl-e`, `ctrl-b`, `ctrl-w`, `ctrl-k`, `ctrl-p` and `ctrl-n`.
 
 #### Global (every mode of both keymaps)
 
 The engine itself handles `ctrl-enter` / `cmd-enter` (run statement; run selection when there is a
-selection), `ctrl-shift-enter` (run all), `ctrl-space` (completion) and `F5` (run all). Inside Quarry the
-application binds `mod-enter`, `mod-shift-enter` and `F5` before the editor sees them, and `F5` is *Refresh
-Schema* there, not run all. See [Shadowed editor keys](#shadowed-editor-keys).
+selection), `ctrl-shift-enter` (run all), `ctrl-space` (completion) and `F5` (run all). Inside the editor these
+are the engine's, in both key maps. See [Who wins a key](#who-wins-a-key).
 
 ### Standard key map
 
@@ -372,6 +396,7 @@ Schema* there, not run all. See [Shadowed editor keys](#shadowed-editor-keys).
 | `ctrl-f` | search prompt (`find:`, prefilled with a single-line selection); `enter` accepts, `F3` / `shift-F3` next / previous |
 | `ctrl-g` | goto-line prompt (`N` or `N:col`) |
 | `ctrl-s` `ctrl-w` `ctrl-n` / `ctrl-t` | save / close tab / new console |
+| `ctrl-shift-t` | reopen the last closed tab (application binding) |
 | `ctrl-tab` `ctrl-shift-tab` | next / previous tab |
 | `ctrl-shift-p` `F1` | command palette |
 | `ctrl-p` | go to table |

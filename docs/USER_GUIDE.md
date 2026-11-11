@@ -78,8 +78,9 @@ is not touched). Editing a connected connection closes its session. Switch the a
 `mod-alt-c` (*Connect…* in the palette) or the title-bar switcher; this also rebinds the current console.
 
 Saved connections are not opened when Quarry starts. Double-click the connection in the explorer, pick it
-in the switcher, or press run in a console bound to it: Quarry connects and asks you to run again.
-Start-up flags open connections from the command line:
+in the switcher, or press run in a console bound to it: Quarry shows "Connecting…", waits for the
+connection and then runs the statement (a connection error appears in *Messages*; *Explain* behaves the
+same). Start-up flags open connections from the command line (`quarry --help` lists all of them):
 
 ```sh
 quarry --connect postgres://postgres:postgres@127.0.0.1:5432/quarry_demo     # temporary, not saved
@@ -173,10 +174,11 @@ opened it; the title-bar switcher (or `:connect NAME` in Helix) rebinds it. Cons
   Cancel it first". All consoles bound to the same connection share one server session.
 - **Row limit**: results stop at 1,000 rows by default (Settings › Data › *Row limit*). The server stops
   producing rows at the limit, and *Messages* says "stopped at the row limit".
-- If the connection was lost, the statement fails with "connection closed", Quarry reconnects by itself and
-  shows "Connected to …"; run the statement again. A server that kills your session on purpose (for
-  example `pg_terminate_backend`) first reports its own error, and the next statement triggers the
-  reconnect.
+- If the connection was lost (the server terminated the session, the network dropped, "server has gone
+  away"), the first failing statement already marks the session lost and reconnects. A plain query
+  outside a transaction is then re-run once automatically and *Messages* says "Connection lost —
+  reconnected and re-ran the statement". Anything else (a write, a DDL statement, a statement inside a
+  transaction) is not re-run: *Messages* says so, and open transactions are gone with the session.
 
 ### Asking before something risky happens
 
@@ -247,10 +249,15 @@ command palette, Settings › Editor › *Keymap*, or `"keymap": "standard"` in 
 Zed's defaults: `ctrl-z`, `ctrl-d` (next occurrence), `ctrl-/` (comment), `alt-up/down` (move line),
 `ctrl-f` find, `ctrl-g` go to line, `ctrl-s` save.
 
-The application binds some chords globally and GPUI delivers bound chords before the editor sees them. In
-Helix mode `ctrl-b`, `ctrl-o`, `ctrl-w`, `ctrl-k` and `F5` therefore do the application's action (toggle
-explorer, open file, close tab, start the theme chord, refresh schema) instead of the editor's. The full
-list is in [KEYBINDINGS.md](KEYBINDINGS.md#shadowed-editor-keys).
+While the editor has focus its own keys always win: in Helix Insert mode `ctrl-w` deletes a word (it does
+not close the tab), `ctrl-k` kills to the end of the line, `ctrl-b` pages up in Normal mode, `F5` runs all
+statements, and with the completion popup open `ctrl-n` / `ctrl-p` move the selection. The application's
+shortcuts for the same keystrokes work outside the editor, and every application action is still reachable
+through the space menu, `:` commands and the command palette (`F1`, `space ?`, `ctrl-shift-p`). The rule
+and the exact table are in [KEYBINDINGS.md](KEYBINDINGS.md#who-wins-a-key).
+
+Closing a tab never loses the console: *Reopen Closed Tab* (`mod-shift-t`, the palette, or `:reopen` in
+Helix) brings back the text, connection and cursor of the last 20 closed consoles, also after a restart.
 
 ## The results grid
 
@@ -453,7 +460,7 @@ The palette lists, with the key each has:
 | Console | *New Console* `mod-n`; *Open SQL File…* `mod-o`; *Save Console As…* |
 | Connection | *New Connection…* `mod-shift-n`; *Connect…*; *Disconnect*; *Refresh Schema* `F5`; *Go to Table…* `mod-p` |
 | Query | *Run Statement* `mod-enter`; *Run All* `mod-shift-enter`; *Cancel Query* `mod-.`; *Explain* `mod-e`; *Explain Analyze* `mod-shift-alt-e`; *Format Document* `mod-shift-f`; *Begin Transaction*; *Commit Transaction*; *Roll Back Transaction* |
-| View | *Toggle Explorer* `mod-b`; *Toggle Bottom Panel* `mod-j`; *Focus Explorer* `mod-shift-e`; *Focus Editor* `mod-1`; *Focus Results* `mod-2`; *Close Tab* `mod-w` |
+| View | *Toggle Explorer* `mod-b`; *Toggle Bottom Panel* `mod-j`; *Focus Explorer* `mod-shift-e`; *Focus Editor* `mod-1`; *Focus Results* `mod-2`; *Close Tab* `mod-w`; *Reopen Closed Tab* `mod-shift-t` |
 | Appearance | *Select Theme…* `mod-k mod-t`; *Import Zed Theme…*; *Toggle Keymap (Helix / Standard)*; *Increase Editor Font Size* `mod-=`; *Decrease Editor Font Size* `mod--`; *Reset Editor Font Size* `mod-0` |
 | App | *Settings…* `mod-,`; *Open Settings File*; *Quit* `mod-q` |
 
@@ -495,8 +502,9 @@ chains to a root your system trusts and matches the host name.
 request for PostgreSQL, `KILL QUERY` for MySQL/MariaDB, `sqlite3_interrupt` for SQLite) and the console stays
 usable.
 
-**A key does not do what the editor tables say.** The application binds some chords globally; they win
-over the same keys in the editor. See [KEYBINDINGS.md](KEYBINDINGS.md#shadowed-editor-keys).
+**A key does not do what the editor tables say.** Check which view has focus: the editor, the results grid,
+the explorer and pickers each own some keys, and the application's chords apply where they do not. See
+[KEYBINDINGS.md](KEYBINDINGS.md#who-wins-a-key).
 
 **Settings or connections seem lost.** A corrupt `connections.json` is renamed to `connections.json.broken` and
 a fresh file started. A settings file that is not valid JSON falls back to the defaults with a warning.
