@@ -114,30 +114,44 @@ impl Workspace {
                         .when(transaction, |d| {
                             d.child(
                                 h_flex()
-                                    .gap_1()
+                                    .gap_1p5()
                                     .items_center()
                                     .child(
-                                        div()
-                                            .px_1p5()
-                                            .rounded(px(3.))
-                                            .bg(theme.warning.opacity(0.2))
+                                        h_flex()
+                                            .h(px(22.))
+                                            .px_2()
+                                            .gap_1()
+                                            .items_center()
+                                            .rounded(px(4.))
+                                            .border_1()
+                                            .border_color(theme.warning.opacity(0.5))
+                                            .bg(theme.warning.opacity(0.18))
                                             .text_size(CHROME_TEXT_SIZE)
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .text_color(theme.warning)
+                                            .child(Icon::new(IconName::TriangleAlert).size(px(12.)))
                                             .child("TXN open"),
                                     )
                                     .child(
-                                        Button::new("txn-commit").small().ghost().label("Commit").on_click(
-                                            |_, window, cx| {
+                                        Button::new("txn-commit")
+                                            .small()
+                                            .success()
+                                            .outline()
+                                            .icon(Icon::new(IconName::Check))
+                                            .label("Commit")
+                                            .tooltip("Commit the open transaction")
+                                            .on_click(|_, window, cx| {
                                                 window.dispatch_action(Box::new(CommitTransaction), cx)
-                                            },
-                                        ),
+                                            }),
                                     )
                                     .child(
                                         Button::new("txn-rollback")
                                             .small()
-                                            .ghost()
+                                            .danger()
+                                            .outline()
+                                            .icon(Icon::new(IconName::Undo2))
                                             .label("Rollback")
+                                            .tooltip("Roll back the open transaction")
                                             .on_click(|_, window, cx| {
                                                 window.dispatch_action(Box::new(RollbackTransaction), cx)
                                             }),
