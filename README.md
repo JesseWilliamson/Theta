@@ -17,6 +17,12 @@ editor are plain Rust libraries with ordinary tests, and the UI crates are thin 
 > [changelog](CHANGELOG.md) says what has been integrated. No release has been published yet.
 
 <!-- screenshots -->
+| | |
+| --- | --- |
+| ![Editor and results](docs/screenshots/01-editor-results.png) **Helix editor and results grid** | ![Completion](docs/screenshots/02-completion-fk-joins.png) **Completion with foreign-key join suggestions** |
+| ![Map](docs/screenshots/03-map-stores-zones.png) **Geometry on a map** | ![Plan](docs/screenshots/04-plan-insights.png) **EXPLAIN ANALYZE with insights** |
+| ![Editable grid](docs/screenshots/05-editable-grid.png) **Staged edits in the grid** | ![Explorer](docs/screenshots/06-explorer-suggested-fks-related.png) **Suggested foreign keys and related tables** |
+| ![Light theme](docs/screenshots/07-quarry-light.png) **Quarry Light** | ![SSH](docs/screenshots/09-connection-ssh.png) **Connection dialog with SSH tunnel** |
 
 ## Features
 
