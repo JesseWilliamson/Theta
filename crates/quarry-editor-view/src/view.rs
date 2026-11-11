@@ -324,6 +324,13 @@ impl EditorView {
         cx.notify();
     }
 
+    /// Remove the error squiggle of a failed run (the statement has since succeeded).
+    pub fn clear_transient_diagnostic(&mut self, cx: &mut Context<Self>) {
+        if self.transient.take().is_some() {
+            cx.notify();
+        }
+    }
+
     /// Mark the statement being / last executed in the gutter. Cleared by the next edit.
     pub fn set_statement_status(
         &mut self,

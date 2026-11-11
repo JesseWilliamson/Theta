@@ -570,6 +570,9 @@ impl Workspace {
                 let rows = out.result.as_ref().map(|r| r.rows.len() as u64).or(out.rows_affected);
                 self.push_history(&conn_name, &p.sql, out.elapsed, rows, None, cx);
                 self.set_status(id, Some((p.range.clone(), StatementStatus::Ok)), cx);
+                if let Some(c) = self.consoles.get(&id) {
+                    c.editor.update(cx, |ed, cx| ed.clear_transient_diagnostic(cx));
+                }
                 let v = verb(&p.sql);
                 let mut lines = Vec::new();
                 if let Some(rs) = out.result {
@@ -635,7 +638,10 @@ impl Workspace {
                 }
                 self.push_history(&conn_name, &p.sql, elapsed, None, Some(e.to_string()), cx);
                 self.set_status(id, Some((p.range.clone(), StatementStatus::Failed)), cx);
-                if let Some(text) = self.console_text(id, cx) {
+                // A dropped connection says nothing about the statement's text: no squiggle.
+                if !matches!(e, Error::Closed)
+                    && let Some(text) = self.console_text(id, cx)
+                {
                     let range = pick::error_range(&p.range, &e, &text);
                     if let Some(c) = self.consoles.get(&id) {
                         c.editor.update(cx, |ed, cx| ed.set_transient_diagnostic(range, e.to_string(), cx));
@@ -645,7 +651,25 @@ impl Workspace {
                     c.summary = Some((e.to_string(), true));
                 }
                 // No toast: `finish_run` raises the Messages tab and the status bar shows the text.
-                self.log(conn_id, &p.sql, MessageKind::Error, vec![e.to_string()], Some(&e), cx);
+                let mut lines = vec![e.to_string()];
+                // The server (or the network) dropped the session: every further statement would
+                // fail the same way, so reconnect now and say so instead of leaving a dead
+                // "connected" connection behind. Open transactions are gone with the session.
+                let lost = matches!(e, Error::Closed);
+                if lost {
+                    lines.push(
+                        "The connection to the server was lost. Reconnecting now; run the statement again once it is back."
+                            .into(),
+                    );
+                }
+                self.log(conn_id, &p.sql, MessageKind::Error, lines, Some(&e), cx);
+                if lost {
+                    let conn = conn_id.to_string();
+                    self.store.update(cx, |s, cx| {
+                        s.disconnect(&conn, cx);
+                        s.connect(&conn, cx);
+                    });
+                }
                 false
             }
         }

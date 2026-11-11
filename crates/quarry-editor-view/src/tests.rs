@@ -419,6 +419,15 @@ fn transient_diagnostic_lives_until_the_next_edit(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn a_transient_diagnostic_can_be_cleared_without_an_edit(cx: &mut TestAppContext) {
+    let f = setup(cx, "select 1", Keymap::Standard);
+    f.view.update(cx, |v, cx| v.set_transient_diagnostic(0..6, "boom".into(), cx));
+    assert_eq!(f.view.read_with(cx, |v, _| v.all_diagnostics().len()), 1);
+    f.view.update(cx, |v, cx| v.clear_transient_diagnostic(cx));
+    assert_eq!(f.view.read_with(cx, |v, _| v.all_diagnostics().len()), 0);
+}
+
+#[gpui_kit::test]
 fn ime_composition_is_marked_then_committed(cx: &mut TestAppContext) {
     use gpui_kit::EntityInputHandler as _;
     let f = setup(cx, "ab", Keymap::Standard);
