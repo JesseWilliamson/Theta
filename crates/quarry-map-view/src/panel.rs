@@ -1,6 +1,5 @@
 //! The GPUI entity: toolbar, canvas, overlays, input handling.
 
-use crate::camera::Camera;
 use crate::core::{Core, grid_spec};
 use crate::layout::card_origin;
 use crate::measure_tool::format_units;
@@ -1026,7 +1025,7 @@ impl Render for MapPanel {
                         }
                         if c.pending_fit {
                             c.pending_fit = false;
-                            c.camera = Camera::fit(c.prepared.mode, c.prepared.bbox, sz);
+                            c.camera = c.fit_camera(false, sz);
                         }
                         c.size_known = true;
                     }

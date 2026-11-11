@@ -120,6 +120,7 @@ pub struct Prepared {
     /// Drawable features (empty geometries and skipped ones are not here).
     pub features: Vec<WorldFeature>,
     /// Union of all feature boxes in world space.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub bbox: Option<BBox>,
     /// Features dropped because their CRS is unknown while others are geographic.
     pub skipped: usize,

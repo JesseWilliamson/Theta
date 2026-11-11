@@ -56,7 +56,7 @@ pub enum Camera {
     Planar(PlanarView),
 }
 
-const FIT_PADDING: f64 = 40.0;
+pub(crate) const FIT_PADDING: f64 = 40.0;
 
 impl Camera {
     /// A camera for `mode` showing `bbox` (world coordinates).
@@ -76,6 +76,31 @@ impl Camera {
         }
     }
 
+    /// A camera showing the union of `boxes` (world coordinates). Unlike fitting their union box,
+    /// geographic data is framed along the shortest longitude arc, so features at lon 179 and
+    /// -179 are centred on the antimeridian instead of spread over the whole world.
+    pub fn fit_boxes(
+        mode: Mode,
+        boxes: impl Iterator<Item = BBox> + Clone,
+        size: [f64; 2],
+        pad: f64,
+    ) -> Camera {
+        let Some(union) = boxes.clone().reduce(BBox::union) else {
+            return Camera::fit_padded(mode, None, size, pad);
+        };
+        if mode == Mode::Planar {
+            return Camera::fit_padded(mode, Some(union), size, pad);
+        }
+        let mut ll = world_bbox_to_lon_lat(union);
+        let arc =
+            quarry_geo::min_lon_arc(boxes.map(|b| [b.min[0] * 360.0 - 180.0, b.max[0] * 360.0 - 180.0]));
+        if let Some([west, east]) = arc {
+            ll.min[0] = west;
+            ll.max[0] = east;
+        }
+        Camera::Geo(MapView::fit(ll, size, pad))
+    }
+
     /// Viewport size in pixels.
     pub fn size(&self) -> [f64; 2] {
         match self {
@@ -87,7 +112,11 @@ impl Camera {
     /// Change the viewport size, keeping centre and zoom.
     pub fn set_size(&mut self, size: [f64; 2]) {
         match self {
-            Camera::Geo(v) => v.size = size,
+            Camera::Geo(v) => {
+                v.size = size;
+                // A wider viewport raises the minimum zoom (one world copy must cover it).
+                v.clamp_zoom();
+            }
             Camera::Planar(v) => v.size = size,
         }
     }
@@ -134,10 +163,10 @@ impl Camera {
         }
     }
 
-    /// Allowed zoom range in levels.
+    /// Allowed zoom range in levels; the lower end keeps the world from repeating.
     pub fn level_limits(&self) -> (f64, f64) {
         match self {
-            Camera::Geo(_) => (0.0, 20.0),
+            Camera::Geo(v) => (v.min_zoom(), 20.0),
             Camera::Planar(_) => (-40.0, 40.0),
         }
     }
@@ -216,6 +245,34 @@ mod tests {
         }
         let back = t.invert(t.apply([123.0, 456.0]));
         assert!((back[0] - 123.0).abs() < 1e-9 && (back[1] - 456.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn geo_limits_follow_viewport_width() {
+        let mut cam = Camera::Geo(MapView { center: [0.0, 0.0], zoom: 0.0, size: [256.0, 100.0] });
+        assert_eq!(cam.level_limits().0, 0.0);
+        cam.set_size([1024.0, 100.0]);
+        assert_eq!(cam.level_limits().0, 2.0);
+        assert_eq!(cam.level(), 2.0, "set_size re-clamps the zoom");
+        cam.zoom_around([512.0, 50.0], -5.0);
+        assert_eq!(cam.level(), 2.0);
+    }
+
+    #[test]
+    fn fit_boxes_frames_the_short_arc() {
+        let at = |lon: f64| {
+            let w = lon_lat_to_world([lon, 11.0]);
+            BBox { min: w, max: w }
+        };
+        let cam =
+            Camera::fit_boxes(Mode::Geographic, [at(179.0), at(-179.0)].into_iter(), [900.0, 420.0], 40.0);
+        let Camera::Geo(v) = cam else { panic!("geographic") };
+        assert!((v.center[0].abs() - 180.0).abs() < 1e-9, "{:?}", v.center);
+        let (a, b) = (cam.project([179.0, 11.0]), cam.project([-179.0, 11.0]));
+        assert!(a[0] > 0.0 && b[0] < 900.0 && (b[0] - a[0] - 820.0).abs() < 1e-6, "{a:?} {b:?}");
+        // The plain union would have been the whole world on the other side.
+        let wide = Camera::fit(Mode::Geographic, Some(at(179.0).union(at(-179.0))), [900.0, 420.0]);
+        assert_eq!(wide.level(), wide.level_limits().0, "world-wide data sits at the minimum zoom");
     }
 
     #[test]

@@ -74,6 +74,51 @@ fn world_size(zoom: f64) -> f64 {
     TILE * zoom.exp2()
 }
 
+/// The narrowest longitude arc `[west, east]` covering every span in `spans` (each
+/// `[min_lon, max_lon]` within `-180..=180`), going the short way round the globe: points at
+/// 179 and -179 give `[179, 181]`, not `[-179, 179]`. `east` may exceed 180.
+///
+/// The arc is the circle minus its widest empty gap, so data with a hole in the middle of the
+/// world is not stretched across it. Returns `None` for no spans.
+pub fn min_lon_arc(spans: impl IntoIterator<Item = [f64; 2]>) -> Option<[f64; 2]> {
+    let mut v: Vec<[f64; 2]> = spans
+        .into_iter()
+        .filter(|s| s[0].is_finite() && s[1].is_finite())
+        .map(|s| [s[0].min(s[1]), s[0].max(s[1])])
+        .collect();
+    if v.is_empty() {
+        return None;
+    }
+    v.sort_by(|a, b| a[0].total_cmp(&b[0]));
+    // Merge on the line first; `merged` is a sorted list of disjoint covered intervals.
+    let mut merged: Vec<[f64; 2]> = Vec::new();
+    for s in v {
+        match merged.last_mut() {
+            Some(last) if s[0] <= last[1] => last[1] = last[1].max(s[1]),
+            _ => merged.push(s),
+        }
+    }
+    let (first, last) = (merged[0], merged[merged.len() - 1]);
+    // Gap across the +-180 seam first, then the gaps between neighbours; a tie keeps the seam
+    // so ordinary data is not needlessly shifted.
+    let mut best_gap = first[0] + 360.0 - last[1];
+    let mut arc = [first[0], last[1]];
+    for w in merged.windows(2) {
+        let gap = w[1][0] - w[0][1];
+        if gap > best_gap {
+            best_gap = gap;
+            arc = [w[1][0], w[0][1] + 360.0];
+        }
+    }
+    Some(arc)
+}
+
+/// The lowest zoom at which one copy of the world covers `width_px`: below it the map would
+/// repeat the world (and every feature) side by side. Never negative.
+pub fn min_zoom_for_width(width_px: f64) -> f64 {
+    if width_px.is_finite() && width_px > TILE { (width_px / TILE).log2() } else { 0.0 }
+}
+
 /// A map camera. `center` is lon/lat; `zoom` is fractional; `size` is the viewport in
 /// logical pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,8 +138,20 @@ impl MapView {
         [(ll[0] + 180.0) / 360.0 * w, frac_from_lat(ll[1]) * w]
     }
 
+    /// The lowest zoom this viewport allows: one world copy must cover its width.
+    pub fn min_zoom(&self) -> f64 {
+        min_zoom_for_width(self.size[0])
+    }
+
+    /// Re-clamp the zoom after the viewport changed size (a wider panel raises the minimum).
+    pub fn clamp_zoom(&mut self) {
+        self.zoom = self.zoom.clamp(self.min_zoom(), MAX_ZOOM);
+    }
+
     /// A camera showing `bbox_lon_lat` with `padding_px` on every side. The zoom is the
-    /// largest that fits, capped at 18; a single point (or a degenerate box) gets zoom 14.
+    /// largest that fits, capped at 18 and never below [`min_zoom`](Self::min_zoom); a single
+    /// point (or a degenerate box) gets zoom 14. `bbox.max[0]` may exceed 180 for data that
+    /// straddles the antimeridian (see [`min_lon_arc`]); the centre is wrapped.
     pub fn fit(bbox_lon_lat: BBox, size: [f64; 2], padding_px: f64) -> MapView {
         let b = bbox_lon_lat;
         let usable = [(size[0] - 2.0 * padding_px).max(1.0), (size[1] - 2.0 * padding_px).max(1.0)];
@@ -107,7 +164,11 @@ impl MapView {
         let zy = if fy > 1e-12 { (usable[1] / (TILE * fy)).log2() } else { f64::INFINITY };
         let zoom = zx.min(zy);
         let zoom = if zoom.is_finite() { zoom.clamp(0.0, 18.0) } else { 14.0 };
-        MapView { center, zoom, size }
+        // World-spanning data fits below the minimum zoom; centring it at the minimum shows as
+        // much as the height allows instead of repeating the world.
+        let mut v = MapView { center: [wrap_lon(center[0]), center[1]], zoom, size };
+        v.clamp_zoom();
+        v
     }
 
     /// Lon/lat to screen pixels. Longitude differences are taken the short way round the
@@ -145,10 +206,10 @@ impl MapView {
     }
 
     /// Change zoom by `delta_zoom` while the lon/lat under `screen_anchor` stays put
-    /// (zoom-to-cursor). The zoom is clamped to 0..=20.
+    /// (zoom-to-cursor). The zoom is clamped to [`min_zoom`](Self::min_zoom)..=20.
     pub fn zoom_around(&mut self, screen_anchor: [f64; 2], delta_zoom: f64) {
         let pinned = self.unproject_raw(screen_anchor);
-        self.zoom = (self.zoom + delta_zoom).clamp(0.0, MAX_ZOOM);
+        self.zoom = (self.zoom + delta_zoom).clamp(self.min_zoom(), MAX_ZOOM);
         let p = self.world(pinned);
         self.set_center_world(
             p[0] - (screen_anchor[0] - self.size[0] / 2.0),
@@ -402,7 +463,78 @@ mod tests {
         v.zoom_around([0.0, 0.0], 100.0);
         assert_eq!(v.zoom, 20.0);
         v.zoom_around([0.0, 0.0], -100.0);
-        assert_eq!(v.zoom, 0.0);
+        // One world copy must cover the 900 px viewport: log2(900 / 256).
+        assert!((v.zoom - (900.0f64 / 256.0).log2()).abs() < 1e-12, "{}", v.zoom);
+        assert_eq!(v.zoom, v.min_zoom());
+    }
+
+    #[test]
+    fn min_zoom_is_log2_of_width_over_tile() {
+        assert_eq!(min_zoom_for_width(256.0), 0.0);
+        assert_eq!(min_zoom_for_width(512.0), 1.0);
+        assert!((min_zoom_for_width(1320.0) - 2.366).abs() < 1e-3);
+        assert_eq!(min_zoom_for_width(100.0), 0.0);
+        assert_eq!(min_zoom_for_width(f64::NAN), 0.0);
+        // At the minimum zoom the world is exactly as wide as the viewport.
+        let mut v = MapView { center: [0.0, 0.0], zoom: 0.0, size: [1320.0, 240.0] };
+        v.clamp_zoom();
+        assert!((256.0 * v.zoom.exp2() - 1320.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn manual_zoom_out_stops_at_one_world_copy() {
+        for size in [[1320.0, 240.0], [900.0, 420.0], [500.0, 800.0]] {
+            let mut v = MapView { center: [10.0, 20.0], zoom: 6.0, size };
+            for _ in 0..20 {
+                v.zoom_around([size[0] / 2.0, size[1] / 2.0], -1.0);
+            }
+            assert!(256.0 * v.zoom.exp2() >= size[0] - 1e-6, "{size:?}: {}", v.zoom);
+            // A resize to a wider viewport raises the floor.
+            let mut w = v;
+            w.size[0] *= 2.0;
+            w.clamp_zoom();
+            assert!(256.0 * w.zoom.exp2() >= w.size[0] - 1e-6);
+        }
+    }
+
+    #[test]
+    fn fit_world_spanning_data_is_centred_at_min_zoom() {
+        // 25 stores around the globe in a 1320x240 panel: fit would pick zoom 1, which repeats
+        // the world; the clamp keeps one copy and centres the data.
+        let bbox = BBox { min: [-170.0, -40.0], max: [175.0, 60.0] };
+        let v = MapView::fit(bbox, [1320.0, 240.0], 40.0);
+        assert!((v.zoom - v.min_zoom()).abs() < 1e-12);
+        assert!((v.center[0] - 2.5).abs() < 1e-9);
+        let mid = v.project(bbox.center());
+        assert!((mid[0] - 660.0).abs() < 1.0, "{mid:?}");
+    }
+
+    #[test]
+    fn min_lon_arc_goes_the_short_way() {
+        assert_eq!(min_lon_arc([]), None);
+        assert_eq!(min_lon_arc([[10.0, 20.0], [30.0, 40.0]]), Some([10.0, 40.0]));
+        // 179 and -179 are 2 degrees apart across the seam.
+        assert_eq!(min_lon_arc([[179.0, 179.0], [-179.0, -179.0]]), Some([179.0, 181.0]));
+        // A hole in the middle is skipped when it is the widest gap.
+        assert_eq!(min_lon_arc([[-170.0, -160.0], [160.0, 170.0], [175.0, 178.0]]), Some([160.0, 200.0]));
+        // Spanning the whole world keeps the plain box.
+        assert_eq!(min_lon_arc([[-180.0, 180.0]]), Some([-180.0, 180.0]));
+        // The 90-degree hole between -90 and 0 is skipped: 270 degrees beat the full 360.
+        assert_eq!(min_lon_arc([[-180.0, -90.0], [0.0, 90.0], [90.0, 180.0]]), Some([0.0, 270.0]));
+        // No gap wider than the (empty) seam: the plain box.
+        assert_eq!(min_lon_arc([[-180.0, 0.0], [0.0, 180.0]]), Some([-180.0, 180.0]));
+    }
+
+    #[test]
+    fn fit_across_the_antimeridian_centres_on_it() {
+        let arc = min_lon_arc([[179.0, 179.0], [-179.0, -179.0]]).unwrap();
+        let bbox = BBox { min: [arc[0], 10.0], max: [arc[1], 12.0] };
+        let v = MapView::fit(bbox, [900.0, 420.0], 40.0);
+        // Centre is the seam (180 wrapped to -180), and both points sit near the middle.
+        assert!((v.center[0].abs() - 180.0).abs() < 1e-9, "{:?}", v.center);
+        let (a, b) = (v.project([179.0, 11.0]), v.project([-179.0, 11.0]));
+        assert!(a[0] > 0.0 && b[0] < 900.0 && b[0] > a[0], "-179 lies just east of 179: {a:?} {b:?}");
+        assert!(((a[0] + b[0]) / 2.0 - 450.0).abs() < 1e-6, "symmetric about the middle");
     }
 
     #[test]
@@ -422,7 +554,6 @@ mod tests {
             BBox { min: [-10.0, 40.0], max: [30.0, 60.0] },
             BBox { min: [0.0, 0.0], max: [0.001, 0.5] },
             BBox { min: [-122.5, 37.7], max: [-122.3, 37.8] },
-            BBox { min: [-179.0, -80.0], max: [179.0, 80.0] },
         ] {
             let v = MapView::fit(bbox, size, 40.0);
             for c in [bbox.min, bbox.max, [bbox.min[0], bbox.max[1]], [bbox.max[0], bbox.min[1]]] {

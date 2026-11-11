@@ -1,7 +1,7 @@
 //! The panel's mutable state and the logic that does not need a window: camera
 //! animation, hit testing, tile bookkeeping and data replacement.
 
-use crate::camera::{Camera, Transform};
+use crate::camera::{Camera, FIT_PADDING, Transform};
 use crate::grid::{degree_step, nice_step, tick_label, ticks};
 use crate::index::GridIndex;
 use crate::loader::{TileLoader, TileResult};
@@ -309,7 +309,7 @@ impl Core {
         self.measure = Measurement::new(self.metric());
         self.measuring = false;
         let size = self.camera.size();
-        self.camera = Camera::fit(self.prepared.mode, self.prepared.bbox, size);
+        self.camera = self.fit_camera(false, size);
         self.pending_fit = true;
     }
 
@@ -337,27 +337,31 @@ impl Core {
         self.layers.get(f.layer).is_none_or(|l| l.visible)
     }
 
-    /// World bbox of the visible features, falling back to everything.
-    pub fn visible_bbox(&self) -> Option<BBox> {
-        self.prepared
-            .features
-            .iter()
-            .filter(|f| self.layer_visible(f))
-            .map(|f| f.bbox)
-            .reduce(BBox::union)
-            .or(self.prepared.bbox)
+    /// A camera framing the data (the visible layers when `visible_only`, falling back to
+    /// everything), along the shortest longitude arc so antimeridian data is not spread
+    /// across the world.
+    pub fn fit_camera(&self, visible_only: bool, size: [f64; 2]) -> Camera {
+        let feats = &self.prepared.features;
+        let shown = feats.iter().filter(|f| !visible_only || self.layer_visible(f)).map(|f| f.bbox);
+        if visible_only && feats.iter().all(|f| !self.layer_visible(f)) {
+            return Camera::fit_boxes(self.prepared.mode, feats.iter().map(|f| f.bbox), size, FIT_PADDING);
+        }
+        Camera::fit_boxes(self.prepared.mode, shown, size, FIT_PADDING)
     }
 
     /// Fit everything, animated.
     pub fn fit_all(&mut self) {
-        let target = Camera::fit(self.prepared.mode, self.visible_bbox(), self.camera.size());
+        let target = self.fit_camera(true, self.camera.size());
         self.fly_to(&target);
     }
 
     /// Fly to a camera state (the viewport size of `target` is ignored).
     pub fn fly_to(&mut self, target: &Camera) {
         self.anim.zoom = None;
-        self.anim.fly = Some((target.center_world(), target.level()));
+        // A target below the minimum zoom (the window was resized since) could never be
+        // reached and would keep the animation running forever.
+        let (lo, hi) = self.camera.level_limits();
+        self.anim.fly = Some((target.center_world(), target.level().clamp(lo, hi)));
     }
 
     /// Zoom by `delta` levels around `anchor` (viewport px), smoothly. Repeated calls
@@ -499,7 +503,8 @@ impl Core {
         let Some(bbox) = ids.iter().map(|i| self.prepared.features[*i].bbox).reduce(BBox::union) else {
             return;
         };
-        let mut target = Camera::fit_padded(self.prepared.mode, Some(bbox), self.camera.size(), 60.0);
+        let boxes = ids.iter().map(|i| self.prepared.features[*i].bbox);
+        let mut target = Camera::fit_boxes(self.prepared.mode, boxes, self.camera.size(), 60.0);
         // Do not zoom in past useful detail for a lone point, and never zoom *out*
         // on a point that is already comfortably visible.
         let is_point = self.prepared.mode == Mode::Geographic && bbox.width() == 0.0 && bbox.height() == 0.0;
