@@ -13,6 +13,7 @@ mod helix_motion;
 mod helix_objects;
 mod helix_prompt;
 mod perf;
+mod snippets;
 mod standard;
 mod syntax;
 mod vim_api;

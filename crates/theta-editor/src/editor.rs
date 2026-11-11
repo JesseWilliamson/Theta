@@ -153,6 +153,7 @@ pub struct Editor {
     pub(crate) vert: Option<Vec<usize>>,
     pub(crate) vert_keep: bool,
     pub(crate) drag_anchor: Option<usize>,
+    pub(crate) snippet: Option<crate::snippet::Session>,
 }
 
 impl Editor {
@@ -185,6 +186,7 @@ impl Editor {
             vert: None,
             vert_keep: false,
             drag_anchor: None,
+            snippet: None,
         };
         e.set_sels(Selections::single(Selection::point(0)));
         e
@@ -428,6 +430,9 @@ impl Editor {
                 self.group_base.clone()
             };
             self.group = Some(Group { forward: vec![], inverse: vec![], before });
+        }
+        if let Some(s) = &mut self.snippet {
+            s.map(&tx);
         }
         let inverse = tx.apply(&mut self.rope);
         self.revision += 1;
@@ -689,6 +694,7 @@ impl Editor {
         self.begin_key(&k);
         let handled = self.dispatch(&k);
         self.end_key();
+        self.snippet_check();
         if self.revision != rev0 || (self.sels.primary(), self.sels.len()) != sel0 {
             self.effects.push(Effect::RevealCursor);
         }
@@ -762,6 +768,9 @@ impl Editor {
                 self.rec(k);
             }
             return self.prompt_key(k);
+        }
+        if let Some(consumed) = self.snippet_key(k) {
+            return consumed;
         }
         if self.global_key(k) {
             return true;
