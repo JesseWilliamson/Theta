@@ -413,6 +413,7 @@ impl Workspace {
             "run" => self.run_request(self.active_tab.unwrap_or(0), RunReq::Statement, window, cx),
             "format" | "fmt" => self.format_console(self.active_tab.unwrap_or(0), false, window, cx),
             "open" | "e" => self.open_sql_file(window, cx),
+            "import" | "export" => self.bulk_host_command(cmd, arg, window, cx),
             // Vim `:help`: the key reference of the active keymap is the nearest thing to it.
             "help" | "h" => crate::dialogs::settings::open_at(crate::dialogs::settings::Section::Keymap, window, cx),
             // The Vim engine handles its own options (ignorecase, smartcase, hlsearch) and passes
@@ -2050,6 +2051,7 @@ impl Workspace {
             StoreEvent::CatalogChanged(id) => {
                 self.on_catalog_changed(id, cx);
                 self.maybe_run_startup(id, window, cx);
+                self.maybe_open_startup_import(id, window, cx);
             }
             StoreEvent::StateChanged(id) => {
                 self.on_catalog_changed(id, cx);

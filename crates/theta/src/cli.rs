@@ -17,6 +17,9 @@ Options:
   --ssh-key PATH         Authenticate the --ssh tunnel with this private key file.
   --run SQL              Run SQL once the first start-up connection is ready.
   --script FILE          Run the SQL in FILE once the first start-up connection is ready.
+  --import FILE          Open the Import Data dialog on FILE once the first start-up
+                         connection is ready (a path to a .csv/.tsv file).
+  --into [SCHEMA.]TABLE  With --import: import into this existing table instead of a new one.
   --demo                 Create (or reuse) and connect the \"Demo (SQLite)\" sample database.
                          Also enabled by THETA_DEMO=1.
   --theme NAME           Start with this theme (for example \"Tokyo Night\").
@@ -31,12 +34,14 @@ Environment:
 ";
 
 /// Every flag the parser accepts (for the usage test).
-pub const FLAGS: [&str; 11] = [
+pub const FLAGS: [&str; 13] = [
     "--connect",
     "--ssh",
     "--ssh-key",
     "--run",
     "--script",
+    "--import",
+    "--into",
     "--demo",
     "--theme",
     "--stress-catalog",
@@ -57,6 +62,10 @@ pub struct Args {
     /// SQL to run once the first start-up connection is ready.
     pub run: Option<String>,
     pub script: Option<String>,
+    /// File to open the Import Data dialog on, once connected.
+    pub import: Option<String>,
+    /// Existing table (`[schema.]table`) for `--import`.
+    pub into: Option<String>,
     /// SSH tunnel for `--connect`: `user@host:port`.
     pub ssh: Option<String>,
     /// Private key for the tunnel; without it the ssh-agent authenticates.
@@ -78,6 +87,8 @@ pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<A
             "--connect" => out.connect.push(it.next().ok_or("--connect needs a URL")?),
             "--run" => out.run = Some(it.next().ok_or("--run needs SQL")?),
             "--script" => out.script = Some(it.next().ok_or("--script needs a file")?),
+            "--import" => out.import = Some(it.next().ok_or("--import needs a file")?),
+            "--into" => out.into = Some(it.next().ok_or("--into needs a table name")?),
             "--ssh" => out.ssh = Some(it.next().ok_or("--ssh needs user@host:port")?),
             "--ssh-key" => out.ssh_key = Some(it.next().ok_or("--ssh-key needs a path")?),
             "--theme" => out.theme = Some(it.next().ok_or("--theme needs a theme name")?),
@@ -91,6 +102,8 @@ pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<A
             a if a.starts_with("--connect=") => out.connect.push(a["--connect=".len()..].to_string()),
             a if a.starts_with("--run=") => out.run = Some(a["--run=".len()..].to_string()),
             a if a.starts_with("--script=") => out.script = Some(a["--script=".len()..].to_string()),
+            a if a.starts_with("--import=") => out.import = Some(a["--import=".len()..].to_string()),
+            a if a.starts_with("--into=") => out.into = Some(a["--into=".len()..].to_string()),
             a if a.starts_with("--ssh=") => out.ssh = Some(a["--ssh=".len()..].to_string()),
             a if a.starts_with("--ssh-key=") => out.ssh_key = Some(a["--ssh-key=".len()..].to_string()),
             a if a.starts_with("--theme=") => out.theme = Some(a["--theme=".len()..].to_string()),
@@ -102,6 +115,12 @@ pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<A
     }
     if out.ssh_key.is_some() && out.ssh.is_none() {
         return Err("--ssh-key needs --ssh user@host[:port]".into());
+    }
+    if out.into.is_some() && out.import.is_none() {
+        return Err("--into needs --import FILE".into());
+    }
+    if out.import.is_some() && (out.run.is_some() || out.script.is_some()) {
+        return Err("use --import on its own, without --run or --script".into());
     }
     if out.run.is_some() && out.script.is_some() {
         return Err("use either --run or --script, not both".into());

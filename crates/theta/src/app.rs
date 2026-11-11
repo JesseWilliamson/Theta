@@ -114,6 +114,9 @@ pub fn run(args: Args) {
         if let Some(sql) = startup_sql {
             workspace.update(cx, |ws, _| ws.run_startup_sql(sql));
         }
+        if let Some(file) = args.import.clone() {
+            workspace.update(cx, |ws, _| ws.import_at_startup(file, args.into.clone()));
+        }
         startup_connections(&args, &store, cx);
     });
 }

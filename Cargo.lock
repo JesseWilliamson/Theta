@@ -8519,6 +8519,7 @@ dependencies = [
  "theta-editor-view",
  "theta-geo",
  "theta-grid",
+ "theta-import",
  "theta-map-view",
  "theta-plan-view",
  "theta-sql",

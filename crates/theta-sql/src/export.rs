@@ -435,7 +435,9 @@ mod tests {
     #[test]
     fn streamed_export_equals_one_shot_export() {
         let rows: Vec<Vec<Value>> = (0..7)
-            .map(|i| vec![Value::Int(i), if i % 3 == 0 { Value::Null } else { Value::Text(format!("a\"b,{i}\n")) }])
+            .map(|i| {
+                vec![Value::Int(i), if i % 3 == 0 { Value::Null } else { Value::Text(format!("a\"b,{i}\n")) }]
+            })
             .collect();
         let all = rs(&["id", "t"], rows.clone());
         for fmt in [

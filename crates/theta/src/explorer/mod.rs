@@ -50,6 +50,22 @@ pub enum ExplorerEvent {
         schema: String,
         table: String,
     },
+    /// Import a CSV/TSV file into this table.
+    ImportData {
+        connection_id: String,
+        schema: String,
+        table: String,
+    },
+    /// Import a file as a new table.
+    ImportNewTable {
+        connection_id: String,
+    },
+    /// Export this table to a file.
+    ExportData {
+        connection_id: String,
+        schema: String,
+        table: String,
+    },
     AddConnection,
     /// Ask for a name and create a connection folder.
     NewFolder,
@@ -601,6 +617,32 @@ impl Explorer {
                             table: t.clone(),
                         })
                     }
+                }))
+                .separator()
+                .item(item(&explorer, "Import Data…", IconName::FileDown, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::ImportData {
+                            connection_id: c.clone(),
+                            schema: s.clone(),
+                            table: t.clone(),
+                        })
+                    }
+                }))
+                .item(item(&explorer, "Export Data…", IconName::FileDown, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::ExportData {
+                            connection_id: c.clone(),
+                            schema: s.clone(),
+                            table: t.clone(),
+                        })
+                    }
+                }))
+            }
+            NodeKey::Group(c, _, GroupKind::Tables) => {
+                menu.item(item(&explorer, "Import as New Table…", IconName::FileDown, move |_, cx| {
+                    cx.emit(ExplorerEvent::ImportNewTable { connection_id: c.clone() });
                 }))
             }
             NodeKey::Leaf(c, s, t, Section::Suggested, name) => {

@@ -15,6 +15,7 @@
 //!   as [`WorkspaceEvent`]s.
 
 mod bottom;
+mod bulk;
 pub mod console;
 mod folders;
 mod params;
@@ -34,6 +35,7 @@ mod shortcut_tests;
 
 use crate::actions::*;
 use crate::connections::{ConnState, ConnectionStore, NoticeKind, StoreEvent};
+use crate::dialogs;
 use crate::exec::history::HistoryStore;
 use crate::explorer::{Explorer, ExplorerEvent};
 use crate::palette;
@@ -177,7 +179,7 @@ pub struct Workspace {
     plan: Entity<PlanPanel>,
     map: Entity<MapPanel>,
     map_badge: Option<usize>,
-    runs: HashMap<String, run::RunInfo>,
+    pub(crate) runs: HashMap<String, run::RunInfo>,
     txn: HashSet<String>,
     /// Session-level transaction mode per connection id (see `txn.rs`); absent means the saved setting.
     txn_prefs: std::collections::HashMap<String, theta_core::txn::TransactionConfig>,
@@ -190,8 +192,10 @@ pub struct Workspace {
     /// Console whose plan the Plan tab currently shows.
     plan_owner: Option<u64>,
     startup: Option<run::Startup>,
+    /// `--import FILE [--into TABLE]`, opened once the first connection and its catalog are ready.
+    startup_import: Option<(String, Option<String>)>,
     /// Tests run in windows without a `Root`, where toasts cannot be shown.
-    quiet: bool,
+    pub(crate) quiet: bool,
     /// Test windows have no `Root` to host dialogs: when set, the Parameters dialog is answered with
     /// these values instead of being opened.
     #[cfg(test)]
@@ -281,6 +285,7 @@ impl Workspace {
             editor_status: None,
             plan_owner: None,
             startup: None,
+            startup_import: None,
             quiet: false,
             #[cfg(test)]
             param_answer: None,
@@ -564,6 +569,24 @@ impl Workspace {
                 self.open_table(connection_id, schema, table, window, cx)
             }
             ExplorerEvent::ReturnFocus => self.focus_editor(window, cx),
+            ExplorerEvent::ImportData { connection_id, schema, table } => self.open_import_dialog(
+                dialogs::import::Request {
+                    conn_id: connection_id,
+                    table: Some((schema, table)),
+                    path: None,
+                    new_table: false,
+                },
+                window,
+                cx,
+            ),
+            ExplorerEvent::ImportNewTable { connection_id } => self.open_import_dialog(
+                dialogs::import::Request { conn_id: connection_id, table: None, path: None, new_table: true },
+                window,
+                cx,
+            ),
+            ExplorerEvent::ExportData { connection_id, schema, table } => {
+                self.open_export_dialog(connection_id, schema, table, window, cx)
+            }
             ExplorerEvent::NewConsole { connection_id, sql } => {
                 self.open_console(Some(connection_id), sql, window, cx);
             }
@@ -892,6 +915,15 @@ impl Render for Workspace {
             .on_action(
                 cx.listener(|this, _: &OpenTablePicker, window, cx| this.open_table_picker(window, cx)),
             )
+            .on_action(
+                cx.listener(|this, _: &ImportData, window, cx| this.import_from_palette(false, window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &ImportAsNewTable, window, cx| {
+                this.import_from_palette(true, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ExportTableData, window, cx| {
+                this.pick_table_for(palette::TablePurpose::Export, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &OpenConnectionPicker, window, cx| {
                 this.open_connection_picker(window, cx)
             }))

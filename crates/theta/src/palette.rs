@@ -50,6 +50,9 @@ fn commands() -> Vec<Command> {
         cmd!("Transactions: Manual", "Query", IconName::Play, SetManualTransactions),
         cmd!("Transaction Isolation Level…", "Query", IconName::Settings, SelectIsolationLevel),
         cmd!("Open SQL File…", "Console", IconName::FileDown, OpenSqlFile),
+        cmd!("Import Data from CSV/TSV…", "Data", IconName::FileDown, ImportData),
+        cmd!("Import CSV/TSV as New Table…", "Data", IconName::FileDown, ImportAsNewTable),
+        cmd!("Export Table Data…", "Data", IconName::FileDown, ExportTableData),
         cmd!("Save Console As…", "Console", IconName::FileDown, SaveConsole),
         cmd!("Settings…", "App", IconName::Settings, OpenSettings),
         cmd!("Toggle Explorer", "View", IconName::PanelLeft, ToggleExplorer),
@@ -293,10 +296,19 @@ impl PickerDelegate for ConnectionPicker {
     }
 }
 
+/// What choosing a table in the picker does.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TablePurpose {
+    Open,
+    Import,
+    Export,
+}
+
 pub struct TablePicker {
     store: Entity<ConnectionStore>,
     workspace: WeakEntity<Workspace>,
     connection_id: String,
+    purpose: TablePurpose,
 }
 
 impl TablePicker {
@@ -305,31 +317,47 @@ impl TablePicker {
         workspace: WeakEntity<Workspace>,
         connection_id: String,
     ) -> Self {
-        Self { store, workspace, connection_id }
+        Self { store, workspace, connection_id, purpose: TablePurpose::Open }
+    }
+
+    pub fn for_purpose(mut self, purpose: TablePurpose) -> Self {
+        self.purpose = purpose;
+        self
     }
 }
 
 impl PickerDelegate for TablePicker {
     fn placeholder(&self) -> SharedString {
-        "Go to table…".into()
+        match self.purpose {
+            TablePurpose::Open => "Go to table…",
+            TablePurpose::Import => "Import into which table…",
+            TablePurpose::Export => "Export which table…",
+        }
+        .into()
     }
     fn items(&mut self, cx: &mut App) -> Vec<PickerItem> {
         let Some(catalog) = self.store.read(cx).catalog(&self.connection_id) else { return vec![] };
+        let tables_only = self.purpose != TablePurpose::Open;
         catalog
             .schemas
             .iter()
             .flat_map(|s| {
-                s.tables.iter().map(move |t| {
-                    let kind = match t.kind {
-                        theta_core::TableKind::Table => "table",
-                        theta_core::TableKind::View => "view",
-                        theta_core::TableKind::MaterializedView => "materialized view",
-                        theta_core::TableKind::ForeignTable => "foreign table",
-                    };
-                    PickerItem::new(format!("{}\u{1}{}", s.name, t.name), format!("{}.{}", s.name, t.name))
+                s.tables.iter().filter(move |t| !tables_only || t.kind == theta_core::TableKind::Table).map(
+                    move |t| {
+                        let kind = match t.kind {
+                            theta_core::TableKind::Table => "table",
+                            theta_core::TableKind::View => "view",
+                            theta_core::TableKind::MaterializedView => "materialized view",
+                            theta_core::TableKind::ForeignTable => "foreign table",
+                        };
+                        PickerItem::new(
+                            format!("{}\u{1}{}", s.name, t.name),
+                            format!("{}.{}", s.name, t.name),
+                        )
                         .icon(IconName::Table2)
                         .detail(kind)
-                })
+                    },
+                )
             })
             .collect()
     }
@@ -337,8 +365,24 @@ impl PickerDelegate for TablePicker {
         let Some((schema, table)) = item.id.split_once('\u{1}') else { return };
         let (schema, table, conn) = (schema.to_string(), table.to_string(), self.connection_id.clone());
         let workspace = self.workspace.clone();
+        let purpose = self.purpose;
         window.defer(cx, move |window, cx| {
-            workspace.update(cx, |ws, cx| ws.open_table(conn, schema, table, window, cx)).ok();
+            workspace
+                .update(cx, |ws, cx| match purpose {
+                    TablePurpose::Open => ws.open_table(conn, schema, table, window, cx),
+                    TablePurpose::Import => ws.open_import_dialog(
+                        crate::dialogs::import::Request {
+                            conn_id: conn,
+                            table: Some((schema, table)),
+                            path: None,
+                            new_table: false,
+                        },
+                        window,
+                        cx,
+                    ),
+                    TablePurpose::Export => ws.open_export_dialog(conn, schema, table, window, cx),
+                })
+                .ok();
         });
     }
 }
