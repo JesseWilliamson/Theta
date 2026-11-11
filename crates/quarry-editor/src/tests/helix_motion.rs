@@ -150,3 +150,47 @@ fn jumplist() {
     hx("#[a|]#\nb\nc\n", "3G<C-o><C-i>", "a\nb\n#[c|]#\n");
     hx("#[a|]#\nb\nc\n", "2jgg<C-o>", "a\nb\n#[c|]#\n");
 }
+
+#[test]
+fn navigation_keys_in_normal_mode() {
+    // Home / End are `gh` / `gl`.
+    hx("  he#[l|]#lo\nx\n", "<home>", "#[ |]# hello\nx\n");
+    hx("  he#[l|]#lo\nx\n", "<end>", "  hell#[o|]#\nx\n");
+    // ctrl-Home / ctrl-End are `gg` / `ge`.
+    hx("a\nb\n#[c|]#\n", "<C-home>", "#[a|]#\nb\nc\n");
+    hx("#[a|]#\nb\nc\n", "<C-end>", "a\nb\n#[c|]#\n");
+    // Arrows move like hjkl.
+    hx("a#[b|]#c\ndef\n", "<right>", "ab#[c|]#\ndef\n");
+    hx("a#[b|]#c\ndef\n", "<left>", "#[a|]#bc\ndef\n");
+    hx("a#[b|]#c\ndef\n", "<down>", "abc\nd#[e|]#f\n");
+    hx("abc\nd#[e|]#f\n", "<up>", "a#[b|]#c\ndef\n");
+}
+
+#[test]
+fn navigation_keys_extend_in_select_mode() {
+    hx("  he#[l|]#lo\nx\n", "v<home>", "#[|  hel]#lo\nx\n");
+    hx("  he#[l|]#lo\nx\n", "v<end>", "  he#[llo|]#\nx\n");
+    hx("a\nb\n#[c|]#\n", "v<C-home>", "#[|a\nb\nc]#\n");
+    hx("#[a|]#\nb\nc\n", "v<C-end>", "#[a\nb\nc|]#\n");
+    hx("a#[b|]#c\ndef\n", "v<right>", "a#[bc|]#\ndef\n");
+    hx("a#[b|]#c\ndef\n", "v<left>", "#[|ab]#c\ndef\n");
+    hx("a#[b|]#c\ndef\n", "v<down>", "a#[bc\nde|]#f\n");
+    hx("abc\nd#[e|]#f\n", "v<up>", "a#[|bc\nde]#f\n");
+}
+
+#[test]
+fn page_keys_extend_in_select_mode() {
+    let text: String = (0..100).map(|i| format!("line {i}\n")).collect();
+    let mut e = crate::Editor::new(&text, crate::Keymap::Helix);
+    e.set_viewport(0, 20);
+    feed(&mut e, "v<pagedown>");
+    assert_eq!(e.char_to_line(e.primary().head), 20);
+    assert_eq!(e.primary().anchor, 0, "select mode keeps the anchor");
+    feed(&mut e, "<pageup>");
+    assert_eq!(e.char_to_line(e.primary().head), 0);
+    assert_eq!(e.primary().anchor, 0);
+    // In normal mode the same keys just move.
+    feed(&mut e, "<esc><pagedown>");
+    assert_eq!(e.char_to_line(e.primary().head), 20);
+    assert_eq!(e.primary().head - e.primary().anchor, 1, "a plain move leaves a one-char block cursor");
+}

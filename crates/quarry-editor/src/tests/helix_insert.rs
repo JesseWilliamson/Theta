@@ -224,3 +224,11 @@ fn modes() {
     feed(&mut e, "vd");
     assert_eq!(e.mode(), Mode::Normal);
 }
+
+#[test]
+fn ctrl_home_and_end_jump_to_the_document_ends() {
+    hx("a\nb#[|]#c\nd\n", "i<C-home>X<esc>", "X#[a|]#\nbc\nd\n");
+    hx("a\nb#[|]#c\nd\n", "i<C-end>X<esc>", "a\nbc\nd\nX#[|]#");
+    // Plain Home / End stay on the line.
+    hx("a\nb#[|]#c\nd\n", "i<home>X<esc>", "a\nX#[b|]#c\nd\n");
+}

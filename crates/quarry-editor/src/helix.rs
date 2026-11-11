@@ -271,6 +271,8 @@ fn build_trie() -> Sub {
     r.bind("alt-.", RepeatFind, "repeat last find");
     r.bind("home", LineStart, "line start");
     r.bind("end", LineEnd, "line end");
+    r.bind("ctrl-home", FileStart, "file start");
+    r.bind("ctrl-end", FileEnd, "last line");
     r.bind("G", GotoLine, "goto line");
     r.bind("%", SelectAll, "select all");
     r.bind("x", ExtendLine, "select line");

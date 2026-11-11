@@ -374,6 +374,11 @@ impl Editor {
             (Key::Right, false, false) => self.move_horizontal(true, 1, false),
             (Key::Up, false, false) => self.move_vertical(false, 1, false),
             (Key::Down, false, false) => self.move_vertical(true, 1, false),
+            // ctrl-Home / ctrl-End: document start / end (the insert caret can sit after the last char).
+            (Key::Home, true, _) => self.transform_sels(|_, _| Selection::point(0)),
+            (Key::End, true, _) => {
+                self.transform_sels(|t, _| Selection::point(t.len_chars()));
+            }
             (Key::Home, ..) => self.run(crate::helix::Cmd::LineStart, None),
             (Key::End, ..) => {
                 self.transform_sels(|t, s| {

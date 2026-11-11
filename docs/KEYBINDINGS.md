@@ -224,7 +224,7 @@ Counts work wherever Helix takes one. In Select mode (`v`) every motion extends.
 | `W B E` | same for WORDs (whitespace separated); `alt-e` previous word end |
 | `f t F T` + char | find / till char forward / backward (count = n-th); `alt-.` repeats |
 | `home` `end`, `gh` `gl` `gs` | line start / line end / first non-blank |
-| `gg` `ge` `G`, `<n>G` `<n>gg` | file start / last line / goto line |
+| `gg` `ge` `G`, `<n>G` `<n>gg`, `ctrl-home` `ctrl-end` | file start / last line / goto line (the ctrl keys are `gg` / `ge`; in Insert mode they put the caret at the very start / end of the document) |
 | `gt` `gc` `gb` | top / middle / bottom line of the viewport |
 | `g\|` | goto column |
 | `gj` `gk` | line down / up |
