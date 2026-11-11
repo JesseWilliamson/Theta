@@ -174,6 +174,7 @@ impl Render for MessagesPanel {
                     .gap_1()
                     .items_center()
                     .justify_end()
+                    .bg(theme.tab_bar)
                     .border_b_1()
                     .border_color(theme.border)
                     .child(tool_button("messages-copy", IconName::Copy, "Copy All").on_click(

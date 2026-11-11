@@ -13,7 +13,7 @@ use gpui_kit::{
     AnyElement, Context, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, Styled as _,
     div, px,
 };
-use quarry_ui::{EditorColors, tool_button};
+use quarry_ui::{EditorColors, data_surface, tool_button};
 
 impl PlanPanel {
     pub(crate) fn render_details(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -149,6 +149,6 @@ impl PlanPanel {
                     .children(rows),
             );
         }
-        v_flex().size_full().bg(theme.background).child(header).child(body).into_any_element()
+        v_flex().size_full().bg(data_surface(cx)).child(header).child(body).into_any_element()
     }
 }

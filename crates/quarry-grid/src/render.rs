@@ -30,7 +30,7 @@ use gpui_kit::{
 };
 use quarry_core::TypeKind;
 use quarry_ui::contrast::ensure_contrast;
-use quarry_ui::{CHROME_TEXT_SIZE, Settings, tool_button};
+use quarry_ui::{CHROME_TEXT_SIZE, Settings, data_surface, tool_button};
 use std::time::Instant;
 
 #[derive(Clone, Copy)]
@@ -40,6 +40,8 @@ pub(crate) struct Palette {
     pub muted: Hsla,
     pub line: Hsla,
     pub head_bg: Hsla,
+    /// Toolbar and footer strip: chrome, one step lighter than the rows in themes that define panel colours.
+    pub bar_bg: Hsla,
     pub hover: Hsla,
     pub sel_fill: Hsla,
     pub accent: Hsla,
@@ -57,13 +59,15 @@ pub(crate) fn palette(cx: &App) -> Palette {
     let t = cx.theme();
     // Text colours that a theme leaves too faint are pulled toward the
     // foreground until they reach WCAG AA (4.5:1) on the grid background.
-    let readable = |c: Hsla| ensure_contrast(c, t.background, t.foreground, 4.5);
+    let data = data_surface(cx);
+    let readable = |c: Hsla| ensure_contrast(c, data, t.foreground, 4.5);
     Palette {
-        bg: t.background,
+        bg: data,
         fg: t.foreground,
         muted: readable(t.muted_foreground),
         line: t.border.opacity(0.55),
-        head_bg: t.title_bar,
+        head_bg: t.table_head,
+        bar_bg: t.tab_bar,
         hover: t.foreground.opacity(0.045),
         sel_fill: t.primary.opacity(0.17),
         accent: t.primary,
@@ -210,6 +214,7 @@ impl ResultGrid {
             .gap_1()
             .items_center()
             .justify_between()
+            .bg(p.bar_bg)
             .border_b_1()
             .border_color(p.border.opacity(0.6))
             .text_size(CHROME_TEXT_SIZE)
@@ -356,6 +361,7 @@ impl ResultGrid {
             .gap_3()
             .items_center()
             .justify_between()
+            .bg(p.bar_bg)
             .border_t_1()
             .border_color(p.border.opacity(0.6))
             .text_size(CHROME_TEXT_SIZE)

@@ -235,6 +235,105 @@ mod tests {
         });
     }
 
+    fn lum(c: gpui_kit::Hsla) -> f32 {
+        let r = c.to_rgb();
+        crate::contrast::luminance([r.r, r.g, r.b])
+    }
+
+    fn ratio_of(a: gpui_kit::Hsla, b: gpui_kit::Hsla) -> f32 {
+        let (a, b) = (a.to_rgb(), b.to_rgb());
+        crate::contrast::ratio([a.r, a.g, a.b], [b.r, b.g, b.b])
+    }
+
+    /// The surface ladder of Quarry Dark: data (editor, gutter, grid rows, active tab) is the darkest,
+    /// panels and tab strips are lighter, the title and status bars lighter still. This is what makes
+    /// the text area recede like Zed's; if someone "tidies" the palette back to one grey it fails.
+    #[test]
+    fn quarry_dark_ladder_and_contrast_minimums() {
+        let app = gpui_kit::TestAppContext::single();
+        app.update(|cx| {
+            crate::init(cx);
+            assert!(preview(QUARRY_DARK, cx));
+            let t = cx.theme().clone();
+            let ed = crate::colors::EditorColors::get(cx);
+            let syn = crate::colors::SyntaxColors::get(cx);
+            let data = crate::colors::data_surface(cx);
+
+            assert_eq!(ed.background, data);
+            assert_eq!(ed.gutter_background, data, "gutter joins the text area");
+            assert_eq!(t.tab_active, data, "the active tab and the editor are one surface");
+            assert_eq!(t.table, data, "grid rows are a data surface");
+            assert!(lum(data) < lum(t.sidebar), "editor must be darker than the panels");
+            assert!(lum(data) < lum(t.tab_bar));
+            assert!(lum(data) < lum(t.table_head), "grid header is chrome");
+            assert!(lum(t.sidebar) < lum(t.title_bar) && lum(t.sidebar) < lum(t.status_bar));
+            assert!(lum(data) < lum(t.popover), "popups lift off the editor");
+            // the steps must be visible, not just ordered
+            assert!(
+                ratio_of(t.sidebar, data) >= 1.15,
+                "editor vs panel step {:.2}",
+                ratio_of(t.sidebar, data)
+            );
+            assert!(ratio_of(t.title_bar, t.sidebar) >= 1.15);
+
+            let line = data.blend(ed.active_line);
+            assert!(lum(line) > lum(data) && lum(line) <= lum(t.sidebar), "active line is a subtle lift");
+
+            assert!(ratio_of(ed.foreground, data) >= 7.0);
+            assert!(ratio_of(t.muted_foreground, data) >= 4.5);
+            assert!(ratio_of(ed.active_line_number, line) >= 4.5);
+            assert!(
+                ratio_of(ed.line_number, data) >= 3.0,
+                "line numbers {:.2}",
+                ratio_of(ed.line_number, data)
+            );
+            assert!(ratio_of(syn.comment, data) >= 4.0, "comments {:.2}", ratio_of(syn.comment, data));
+            assert!(ratio_of(syn.comment, line) >= 3.6, "comments on the active line");
+        });
+    }
+
+    /// Quarry Light mirrors the rule (editor lightest, chrome a step darker) and must not regress.
+    #[test]
+    fn quarry_light_keeps_editor_lightest_and_readable() {
+        let app = gpui_kit::TestAppContext::single();
+        app.update(|cx| {
+            crate::init(cx);
+            assert!(preview(QUARRY_LIGHT, cx));
+            let t = cx.theme().clone();
+            let ed = crate::colors::EditorColors::get(cx);
+            let syn = crate::colors::SyntaxColors::get(cx);
+            let data = crate::colors::data_surface(cx);
+            assert!(lum(data) > lum(t.sidebar) && lum(t.sidebar) >= lum(t.title_bar) - 0.05);
+            assert!(ratio_of(ed.foreground, data) >= 7.0);
+            assert!(ratio_of(t.muted_foreground, data) >= 4.5);
+            assert!(ratio_of(syn.comment, data) >= 4.0, "comments {:.2}", ratio_of(syn.comment, data));
+            assert!(
+                ratio_of(ed.line_number, data) >= 3.0,
+                "line numbers {:.2}",
+                ratio_of(ed.line_number, data)
+            );
+        });
+    }
+
+    /// Themes that name no editor background (or whose editor and window backgrounds differ) still
+    /// get one readable data surface.
+    #[test]
+    fn every_bundled_theme_has_a_readable_data_surface() {
+        use gpui_kit::component::ThemeRegistry;
+        let app = gpui_kit::TestAppContext::single();
+        app.update(|cx| {
+            crate::init(cx);
+            let names: Vec<_> = ThemeRegistry::global(cx).themes().keys().cloned().collect();
+            for name in names {
+                assert!(preview(&name, cx));
+                let t = cx.theme().clone();
+                let data = crate::colors::data_surface(cx);
+                let r = ratio_of(t.foreground, data);
+                assert!(r >= 4.5, "{name}: foreground is {r:.2}:1 on the data surface");
+            }
+        });
+    }
+
     #[test]
     fn quarry_themes_have_the_reference_palette() {
         let set: gpui_kit::component::ThemeSet = serde_json::from_str(QUARRY_THEMES_JSON).unwrap();
@@ -242,7 +341,7 @@ mod tests {
         assert_eq!(names, vec![QUARRY_DARK, QUARRY_LIGHT]);
         let dark = &set.themes[0];
         assert!(dark.mode.is_dark());
-        assert_eq!(dark.colors.background.as_ref().unwrap().as_ref(), "#282c33");
+        assert_eq!(dark.colors.background.as_ref().unwrap().as_ref(), "#21252b");
         assert_eq!(dark.colors.border.as_ref().unwrap().as_ref(), "#464b57");
         let light = &set.themes[1];
         assert!(!light.mode.is_dark());

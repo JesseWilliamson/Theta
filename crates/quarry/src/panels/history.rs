@@ -225,12 +225,19 @@ impl Render for HistoryPanel {
         v_flex()
             .size_full()
             .child(
-                div().px_2().py_1().flex_shrink_0().border_b_1().border_color(theme.border).child(
-                    Input::new(&self.filter)
-                        .small()
-                        .cleanable(true)
-                        .prefix(Icon::new(IconName::Search).size(px(13.))),
-                ),
+                div()
+                    .px_2()
+                    .py_1()
+                    .flex_shrink_0()
+                    .bg(theme.tab_bar)
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .child(
+                        Input::new(&self.filter)
+                            .small()
+                            .cleanable(true)
+                            .prefix(Icon::new(IconName::Search).size(px(13.))),
+                    ),
             )
             .child(div().flex_1().min_h_0().child(body))
     }

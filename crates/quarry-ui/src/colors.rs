@@ -4,6 +4,17 @@
 //! the theme's *editor* palette. Both structs prefer what the active theme's
 //! `highlight` section says and derive a sensible value from the UI palette
 //! when a theme (often an imported or third-party one) leaves it out.
+//!
+//! # The surface rule
+//!
+//! Data surfaces (the SQL editor and its gutter, the results grid rows, the plan tree, the messages
+//! and history lists, the map panel, the active tab) all use one colour, [`data_surface`]: the
+//! theme's editor background, or its window background when it names no separate one. Chrome
+//! (explorer, tab strip, panel tab strips, toolbars, column headers) uses the panel colours, and
+//! the title and status bars sit one step above those. In Quarry Dark that makes the text area
+//! the darkest, calmest surface, so the code and the data recede into the page rather than the
+//! frame around them. A theme that defines no panel colours falls back to the same colour for
+//! chrome and data, which is how every bundled third-party theme looked before this rule existed.
 
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::{App, Hsla};
@@ -41,6 +52,12 @@ pub struct EditorColors {
     pub indent_guide: Hsla,
 }
 
+/// The colour of every surface that shows data rather than controls; see the module docs.
+pub fn data_surface(cx: &App) -> Hsla {
+    let theme = cx.theme();
+    theme.highlight_theme.style.editor_background.unwrap_or(theme.background)
+}
+
 impl SyntaxColors {
     pub fn get(cx: &App) -> Self {
         let theme = cx.theme();
@@ -73,7 +90,7 @@ impl EditorColors {
     pub fn get(cx: &App) -> Self {
         let theme = cx.theme();
         let style = &theme.highlight_theme.style;
-        let background = style.editor_background.unwrap_or(theme.background);
+        let background = data_surface(cx);
         let foreground = style.editor_foreground.unwrap_or(theme.foreground);
         let accent = theme.ring;
         EditorColors {

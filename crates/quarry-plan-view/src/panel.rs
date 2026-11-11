@@ -18,7 +18,7 @@ use gpui_kit::{
 };
 use quarry_core::{DatabaseKind, Plan};
 use quarry_sql::{Insight, PlanSummary, Severity};
-use quarry_ui::{EmptyState, KeyHint, Settings, tool_button};
+use quarry_ui::{EmptyState, KeyHint, Settings, data_surface, tool_button};
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -445,7 +445,7 @@ impl Render for PlanPanel {
             .size_full()
             .relative()
             .overflow_hidden()
-            .bg(theme.background)
+            .bg(data_surface(cx))
             .text_color(theme.foreground)
             .child(measure)
             .when(self.loaded.is_some() && self.error.is_none(), |this| {
@@ -523,6 +523,7 @@ impl PlanPanel {
         let seg = |mode: ViewMode, label: &'static str, cx: &mut Context<Self>| {
             let active = self.view == mode;
             let t = cx.theme().clone();
+            let data = data_surface(cx);
             div()
                 .id(label)
                 .h(px(20.))
@@ -534,7 +535,7 @@ impl PlanPanel {
                 .cursor_pointer()
                 .font_weight(if active { FontWeight::MEDIUM } else { FontWeight::NORMAL })
                 .text_color(if active { t.foreground } else { t.muted_foreground })
-                .when(active, |d| d.bg(t.background).border_1().border_color(t.border))
+                .when(active, |d| d.bg(data).border_1().border_color(t.border))
                 .when(!active, |d| d.hover(|h| h.text_color(t.foreground)))
                 .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -561,46 +562,62 @@ impl PlanPanel {
         let tree_view = self.view == ViewMode::Tree;
         let any_collapsed = l.tree.any_collapsed();
 
-        h_flex().h(px(28.)).flex_shrink_0().px_2().gap_2().items_center().justify_between().child(left).child(
-            h_flex()
-                .gap_1()
-                .items_center()
-                .flex_shrink_0()
-                .child(segmented)
-                .child(div().w(px(1.)).h(px(14.)).mx_1().bg(theme.border))
-                .child(
-                    Button::new("plan-explain")
-                        .ghost()
-                        .xsmall()
-                        .icon(Icon::new(IconName::Play))
-                        .label("Explain")
-                        .tooltip("Estimate only; the statement is not executed")
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(PlanEvent::Rerun { analyze: false }))),
-                )
-                .child(
-                    Button::new("plan-analyze")
-                        .ghost()
-                        .xsmall()
-                        .icon(Icon::new(IconName::Zap).text_color(theme.warning))
-                        .label(if narrow { "Analyze" } else { "Explain Analyze" })
-                        .tooltip("Executes the statement (rolled back for writes)")
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(PlanEvent::Rerun { analyze: true }))),
-                )
-                .child(
-                    tool_button("plan-copy", IconName::Copy, "Copy plan as text")
-                        .on_click(cx.listener(move |this, _, _, cx| this.copy_text(plan_text.clone(), cx))),
-                )
-                .when(tree_view, |d| {
-                    d.child(
-                        tool_button(
-                            "plan-expand",
-                            if any_collapsed { IconName::ChevronsUpDown } else { IconName::ChevronsDownUp },
-                            if any_collapsed { "Expand all" } else { "Collapse all" },
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.expand_collapse_all(cx))),
+        h_flex()
+            .h(px(28.))
+            .flex_shrink_0()
+            .px_2()
+            .gap_2()
+            .items_center()
+            .justify_between()
+            .bg(theme.tab_bar)
+            .child(left)
+            .child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .flex_shrink_0()
+                    .child(segmented)
+                    .child(div().w(px(1.)).h(px(14.)).mx_1().bg(theme.border))
+                    .child(
+                        Button::new("plan-explain")
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::new(IconName::Play))
+                            .label("Explain")
+                            .tooltip("Estimate only; the statement is not executed")
+                            .on_click(
+                                cx.listener(|_, _, _, cx| cx.emit(PlanEvent::Rerun { analyze: false })),
+                            ),
                     )
-                }),
-        )
+                    .child(
+                        Button::new("plan-analyze")
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::new(IconName::Zap).text_color(theme.warning))
+                            .label(if narrow { "Analyze" } else { "Explain Analyze" })
+                            .tooltip("Executes the statement (rolled back for writes)")
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(PlanEvent::Rerun { analyze: true }))),
+                    )
+                    .child(
+                        tool_button("plan-copy", IconName::Copy, "Copy plan as text").on_click(
+                            cx.listener(move |this, _, _, cx| this.copy_text(plan_text.clone(), cx)),
+                        ),
+                    )
+                    .when(tree_view, |d| {
+                        d.child(
+                            tool_button(
+                                "plan-expand",
+                                if any_collapsed {
+                                    IconName::ChevronsUpDown
+                                } else {
+                                    IconName::ChevronsDownUp
+                                },
+                                if any_collapsed { "Expand all" } else { "Collapse all" },
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| this.expand_collapse_all(cx))),
+                        )
+                    }),
+            )
     }
 
     fn render_loaded(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
@@ -636,7 +653,7 @@ impl PlanPanel {
                         .w(px(DETAILS_W))
                         .border_l_1()
                         .border_color(theme.border)
-                        .bg(theme.background)
+                        .bg(data_surface(cx))
                         .shadow_lg()
                         .child(pane),
                 )

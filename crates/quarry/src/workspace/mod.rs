@@ -52,7 +52,7 @@ use quarry_editor_view::EditorStatus;
 use quarry_map_view::{MapEvent, MapPanel};
 use quarry_plan_view::{PlanEvent, PlanPanel};
 use quarry_ui::picker::{Picker, PickerDelegate, PickerEvent};
-use quarry_ui::{STATUS_BAR_HEIGHT, Settings, TAB_BAR_HEIGHT, TITLE_BAR_HEIGHT};
+use quarry_ui::{STATUS_BAR_HEIGHT, Settings, TAB_BAR_HEIGHT, TITLE_BAR_HEIGHT, data_surface};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -1021,14 +1021,14 @@ impl Render for Workspace {
                             .min_w_0()
                             .h_full()
                             .child(tab_bar)
-                            .child(div().flex_1().min_h_0().bg(theme.background).child(console))
+                            .child(div().flex_1().min_h_0().bg(data_surface(cx)).child(console))
                             .when_some(bottom, |this, panel| {
                                 this.child(resize_handle("resize-bottom", Resize::Bottom, false, cx)).child(
                                     div()
                                         .h(px(bottom_height))
                                         .flex_shrink_0()
                                         .overflow_hidden()
-                                        .bg(theme.background)
+                                        .bg(data_surface(cx))
                                         .child(panel),
                                 )
                             }),

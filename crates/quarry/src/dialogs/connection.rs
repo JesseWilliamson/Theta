@@ -43,7 +43,11 @@ pub fn open(
 ) {
     let form = cx.new(|cx| ConnectionForm::new(store, edit.clone(), workspace, window, cx));
     let title = if edit.is_some() { "Edit Connection" } else { "New Connection" };
-    window.open_dialog(cx, move |dialog, _, _| dialog.title(title).w(px(600.)).child(form.clone()));
+    // Dialogs sit on the popover colour, not the window background: the editor behind them is the darkest
+    // surface, and the dialog would otherwise merge into it.
+    window.open_dialog(cx, move |dialog, _, cx| {
+        dialog.bg(cx.theme().popover).title(title).w(px(600.)).child(form.clone())
+    });
 }
 
 enum TestState {

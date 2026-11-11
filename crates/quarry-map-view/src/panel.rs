@@ -24,7 +24,7 @@ use gpui_kit::{
     px,
 };
 use quarry_geo::{Coord, Feature, Geometry, describe, to_wkt};
-use quarry_ui::{CHROME_TEXT_SIZE, EmptyState, PANEL_HEADER_HEIGHT, Settings, tool_button};
+use quarry_ui::{CHROME_TEXT_SIZE, EmptyState, PANEL_HEADER_HEIGHT, Settings, data_surface, tool_button};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
@@ -964,8 +964,9 @@ fn card_height(core: &Core, id: usize) -> f64 {
 impl Render for MapPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        let surface = data_surface(cx);
         let t = Theme {
-            bg: theme.background,
+            bg: surface,
             fg: theme.foreground,
             muted_fg: theme.muted_foreground,
             border: theme.border,
@@ -975,9 +976,9 @@ impl Render for MapPanel {
             warning: theme.warning,
         };
         let colors = Colors {
-            bg: theme.background,
+            bg: surface,
             fg: theme.foreground,
-            placeholder: theme.background.blend(theme.foreground.opacity(0.035)),
+            placeholder: surface.blend(theme.foreground.opacity(0.035)),
             accent: theme.primary,
             dark: theme.is_dark(),
         };

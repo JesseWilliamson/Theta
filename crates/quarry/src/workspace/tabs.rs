@@ -11,7 +11,7 @@ use gpui_kit::{
     ScrollEvent, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, linear_color_stop,
     linear_gradient, px,
 };
-use quarry_ui::{CHROME_TEXT_SIZE, EmptyState, KeyHint, TAB_BAR_HEIGHT, tool_button};
+use quarry_ui::{CHROME_TEXT_SIZE, EmptyState, KeyHint, TAB_BAR_HEIGHT, data_surface, tool_button};
 
 /// Payload of a tab being dragged within the strip.
 #[derive(Clone)]
@@ -86,6 +86,7 @@ impl Workspace {
 
     fn render_tab_bar_inner(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
+        let surface = data_surface(cx);
         let active = self.active_tab;
         let tabs: Vec<_> = self.tabs.iter().map(|t| (t.id, t.title.clone(), t.modified)).collect();
         let order: std::rc::Rc<Vec<u64>> = std::rc::Rc::new(tabs.iter().map(|t| t.0).collect());
@@ -177,14 +178,14 @@ impl Workspace {
                                     .when(is_active, |d| {
                                         // Hides the bar's bottom rule under the active tab so it
                                         // reads as one surface with the editor below.
-                                        d.bg(theme.background).child(
+                                        d.bg(surface).child(
                                             div()
                                                 .absolute()
                                                 .left_0()
                                                 .right_0()
                                                 .bottom(px(-1.))
                                                 .h(px(2.))
-                                                .bg(theme.background),
+                                                .bg(surface),
                                         )
                                     })
                                     .when(!is_active, |d| d.hover(|s| s.bg(theme.list_hover)))

@@ -103,15 +103,16 @@ pub fn open(
     let default = choices.iter().find(|c| c.tone == Tone::Primary).map(|c| c.run.clone());
     let view = cx.new(|_| ConfirmView { intro: intro.into(), statements, choices });
     let title: SharedString = title.into();
-    window.open_dialog(cx, move |dialog, _, _| {
+    window.open_dialog(cx, move |dialog, _, cx| {
         let default = default.clone();
-        dialog.title(title.clone()).w(px(640.)).child(view.clone()).on_ok(move |_, window, cx| match &default
-        {
-            Some(run) => {
-                run(window, cx);
-                true
-            }
-            None => false,
-        })
+        dialog.bg(cx.theme().popover).title(title.clone()).w(px(640.)).child(view.clone()).on_ok(
+            move |_, window, cx| match &default {
+                Some(run) => {
+                    run(window, cx);
+                    true
+                }
+                None => false,
+            },
+        )
     });
 }

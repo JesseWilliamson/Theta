@@ -87,7 +87,9 @@ pub fn open_at(section: Section, window: &mut Window, cx: &mut App) {
         v.section = section;
         v
     });
-    window.open_dialog(cx, move |dialog, _, _| dialog.title("Settings").w(px(820.)).child(view.clone()));
+    window.open_dialog(cx, move |dialog, _, cx| {
+        dialog.bg(cx.theme().popover).title("Settings").w(px(820.)).child(view.clone())
+    });
 }
 
 /// The basemap dropdown: every basemap by name, the selected one preselected.
