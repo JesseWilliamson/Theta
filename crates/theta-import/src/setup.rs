@@ -205,22 +205,16 @@ pub fn compatibility(inferred: &ColumnType, target: &Target) -> Compat {
         (_, Text | Other | Array | Geometry | Json | Interval | Bytes | Uuid) => Compat::Ok,
         (ColumnType::Integer | ColumnType::BigInt, Integer | Decimal | Float | Bool) => Compat::Ok,
         (ColumnType::Numeric { .. }, Decimal | Float) => Compat::Ok,
-        (ColumnType::Numeric { .. }, Integer) => {
-            Compat::Check(format!("{src} values such as 1.5 will be rejected by {}", target.type_name))
-        }
+        (ColumnType::Numeric { .. }, Integer) => Compat::Check("decimals will be rejected".to_string()),
         (ColumnType::Float, Float | Decimal) => Compat::Ok,
         (ColumnType::Boolean, Bool) => Compat::Ok,
         (ColumnType::Date, Date | Timestamp) => Compat::Ok,
         (ColumnType::Timestamp { .. }, Timestamp) => Compat::Ok,
-        (ColumnType::Timestamp { .. }, Date | Time) => {
-            Compat::Mismatch(format!("{src} values do not fit {}", target.type_name))
-        }
+        (ColumnType::Timestamp { .. }, Date | Time) => Compat::Mismatch(format!("{src} values do not fit")),
         (ColumnType::Text { max_len: 0 }, _) => Compat::Ok,
-        (ColumnType::Text { .. }, _) => {
-            Compat::Check(format!("the sample looks like text, but the column is {}", target.type_name))
-        }
+        (ColumnType::Text { .. }, _) => Compat::Check("the sample looks like text".to_string()),
         (_, Date | Time | Timestamp | Bool | Integer | Decimal | Float) => {
-            Compat::Mismatch(format!("{src} values will not convert to {}", target.type_name))
+            Compat::Mismatch(format!("{src} values will not convert"))
         }
     }
 }

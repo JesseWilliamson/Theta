@@ -649,3 +649,53 @@ async fn throughput() {
     }
     std::fs::remove_dir_all(path.parent().unwrap()).ok();
 }
+
+#[tokio::test]
+async fn inferred_types_create_a_table_every_database_accepts() {
+    use theta_import::scan::{SAMPLE_ROWS, scan};
+    use theta_import::setup::{Destination, ImportSetup, NewColumnSpec, build_job};
+    let data = "id,Full Name,born,score,active,seen,big\n\
+                1,Ann,2000-01-02,1.50,true,2024-01-02 03:04:05,3000000000\n\
+                2,\"Bo\nb\",2001-02-03,,false,2024-01-03T03:04:05,4\n\
+                3,,2002-03-04,20.25,t,,5\n";
+    for kind in KINDS {
+        let fx = Fx::new(kind).await;
+        let csv = CsvOptions::default();
+        let conv = ConvertOptions::default();
+        let sc = scan(data.as_bytes(), &csv, true, &conv, SAMPLE_ROWS).unwrap();
+        let names = sc.suggested_column_names();
+        let columns: Vec<NewColumnSpec> = (0..sc.width)
+            .map(|i| NewColumnSpec {
+                name: names[i].clone(),
+                sql_type: sc.types[i].sql_type(kind),
+                nullable: true,
+                skip: false,
+            })
+            .collect();
+        let setup = ImportSetup {
+            kind,
+            csv,
+            has_header: true,
+            convert: conv,
+            on_error: ErrorMode::Abort,
+            batch_rows: 100,
+            max_statement_bytes: DEFAULT_STATEMENT_BYTES,
+            truncate_first: false,
+            txn: TxnPlan::Own { begin: fx.begin() },
+            dest: Destination::New { schema: fx.schema.clone(), table: "inferred".into(), columns },
+        };
+        let job = build_job(&setup).unwrap();
+        let rep = run(&fx, data, &job).await;
+        assert_eq!(rep.outcome, Outcome::Completed, "{kind:?}: {:?} {:?}", rep.outcome, job.create_sql);
+        let t = fx.qual("inferred");
+        assert_eq!(count(fx.conn.as_ref(), &t).await, 3);
+        let rows = q(fx.conn.as_ref(), &format!("SELECT full_name, active, big FROM {t} ORDER BY id")).await;
+        assert_eq!(rows[1][0], Value::Text("Bo\nb".into()), "{kind:?}");
+        assert_eq!(rows[2][0], Value::Null, "{kind:?}");
+        assert_eq!(rows[0][2], Value::Int(3_000_000_000), "{kind:?}");
+        // Booleans arrive as booleans (or 0/1 where the database has no boolean type).
+        let truthy = |v: &Value| matches!(v, Value::Bool(true) | Value::Int(1));
+        assert!(truthy(&rows[0][1]) && truthy(&rows[2][1]) && !truthy(&rows[1][1]), "{kind:?}: {:?}", rows);
+        fx.done().await;
+    }
+}

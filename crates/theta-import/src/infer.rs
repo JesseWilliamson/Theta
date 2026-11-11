@@ -61,7 +61,9 @@ impl ColumnType {
             (ColumnType::Float, Sqlite) => "REAL".into(),
             (ColumnType::Boolean, Postgres) => "boolean".into(),
             (ColumnType::Boolean, MySql) => "TINYINT(1)".into(),
-            (ColumnType::Boolean, Sqlite) => "INTEGER".into(),
+            // SQLite has no boolean type, but a declared BOOLEAN gets NUMERIC affinity and Theta reads it back as a
+            // boolean, which is what the file said.
+            (ColumnType::Boolean, Sqlite) => "BOOLEAN".into(),
             (ColumnType::Date, Postgres) => "date".into(),
             (ColumnType::Date, MySql) => "DATE".into(),
             (ColumnType::Date, Sqlite) => "DATE".into(),

@@ -71,6 +71,8 @@ pub fn open(
             .w(px(620.))
             .overlay_closable(false)
             .child(view.clone())
+            // Enter belongs to the fields (it starts the export); it must not close the dialog.
+            .on_ok(|_, _, _| false)
             .on_cancel(move |_, _, cx| for_cancel.update(cx, |v, cx| v.escape(cx)))
     });
     window.defer(cx, move |window, cx| {
@@ -325,7 +327,7 @@ impl Render for ExportView {
                 if self.schema.is_empty() { String::new() } else { format!("{}.", self.schema) },
                 self.table,
                 match self.estimate {
-                    Some(n) => format!("about {n} rows"),
+                    Some(n) => format!("about {} rows", crate::dialogs::import::fmt_count(n)),
                     None => "row count unknown".to_string(),
                 }
             )))

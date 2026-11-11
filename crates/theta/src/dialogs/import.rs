@@ -163,6 +163,7 @@ pub fn open(
             .margin_top(px(20.))
             .overlay_closable(false)
             .child(view.clone())
+            .on_ok(|_, _, _| false)
             .on_cancel(move |_, _, cx| {
                 // Escape while a run is in flight cancels the run; the dialog stays so the result is seen.
                 for_cancel.update(cx, |v, cx| v.escape(cx))
@@ -183,7 +184,7 @@ fn select_of(
     cx.new(|cx| SelectState::new(items, ix.map(IndexPath::new), window, cx))
 }
 
-fn fmt_count(n: u64) -> String {
+pub(crate) fn fmt_count(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, c) in s.chars().rev().enumerate() {
@@ -944,12 +945,13 @@ impl ImportView {
                 .h(px(24.))
                 .items_center()
                 .child(head("#", Some(24.)))
-                .child(head("File column", Some(170.)))
+                .child(head("File column", Some(130.)))
+                .child(head("Sample", Some(130.)))
                 .child(head(
                     if self.mode == Mode::New { "New column name" } else { "Table column" },
-                    Some(210.),
+                    Some(190.),
                 ))
-                .child(head(if self.mode == Mode::New { "Type" } else { "Target type" }, Some(180.)))
+                .child(head(if self.mode == Mode::New { "Type" } else { "Target type" }, Some(150.)))
                 .child(head("Check", None))
                 .child(head(if self.mode == Mode::New { "Include" } else { "" }, Some(44.)))
                 .into_any_element(),
@@ -957,6 +959,16 @@ impl ImportView {
         for (i, row) in self.cols.iter().enumerate() {
             let inferred = sc.types.get(i).cloned();
             let name = sc.names.get(i).cloned().unwrap_or_default();
+            // The first value that is not NULL among the first rows, single-lined.
+            let sample = sc
+                .preview
+                .rows
+                .iter()
+                .take(5)
+                .filter_map(|r| r.get(i))
+                .find(|v| !v.is_null())
+                .map(|v| v.display().replace(['\n', '\r', '\t'], " "))
+                .unwrap_or_default();
             let (control, ty_cell, flag): (AnyElement, AnyElement, (Option<bool>, String)) = match self.mode {
                 Mode::New => (
                     Input::new(&row.name).small().disabled(row.skip).into_any_element(),
@@ -1018,7 +1030,7 @@ impl ImportView {
                     )
                     .child(
                         div()
-                            .w(px(170.))
+                            .w(px(130.))
                             .flex_shrink_0()
                             .overflow_hidden()
                             .text_ellipsis()
@@ -1026,8 +1038,19 @@ impl ImportView {
                             .text_size(CHROME_TEXT_SIZE)
                             .child(if name.is_empty() { format!("column {}", i + 1) } else { name }),
                     )
-                    .child(div().w(px(210.)).flex_shrink_0().child(control))
-                    .child(div().w(px(180.)).flex_shrink_0().child(ty_cell))
+                    .child(
+                        div()
+                            .w(px(130.))
+                            .flex_shrink_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .text_size(CHROME_TEXT_SIZE)
+                            .text_color(theme.muted_foreground)
+                            .child(sample),
+                    )
+                    .child(div().w(px(190.)).flex_shrink_0().child(control))
+                    .child(div().w(px(150.)).flex_shrink_0().child(ty_cell))
                     .child(
                         h_flex().flex_1().min_w_0().gap_2().items_center().child(
                             div()
