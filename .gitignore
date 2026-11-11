@@ -6,3 +6,6 @@ target/
 *.profraw
 .idea/
 .vscode/
+
+# Agent worktrees (separate checkouts, never part of the repo)
+.claude/worktrees/
