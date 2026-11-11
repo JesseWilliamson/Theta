@@ -9,3 +9,6 @@ target/
 
 # Agent worktrees (separate checkouts, never part of the repo)
 .claude/worktrees/
+
+# Python bytecode (icon and oracle scripts)
+__pycache__/
