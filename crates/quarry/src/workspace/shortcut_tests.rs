@@ -605,3 +605,43 @@ fn start_up_warnings_do_not_panic_the_constructor(cx: &mut TestAppContext) {
     });
     assert!(ws.read_with(vcx, |ws, _| ws.startup_warnings.is_empty()), "shown once");
 }
+
+/// A statement that runs until it is cancelled (SQLite has no sleep).
+const FOREVER: &str = "with recursive c(x) as (select 1 union all select x + 1 from c where x < 4000000000) select count(*) from c";
+
+fn running(f: &Fixture, vcx: &mut VisualTestContext) -> bool {
+    f.ws.read_with(vcx, |ws, _| !ws.runs.is_empty())
+}
+
+#[gpui_kit::test]
+fn closing_a_tab_while_its_query_runs_cancels_it(cx: &mut TestAppContext) {
+    let (f, vcx) = setup(cx);
+    editor_of(&f, vcx).update_in(vcx, |v, _, cx| v.update_editor(cx, |e| e.set_text(FOREVER)));
+    f.ws.update_in(vcx, |ws, window, cx| ws.run_active(run::RunReq::All, window, cx));
+    wait_for(vcx, "the query to start", |vcx| running(&f, vcx));
+    let id = f.ws.read_with(vcx, |ws, _| ws.active_tab.unwrap());
+    f.ws.update(vcx, |ws, cx| ws.close_tab(id, cx));
+    // The run must end by itself (cancelled), leaving the connection usable for the next one.
+    wait_for(vcx, "the cancelled run to finish", |vcx| !running(&f, vcx));
+    let store = f.ws.read_with(vcx, |ws, _| ws.store.clone());
+    assert!(store.read_with(vcx, |s, _| s.first_connected().is_some()), "still connected");
+}
+
+#[gpui_kit::test]
+fn rapid_run_and_cancel_leaves_a_working_console(cx: &mut TestAppContext) {
+    let (f, vcx) = setup(cx);
+    editor_of(&f, vcx).update_in(vcx, |v, _, cx| v.update_editor(cx, |e| e.set_text(FOREVER)));
+    for _ in 0..15 {
+        f.ws.update_in(vcx, |ws, window, cx| ws.run_active(run::RunReq::All, window, cx));
+        // A second Run while the first is going is refused, and Cancel right after is fine.
+        f.ws.update_in(vcx, |ws, window, cx| ws.run_active(run::RunReq::All, window, cx));
+        f.ws.update_in(vcx, |ws, window, cx| ws.cancel_active(window, cx));
+        f.ws.update_in(vcx, |ws, window, cx| ws.cancel_active(window, cx));
+        wait_for(vcx, "the run to end", |vcx| !running(&f, vcx));
+    }
+    editor_of(&f, vcx).update_in(vcx, |v, _, cx| v.update_editor(cx, |e| e.set_text("select 3 as three")));
+    f.ws.update_in(vcx, |ws, window, cx| ws.run_active(run::RunReq::All, window, cx));
+    wait_for(vcx, "the final result", |vcx| {
+        f.ws.read_with(vcx, |ws, cx| ws.results.read(cx).grid.read(cx).result().is_some())
+    });
+}

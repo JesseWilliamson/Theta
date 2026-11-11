@@ -36,6 +36,8 @@ pub enum RunReq {
 }
 
 pub struct RunInfo {
+    /// The console that started it; closing that tab cancels the run (nobody could otherwise).
+    pub console: u64,
     pub started: Instant,
     pub cancelled: bool,
     pub failed: bool,
@@ -347,9 +349,12 @@ impl Workspace {
                     quarry_ui::themes::available(cx).iter().map(|n| n.name.to_string()).collect();
                 match resolve_theme(&names, arg) {
                     Ok(name) => quarry_ui::themes::set_theme(&name, cx),
-                    Err(options) if options.is_empty() => {
-                        self.notify(NoticeKind::Error, format!("No theme named “{}”", shorten(arg)), window, cx)
-                    }
+                    Err(options) if options.is_empty() => self.notify(
+                        NoticeKind::Error,
+                        format!("No theme named “{}”", shorten(arg)),
+                        window,
+                        cx,
+                    ),
                     Err(options) => self.notify(
                         NoticeKind::Error,
                         format!("“{}” matches several themes: {}", shorten(arg), options.join(", ")),
@@ -375,9 +380,12 @@ impl Workspace {
                         self.use_connection(&id, cx);
                         self.rebind_active_console(&id, cx);
                     }
-                    None => {
-                        self.notify(NoticeKind::Error, format!("No connection named “{}”", shorten(arg)), window, cx)
-                    }
+                    None => self.notify(
+                        NoticeKind::Error,
+                        format!("No connection named “{}”", shorten(arg)),
+                        window,
+                        cx,
+                    ),
                 }
             }
             "reopen" | "reopen-tab" => self.reopen_closed_tab(window, cx),
@@ -619,8 +627,10 @@ impl Workspace {
         if self.runs.contains_key(&conn_id) {
             return;
         }
-        self.runs
-            .insert(conn_id.clone(), RunInfo { started: Instant::now(), cancelled: false, failed: false });
+        self.runs.insert(
+            conn_id.clone(),
+            RunInfo { console: id, started: Instant::now(), cancelled: false, failed: false },
+        );
         if let Some(c) = self.consoles.get_mut(&id) {
             c.results.clear();
             c.active_result = 0;
@@ -815,16 +825,60 @@ impl Workspace {
         let ConnState::Connected { connection, .. } = self.store.read(cx).state(&conn_id).clone() else {
             return;
         };
-        cx.spawn_in(window, async move |this, cx| {
-            let r = runtime::spawn_result(async move { connection.cancel().await }).await;
-            if let Err(e) = r {
-                this.update_in(cx, |this, window, cx| {
-                    this.notify(NoticeKind::Error, format!("Could not cancel: {e}"), window, cx)
-                })
-                .ok();
+        self.send_cancel(conn_id, connection, cx);
+    }
+
+    /// Ask the server to stop the statement, and keep asking until the run has ended.
+    ///
+    /// A cancel that reaches the server before it has started the statement (Run immediately
+    /// followed by Cancel, or a console closed right after Run) is silently dropped by every
+    /// driver, and the statement would then run to completion with nothing left to stop it.
+    fn send_cancel(&mut self, conn_id: String, connection: Arc<dyn Connection>, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            for attempt in 0..120 {
+                let c = connection.clone();
+                let r = runtime::spawn_result(async move { c.cancel().await }).await;
+                if attempt == 0
+                    && let Err(e) = r
+                {
+                    this.update(cx, |this, cx| {
+                        this.log(
+                            &conn_id,
+                            "cancel",
+                            MessageKind::Error,
+                            vec![format!("Could not cancel: {e}")],
+                            None,
+                            cx,
+                        )
+                    })
+                    .ok();
+                    return;
+                }
+                cx.background_executor().timer(Duration::from_millis(250)).await;
+                let still = this
+                    .update(cx, |this, _| this.runs.get(&conn_id).is_some_and(|r| r.cancelled))
+                    .unwrap_or(false);
+                if !still {
+                    return;
+                }
             }
         })
         .detach();
+    }
+
+    /// A closed console's query has nowhere to show its result and, with no tab left on the
+    /// connection, nothing could cancel it: ask the server to stop it.
+    pub(super) fn cancel_run_of(&mut self, console: u64, cx: &mut Context<Self>) {
+        let Some(conn_id) = self.runs.iter().find(|(_, r)| r.console == console).map(|(c, _)| c.clone())
+        else {
+            return;
+        };
+        if let Some(r) = self.runs.get_mut(&conn_id) {
+            r.cancelled = true;
+        }
+        if let Some(connection) = self.store.read(cx).connection(&conn_id) {
+            self.send_cancel(conn_id, connection, cx);
+        }
     }
 
     pub(super) fn sync_running(&mut self, cx: &mut Context<Self>) {

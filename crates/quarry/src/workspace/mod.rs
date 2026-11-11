@@ -389,6 +389,7 @@ impl Workspace {
         let Some(pos) = self.tabs.iter().position(|t| t.id == id) else { return };
         // Closing must never silently lose work: the console goes on the reopen stack first.
         let saved = self.snapshot_console(id, cx);
+        self.cancel_run_of(id, cx);
         self.tabs.remove(pos);
         self.console_views.remove(&id);
         if let Some(c) = self.consoles.remove(&id) {
