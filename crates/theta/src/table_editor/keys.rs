@@ -249,4 +249,26 @@ mod tests {
             assert!(!owns_chord(k));
         }
     }
+
+    /// The editor handles its chords in a key-down handler, which GPUI runs only after key *bindings*: a
+    /// global binding on the same keystroke would swallow it. So no application binding may use one of
+    /// them (and none does: Execute is the existing `mod-enter`, Close Tab `mod-w` stays the application's).
+    #[test]
+    fn no_global_binding_takes_a_chord_the_table_editor_uses() {
+        let primary = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" };
+        let mut used: Vec<String> =
+            ["z", "y", "r", "home", "end", "shift-z"].iter().map(|k| format!("{primary}-{k}")).collect();
+        used.extend(
+            ["up", "down", "left", "right", "p", "c", "o", "r", "a"].iter().map(|k| format!("alt-{k}")),
+        );
+        for b in crate::keymap::bindings() {
+            let Some(first) = b.keystrokes().first() else { continue };
+            let stroke = first.unparse(theta_ui::host_os());
+            // Bindings scoped to another view (the explorer's alt-up/alt-down) never meet this editor.
+            let scoped = b.predicate().is_some_and(|p| p.to_string().contains("Explorer"));
+            if !scoped {
+                assert!(!used.contains(&stroke), "{stroke} is bound globally and used by the table editor");
+            }
+        }
+    }
 }

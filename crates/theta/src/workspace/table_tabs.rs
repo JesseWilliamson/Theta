@@ -163,6 +163,10 @@ impl Workspace {
                 self.set_tab_modified(tab, dirty, cx);
             }
             TableEditorEvent::Execute => self.confirm_table_execute(tab, window, cx),
+            TableEditorEvent::Reloaded { schema, table } => {
+                let conn = editor.read(cx).conn_id().to_string();
+                self.explorer.update(cx, |ex, cx| ex.reveal_table(&conn, &schema, &table, cx));
+            }
             TableEditorEvent::OpenInConsole(sql) => {
                 let conn = editor.read(cx).conn_id().to_string();
                 self.open_console(Some(conn), Some(sql), window, cx);
@@ -204,6 +208,12 @@ impl Workspace {
 
     fn confirm_table_execute(&mut self, tab: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(editor) = self.table_editor(tab) else { return };
+        // Headless test windows have no `Root` to host the dialog: record that it would have been shown.
+        if self.quiet {
+            #[cfg(test)]
+            self.execute_asked.push(tab);
+            return;
+        }
         let (conn, kind, stmts, new, name) = {
             let e = editor.read(cx);
             (
@@ -338,17 +348,8 @@ impl Workspace {
                     Ok(Outcome::Done) => {
                         this.log_bulk(&conn, &title, MessageKind::Ok, shown.clone(), cx);
                         this.notify(NoticeKind::Success, format!("{title}: done"), window, cx);
-                        let (schema, name) = editor.update(cx, |e, cx| {
-                            e.applied(in_session, cx);
-                            (e.model().draft().schema.clone(), e.model().draft().name.clone())
-                        });
+                        editor.update(cx, |e, cx| e.applied(in_session, cx));
                         this.store.update(cx, |s, cx| s.refresh_catalog(&conn, cx));
-                        let schema = schema
-                            .or_else(|| {
-                                this.store.read(cx).catalog(&conn).and_then(|c| c.default_schema.clone())
-                            })
-                            .unwrap_or_default();
-                        this.explorer.update(cx, |ex, cx| ex.reveal_table(&conn, &schema, &name, cx));
                     }
                     Ok(Outcome::Failed { statement, message, completed, rolled_back }) => {
                         let note =
@@ -391,6 +392,11 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.quiet {
+            #[cfg(test)]
+            self.discard_asked.push(tab);
+            return;
+        }
         let title = self.tabs.iter().find(|t| t.id == tab).map(|t| t.title.to_string()).unwrap_or_default();
         let ws = cx.entity().downgrade();
         confirm::open(
@@ -845,4 +851,441 @@ impl Workspace {
 pub enum StartupTable {
     New(Option<String>),
     Modify(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::connections::ConnectionStore;
+    use crate::connections::secrets::SecretStore;
+    use crate::table_editor::Run;
+    use crate::table_editor::model::{CellValue, Field, RowId, Section};
+    use gpui_kit::test::TestWindowExt as _;
+    use gpui_kit::{TestAppContext, VisualTestContext};
+    use std::sync::{Arc, Mutex};
+
+    /// What a user on this platform presses for an application shortcut (`cmd` on macOS).
+    fn primary(key: &str) -> String {
+        format!("{}-{key}", if cfg!(target_os = "macos") { "cmd" } else { "ctrl" })
+    }
+    use std::time::Duration;
+    use theta_core::{ConnectionConfig, ExecOptions, Value};
+
+    struct Fixture {
+        ws: Entity<Workspace>,
+        store: Entity<ConnectionStore>,
+        conn: String,
+        _dir: tempfile::TempDir,
+    }
+
+    fn wait_for(
+        vcx: &mut VisualTestContext,
+        what: &str,
+        mut done: impl FnMut(&mut VisualTestContext) -> bool,
+    ) {
+        vcx.executor().allow_parking();
+        for _ in 0..800 {
+            vcx.run_until_parked();
+            if done(vcx) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("timed out waiting for {what}");
+    }
+
+    fn setup(cx: &mut TestAppContext, read_only: bool) -> (Fixture, &mut VisualTestContext) {
+        let dir = tempfile::tempdir().unwrap();
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            theta_ui::init(cx);
+            crate::keymap::bind(cx);
+        });
+        let (store, _) = ConnectionStore::load(None, Arc::new(SecretStore::memory_only()));
+        let store = cx.new(|_| store);
+        let mut config = ConnectionConfig::new("t", "test", DatabaseKind::Sqlite);
+        // A file, not `:memory:`: the catalog loader and the script runner may use different connections.
+        config.path = dir.path().join("t.db").to_string_lossy().into_owned();
+        config.read_only = read_only;
+        let conn = store.update(cx, |s, cx| {
+            let id = s.add_temporary(config, cx);
+            s.connect(&id, cx);
+            id
+        });
+        let data = tempfile::tempdir().unwrap();
+        let (ws, vcx) = cx.add_window_view(|window, cx| {
+            let mut ws = Workspace::with_data_dir(store.clone(), data.path().to_path_buf(), window, cx);
+            ws.quiet = true;
+            ws
+        });
+        wait_for(vcx, "the connection", |vcx| {
+            store.read_with(vcx, |s, _| s.state(&conn).is_connected() && s.catalog(&conn).is_some())
+        });
+        let _ = Box::leak(Box::new(data));
+        (Fixture { ws, store, conn, _dir: dir }, vcx)
+    }
+
+    fn sql(f: &Fixture, vcx: &mut VisualTestContext, text: &str) -> Result<Vec<Vec<Value>>, String> {
+        let connection = f.store.read_with(vcx, |s, _| s.connection(&f.conn)).unwrap();
+        let slot = Arc::new(Mutex::new(None));
+        let (w, q) = (slot.clone(), text.to_string());
+        runtime::runtime().spawn(async move {
+            *w.lock().unwrap() = Some(connection.execute(&q, &ExecOptions { row_limit: None }).await);
+        });
+        wait_for(vcx, "the statement", |_| slot.lock().unwrap().is_some());
+        let r = slot.lock().unwrap().take().unwrap();
+        r.map(|o| o.result.map(|r| r.rows).unwrap_or_default()).map_err(|e| e.to_string())
+    }
+
+    /// Reload the catalog and wait for it (tables made behind the store's back).
+    fn refresh(f: &Fixture, vcx: &mut VisualTestContext) {
+        f.store.update(vcx, |s, cx| s.refresh_catalog(&f.conn, cx));
+        for _ in 0..60 {
+            vcx.run_until_parked();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn open_new(f: &Fixture, vcx: &mut VisualTestContext) -> (u64, Entity<TableEditor>) {
+        let id =
+            f.ws.update_in(vcx, |ws, window, cx| {
+                ws.open_table_editor(f.conn.clone(), EditorTarget::New { schema: None }, window, cx)
+            })
+            .expect("the editor opens");
+        (id, f.ws.read_with(vcx, |ws, _| ws.table_editor(id)).unwrap())
+    }
+
+    fn open_modify(f: &Fixture, vcx: &mut VisualTestContext, table: &str) -> (u64, Entity<TableEditor>) {
+        let id =
+            f.ws.update_in(vcx, |ws, window, cx| {
+                ws.open_table_editor(
+                    f.conn.clone(),
+                    EditorTarget::Modify { schema: "main".into(), table: table.into(), column: None },
+                    window,
+                    cx,
+                )
+            })
+            .expect("the editor opens");
+        (id, f.ws.read_with(vcx, |ws, _| ws.table_editor(id)).unwrap())
+    }
+
+    fn script(editor: &Entity<TableEditor>, vcx: &mut VisualTestContext) -> Vec<String> {
+        editor.read_with(vcx, |e, _| e.statements().iter().map(|s| s.sql.clone()).collect())
+    }
+
+    fn press(vcx: &mut VisualTestContext, keys: &[&str]) {
+        for k in keys {
+            vcx.update(|window, cx| window.press(k, cx));
+            vcx.run_until_parked();
+        }
+    }
+
+    fn focus(editor: &Entity<TableEditor>, vcx: &mut VisualTestContext) {
+        editor.update_in(vcx, |e, window, cx| window.focus(&e.focus_handle_ref(), cx));
+        vcx.run_until_parked();
+    }
+
+    /// Run what the editor previews, the way the confirmation dialog's button does.
+    fn execute(f: &Fixture, vcx: &mut VisualTestContext, tab: u64, editor: &Entity<TableEditor>) {
+        let stmts = editor.read_with(vcx, |e, _| e.statements().to_vec());
+        f.ws.update_in(vcx, |ws, window, cx| ws.run_table_script(tab, "test".into(), stmts, window, cx));
+        wait_for(vcx, "the script", |vcx| {
+            f.ws.read_with(vcx, |w, _| w.runs.is_empty()) && !editor.read_with(vcx, |e, _| e.is_running())
+        });
+    }
+
+    fn column_names(f: &Fixture, vcx: &mut VisualTestContext, table: &str) -> Vec<String> {
+        f.store
+            .read_with(vcx, |s, _| s.catalog(&f.conn))
+            .and_then(|c| {
+                c.find_table(None, table).map(|(_, t)| t.columns.iter().map(|c| c.name.clone()).collect())
+            })
+            .unwrap_or_default()
+    }
+
+    #[gpui_kit::test]
+    fn a_new_table_previews_exactly_what_create_table_generates(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, false);
+        let (_, editor) = open_new(&f, vcx);
+        assert_eq!(editor.read_with(vcx, |e, _| e.title()), "New table");
+        assert!(script(&editor, vcx).is_empty(), "nothing to run before the first edit");
+        editor.update_in(vcx, |e, window, cx| e.set_name("things", window, cx));
+        // Through the entity's API.
+        editor.update_in(vcx, |e, window, cx| {
+            e.add_row(false, window, cx);
+            // Adding a row opens its name for typing; here the name is set through the API instead.
+            e.cancel_edit(window, cx);
+        });
+        let col = editor.read_with(vcx, |e, _| e.current_row()).unwrap();
+        editor.update(vcx, |e, cx| {
+            assert!(e.set_cell(col, Field::Name, CellValue::Text("label".into()), cx));
+            assert!(e.set_cell(col, Field::Type, CellValue::Text("TEXT".into()), cx));
+        });
+        // Through simulated keys: `o` adds a row with its name open for typing, Tab moves on, Enter applies.
+        focus(&editor, vcx);
+        press(vcx, &["o"]);
+        vcx.update(|window, cx| window.input("note", cx));
+        press(vcx, &["enter"]);
+        let names: Vec<String> =
+            editor.read_with(vcx, |e, _| e.model().draft().columns.iter().map(|c| c.name.clone()).collect());
+        assert_eq!(names, vec!["id", "label", "note"]);
+        let (draft, preview) = editor.read_with(vcx, |e, _| (e.model().draft().clone(), e.script()));
+        let expected = ddl::create_table(&draft, DatabaseKind::Sqlite)
+            .into_iter()
+            .map(|s| format!("{};", s.sql))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        assert_eq!(preview, expected);
+        assert!(preview.starts_with("CREATE TABLE things ("), "{preview}");
+        assert_eq!(editor.read_with(vcx, |e, _| e.title()), "New table things");
+        // The tab is marked as having unapplied changes.
+        let modified = f.ws.read_with(vcx, |ws, _| ws.tabs.last().map(|t| (t.modified, t.title.to_string())));
+        assert_eq!(modified, Some((true, "New table things".to_string())));
+    }
+
+    #[gpui_kit::test]
+    fn execute_creates_the_table_and_the_tab_reloads_as_modify(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, false);
+        let (tab, editor) = open_new(&f, vcx);
+        editor.update_in(vcx, |e, window, cx| e.set_name("things", window, cx));
+        editor.update_in(vcx, |e, window, cx| e.add_row(false, window, cx));
+        let col = editor.read_with(vcx, |e, _| e.current_row()).unwrap();
+        editor.update(vcx, |e, cx| {
+            e.set_cell(col, Field::Name, CellValue::Text("label".into()), cx);
+        });
+        execute(&f, vcx, tab, &editor);
+        wait_for(vcx, "the catalog to show the table", |vcx| !column_names(&f, vcx, "things").is_empty());
+        assert_eq!(column_names(&f, vcx, "things"), vec!["id", "label"]);
+        // The tab reloads from the database: a clean diff, titled Modify.
+        wait_for(vcx, "the tab to reload", |vcx| !editor.read_with(vcx, |e, _| e.model().is_new()));
+        assert_eq!(editor.read_with(vcx, |e, _| e.title()), "Modify things");
+        assert!(!editor.read_with(vcx, |e, _| e.dirty()));
+        assert!(script(&editor, vcx).is_empty());
+        assert_eq!(
+            f.ws.read_with(vcx, |ws, _| ws.tabs.last().map(|t| (t.modified, t.title.to_string()))),
+            Some((false, "Modify things".to_string()))
+        );
+        // The explorer selected it.
+        let selected =
+            f.ws.read_with(vcx, |ws, cx| ws.explorer.read(cx).selected_key().map(|k| format!("{k:?}")));
+        assert!(
+            selected.as_deref().is_some_and(|k| k.starts_with("Table(") && k.contains("things")),
+            "{selected:?}"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn rename_add_and_drop_are_previewed_in_engine_order_and_applied(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, false);
+        sql(&f, vcx, "CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT, email TEXT, city TEXT)")
+            .unwrap();
+        sql(&f, vcx, "INSERT INTO people VALUES (1, 'ann', 'a@x', 'Oslo')").unwrap();
+        refresh(&f, vcx);
+        let (tab, editor) = open_modify(&f, vcx, "people");
+        assert_eq!(editor.read_with(vcx, |e, _| e.title()), "Modify people");
+        let (email, city) = editor.read_with(vcx, |e, _| {
+            let d = e.model().draft();
+            (
+                d.columns.iter().find(|c| c.name == "email").unwrap().id,
+                d.columns.iter().find(|c| c.name == "city").unwrap().id,
+            )
+        });
+        editor.update(vcx, |e, cx| {
+            e.set_cell(RowId::Column(email), Field::Name, CellValue::Text("mail".into()), cx);
+        });
+        editor.update_in(vcx, |e, window, cx| e.add_row(false, window, cx));
+        let new = editor.read_with(vcx, |e, _| e.current_row()).unwrap();
+        editor.update(vcx, |e, cx| {
+            e.set_cell(new, Field::Name, CellValue::Text("phone".into()), cx);
+            e.model.delete_row(RowId::Column(city)).unwrap();
+        });
+        assert_eq!(
+            script(&editor, vcx),
+            vec![
+                "ALTER TABLE people DROP COLUMN city",
+                "ALTER TABLE people RENAME COLUMN email TO mail",
+                "ALTER TABLE people ADD COLUMN phone TEXT",
+            ]
+        );
+        let flags: Vec<bool> =
+            editor.read_with(vcx, |e, _| e.statements().iter().map(|s| s.is_destructive()).collect());
+        assert_eq!(flags, vec![true, false, false]);
+        assert_eq!(
+            editor.read_with(vcx, |e, _| e.model().analysis().summary.clone()),
+            "3 statements · 1 destructive"
+        );
+        execute(&f, vcx, tab, &editor);
+        wait_for(vcx, "the reload", |vcx| !editor.read_with(vcx, |e, _| e.dirty()));
+        assert_eq!(column_names(&f, vcx, "people"), vec!["id", "name", "mail", "phone"]);
+        let rows = sql(&f, vcx, "SELECT name, mail FROM people").unwrap();
+        assert_eq!(rows[0][1], Value::Text("a@x".into()), "a rename keeps the data");
+        assert!(script(&editor, vcx).is_empty(), "re-introspection matches: nothing left to do");
+    }
+
+    #[gpui_kit::test]
+    fn a_failing_change_keeps_the_edits_marks_the_statement_and_rolls_back(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, false);
+        sql(&f, vcx, "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)").unwrap();
+        sql(&f, vcx, "INSERT INTO t VALUES (1, 'a'), (2, NULL)").unwrap();
+        refresh(&f, vcx);
+        let fk_before = sql(&f, vcx, "PRAGMA foreign_keys").unwrap();
+        let (tab, editor) = open_modify(&f, vcx, "t");
+        let v = editor
+            .read_with(vcx, |e, _| e.model().draft().columns.iter().find(|c| c.name == "v").unwrap().id);
+        editor.update(vcx, |e, cx| {
+            // NOT NULL over a NULL: SQLite rebuilds the table, and the copy hits the NULL.
+            e.set_cell(RowId::Column(v), Field::Nullable, CellValue::Flip, cx);
+        });
+        let before = script(&editor, vcx);
+        assert!(before.iter().any(|s| s.starts_with("INSERT INTO t__new")), "{before:?}");
+        execute(&f, vcx, tab, &editor);
+        let run = editor.read_with(vcx, |e, _| e.run_state().clone());
+        let Run::Failed { statement, message, note } = run else { panic!("expected a failure, got {run:?}") };
+        let at = statement.expect("the failing statement is identified");
+        assert!(before[at].starts_with("INSERT INTO t__new"), "{}", before[at]);
+        assert!(message.to_lowercase().contains("not null"), "{message}");
+        assert!(note.contains("rolled back"), "{note}");
+        // The edit is still there, and so is every row.
+        assert!(editor.read_with(vcx, |e, _| e.dirty()));
+        assert_eq!(script(&editor, vcx), before);
+        assert_eq!(sql(&f, vcx, "SELECT count(*) FROM t").unwrap()[0][0], Value::Int(2));
+        assert!(sql(&f, vcx, "SELECT * FROM t__new").is_err(), "the half-built table is gone");
+        // Foreign keys are enforced again afterwards: the pragma step runs even after a failure.
+        assert_eq!(sql(&f, vcx, "PRAGMA foreign_keys").unwrap(), fk_before);
+        // Editing makes the failure stale.
+        editor.update(vcx, |e, cx| {
+            e.set_cell(RowId::Column(v), Field::Nullable, CellValue::Flip, cx);
+        });
+        assert_eq!(editor.read_with(vcx, |e, _| e.run_state().clone()), Run::Idle);
+    }
+
+    #[gpui_kit::test]
+    fn a_read_only_connection_refuses_to_execute(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, true);
+        let (tab, editor) = open_new(&f, vcx);
+        editor.update_in(vcx, |e, window, cx| e.set_name("nope", window, cx));
+        // Read-only: even the add-row key says no, and Execute reports why.
+        editor.update_in(vcx, |e, window, cx| e.add_row(false, window, cx));
+        assert_eq!(editor.read_with(vcx, |e, _| e.model().draft().columns.len()), 1);
+        let problem = editor.read_with(vcx, |e, _| e.execute_problem());
+        assert!(problem.as_deref().is_some_and(|p| p.contains("read-only")), "{problem:?}");
+        // Even a script handed straight to the runner is refused.
+        let stmts = vec![theta_sql::ddl::Statement {
+            sql: "CREATE TABLE nope (a int)".into(),
+            flags: vec![],
+            explanation: String::new(),
+        }];
+        f.ws.update_in(vcx, |ws, window, cx| ws.run_table_script(tab, "t".into(), stmts, window, cx));
+        vcx.run_until_parked();
+        refresh(&f, vcx);
+        assert!(column_names(&f, vcx, "nope").is_empty());
+    }
+
+    #[gpui_kit::test]
+    fn problems_block_execute_and_a_fix_button_resolves_a_warning(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, false);
+        let (_, editor) = open_new(&f, vcx);
+        // No table name yet: an error, so Execute is not available.
+        editor.update(vcx, |e, cx| {
+            e.set_cell(RowId::Column(1), Field::Name, CellValue::Text("key".into()), cx);
+        });
+        let problem = editor.read_with(vcx, |e, _| e.execute_problem());
+        assert!(problem.as_deref().is_some_and(|p| p.contains("problem")), "{problem:?}");
+        editor.update(vcx, |e, cx| {
+            e.request_execute(cx);
+        });
+        assert!(
+            f.ws.read_with(vcx, |ws, _| ws.execute_asked.is_empty()),
+            "no dialog for an unrunnable script"
+        );
+        // A warning with a fix: nullable key column.
+        editor.update_in(vcx, |e, window, cx| e.set_name("keys", window, cx));
+        editor.update(vcx, |e, cx| {
+            e.set_cell(RowId::Column(1), Field::Nullable, CellValue::Flip, cx);
+        });
+        let fix =
+            editor.read_with(vcx, |e, _| e.model().analysis().issues.iter().find_map(|i| i.fix.clone()));
+        let fix = fix.expect("a NULLable key column offers a fix");
+        editor.update(vcx, |e, cx| e.apply_fix(&fix, cx));
+        assert!(!editor.read_with(vcx, |e, _| e.model().draft().columns[0].nullable));
+        // Now it is runnable, and ctrl-enter on the tab asks for confirmation.
+        editor.update_in(vcx, |e, window, cx| window.focus(&e.focus_handle_ref(), cx));
+        press(vcx, &["escape", &primary("enter")]);
+        assert_eq!(f.ws.read_with(vcx, |ws, _| ws.execute_asked.len()), 1);
+    }
+
+    #[gpui_kit::test]
+    fn closing_a_tab_with_unapplied_changes_asks_first(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, false);
+        let (tab, editor) = open_new(&f, vcx);
+        // Untouched: closes at once.
+        f.ws.update_in(vcx, |ws, window, cx| ws.request_close_tab(tab, window, cx));
+        assert!(f.ws.read_with(vcx, |ws, _| ws.table_editor(tab).is_none()));
+        let (tab, editor2) = open_new(&f, vcx);
+        let _ = editor;
+        editor2.update_in(vcx, |e, window, cx| e.set_name("draft", window, cx));
+        assert!(f.ws.read_with(vcx, |ws, cx| ws.table_tab_dirty(tab, cx)));
+        f.ws.update_in(vcx, |ws, window, cx| ws.request_close_tab(tab, window, cx));
+        assert_eq!(f.ws.read_with(vcx, |ws, _| ws.discard_asked.clone()), vec![tab]);
+        assert!(
+            f.ws.read_with(vcx, |ws, _| ws.table_editor(tab).is_some()),
+            "still open until the user decides"
+        );
+        // Ctrl-W goes through the same door.
+        f.ws.update_in(vcx, |ws, window, cx| ws.activate_tab(tab, window, cx));
+        press(vcx, &[&primary("w")]);
+        assert_eq!(f.ws.read_with(vcx, |ws, _| ws.discard_asked.len()), 2);
+        // Discard closes it.
+        f.ws.update_in(vcx, |ws, window, cx| ws.close_tab_now(tab, window, cx));
+        assert!(f.ws.read_with(vcx, |ws, _| ws.table_editor(tab).is_none()));
+        assert!(f.ws.read_with(vcx, |ws, cx| ws.dirty_table_tabs(cx).is_empty()));
+    }
+
+    #[gpui_kit::test]
+    fn the_same_table_opens_in_one_tab_and_the_state_survives_switching_tabs(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, false);
+        sql(&f, vcx, "CREATE TABLE a (id INTEGER PRIMARY KEY, x TEXT)").unwrap();
+        refresh(&f, vcx);
+        let (tab, editor) = open_modify(&f, vcx, "a");
+        editor.update(vcx, |e, cx| {
+            e.set_cell(RowId::Column(2), Field::Name, CellValue::Text("y".into()), cx);
+        });
+        f.ws.update_in(vcx, |ws, window, cx| {
+            ws.open_console(None, None, window, cx);
+        });
+        let (again, _) = open_modify(&f, vcx, "a");
+        assert_eq!(again, tab, "no second editor for the same table");
+        assert_eq!(f.ws.read_with(vcx, |ws, _| ws.active_tab), Some(tab));
+        assert_eq!(script(&editor, vcx), vec!["ALTER TABLE a RENAME COLUMN x TO y"]);
+    }
+
+    #[gpui_kit::test]
+    fn the_keyboard_alone_edits_a_row_and_undo_walks_it_back(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, false);
+        sql(&f, vcx, "CREATE TABLE k (id INTEGER PRIMARY KEY, a TEXT, b TEXT)").unwrap();
+        refresh(&f, vcx);
+        let (_, editor) = open_modify(&f, vcx, "k");
+        focus(&editor, vcx);
+        // Helix is the default keymap: j moves down, Enter edits, Space toggles, dd deletes, u undoes.
+        press(vcx, &["j", "enter"]);
+        assert!(editor.read_with(vcx, |e, _| e.is_editing()));
+        press(vcx, &["x", "enter"]);
+        assert_eq!(editor.read_with(vcx, |e, _| e.model().draft().columns[1].name.clone()), "x");
+        press(vcx, &["l", "l", "space"]);
+        assert!(!editor.read_with(vcx, |e, _| e.model().draft().columns[1].nullable));
+        press(vcx, &["j", "d", "d"]);
+        assert_eq!(editor.read_with(vcx, |e, _| e.model().draft().columns.len()), 2);
+        // The struck-through row is still on screen and can be restored with dd again.
+        assert_eq!(editor.read_with(vcx, |e, _| e.model().spec(Section::Columns).rows.len()), 3);
+        press(vcx, &["u"]);
+        assert_eq!(editor.read_with(vcx, |e, _| e.model().draft().columns.len()), 3);
+        press(vcx, &["u", "u"]);
+        assert!(!editor.read_with(vcx, |e, _| e.dirty()));
+        press(vcx, &[&primary("r")]);
+        assert_eq!(
+            editor.read_with(vcx, |e, _| e.model().draft().columns[1].name.clone()),
+            "x",
+            "ctrl-r redoes"
+        );
+    }
 }

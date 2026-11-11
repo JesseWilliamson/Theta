@@ -61,6 +61,8 @@ pub enum TableEditorEvent {
     OpenInConsole(String),
     /// The tab's title or its unapplied-changes mark changed.
     StateChanged,
+    /// The table was reloaded from the database after a successful Execute: reveal it in the explorer.
+    Reloaded { schema: String, table: String },
     /// Say something in a toast.
     Notice { error: bool, text: String },
 }
@@ -301,6 +303,7 @@ impl TableEditor {
         self.run = Run::Idle;
         self.refresh_suggestions();
         self.status = Some((false, "Applied. The table is reloaded from the database.".into()));
+        cx.emit(TableEditorEvent::Reloaded { schema: schema.to_string(), table: table.name.clone() });
         cx.emit(TableEditorEvent::StateChanged);
         cx.notify();
     }
@@ -401,6 +404,12 @@ impl TableEditor {
             self.scroll.scroll_to_item(r, gpui_kit::ScrollStrategy::Center);
         }
         cx.notify();
+    }
+
+    /// Set the table's name (the field and the model together).
+    pub fn set_name(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.name_input.update(cx, |s, cx| s.set_value(name.to_string(), window, cx));
+        self.commit_name(cx);
     }
 
     pub fn focus_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1065,6 +1074,10 @@ impl TableEditor {
             self.popup_key(press, cx);
             cx.stop_propagation();
             return;
+        }
+        // An edit whose input lost focus without telling us (focus moved by code) is over: apply it.
+        if self.editing.is_some() && self.focus.is_focused(window) && !self.commit_edit_inner(window, cx) {
+            self.cancel_edit(window, cx);
         }
         // Only act when the grid itself has focus: the name field and the cell editor are descendants
         // whose key events also bubble up here.

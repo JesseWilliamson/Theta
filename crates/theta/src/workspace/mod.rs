@@ -204,6 +204,11 @@ pub struct Workspace {
     startup_import: Option<(String, Option<String>)>,
     /// `--modify` / `--new-table`, opened once the first connection and its catalog are ready.
     startup_table: Option<StartupTable>,
+    /// Test windows have no `Root` to host dialogs: the table tabs record that they would have asked.
+    #[cfg(test)]
+    discard_asked: Vec<u64>,
+    #[cfg(test)]
+    execute_asked: Vec<u64>,
     /// Tests run in windows without a `Root`, where toasts cannot be shown.
     pub(crate) quiet: bool,
     /// Test windows have no `Root` to host dialogs: when set, the Parameters dialog is answered with
@@ -298,6 +303,10 @@ impl Workspace {
             startup: None,
             startup_import: None,
             startup_table: None,
+            #[cfg(test)]
+            discard_asked: Vec::new(),
+            #[cfg(test)]
+            execute_asked: Vec::new(),
             quiet: false,
             #[cfg(test)]
             param_answer: None,
