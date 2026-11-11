@@ -477,8 +477,8 @@ mod view_tests {
     use theta_core::{ResultSet, TypeKind};
 
     fn grid(cx: &mut TestAppContext, rows: usize) -> (gpui_kit::Entity<ResultGrid>, &mut VisualTestContext) {
-        cx.update(|cx| theta_ui::init(cx));
-        let (g, vcx) = cx.add_window_view(|window, cx| ResultGrid::new(window, cx));
+        cx.update(theta_ui::init);
+        let (g, vcx) = cx.add_window_view(ResultGrid::new);
         let columns = ["a", "b", "c"]
             .iter()
             .map(|n| Column {
