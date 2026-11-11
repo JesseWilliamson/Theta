@@ -53,6 +53,10 @@ struct ConfirmView {
     intro: SharedString,
     statements: Vec<Item>,
     choices: Vec<Choice>,
+    /// Takes the keyboard when the dialog opens, so Tab walks its buttons instead of whatever was
+    /// focused behind it (the SQL editor would otherwise swallow Tab and the choice could not be made
+    /// without the mouse).
+    focus: gpui_kit::FocusHandle,
 }
 
 impl Render for ConfirmView {
@@ -61,6 +65,7 @@ impl Render for ConfirmView {
         let mono = theta_ui::Settings::get(cx).buffer_font_family.clone();
         v_flex()
             .gap_3()
+            .track_focus(&self.focus)
             .child(div().text_size(px(13.)).text_color(theme.foreground).child(self.intro.clone()))
             .when(!self.statements.is_empty(), |d| {
                 d.child(
@@ -156,8 +161,10 @@ pub fn open_items(
     // it, so "ctrl-Enter, Enter" silently discarded the action it was asked to confirm. A dialog
     // whose only choices are Danger ones has no default: those need a deliberate click.
     let default = choices.iter().find(|c| c.tone == Tone::Primary).map(|c| c.run.clone());
-    let view = cx.new(|_| ConfirmView { intro: intro.into(), statements, choices });
+    let view = cx.new(|cx| ConfirmView { intro: intro.into(), statements, choices, focus: cx.focus_handle() });
+    let focus = view.read(cx).focus.clone();
     let title: SharedString = title.into();
+    window.defer(cx, move |window, cx| window.focus(&focus, cx));
     window.open_dialog(cx, move |dialog, _, cx| {
         let default = default.clone();
         dialog.bg(cx.theme().popover).title(title.clone()).w(px(640.)).child(view.clone()).on_ok(

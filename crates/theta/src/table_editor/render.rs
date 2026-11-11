@@ -59,7 +59,7 @@ impl Render for TableEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let surface = data_surface(cx);
         let narrow = f32::from(window.viewport_size().width) < NARROW;
-        let header = self.render_header(cx);
+        let header = self.render_header(narrow, cx);
         let tabs = self.render_tabs(cx);
         let grid = self.render_grid(window, cx);
         let preview = self.preview_open.then(|| self.render_preview(narrow, window, cx));
@@ -128,7 +128,7 @@ impl Render for TableEditor {
 impl TableEditor {
     // ------------------------------------------------------------ header
 
-    fn render_header(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_header(&mut self, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let a = self.model.analysis();
         let dirty = self.model.dirty();
@@ -173,16 +173,19 @@ impl TableEditor {
             .child(
                 div()
                     .key_context("TableEditorName")
-                    .w(px(210.))
+                    .flex_none()
+                    .w(px(if narrow { 170. } else { 210. }))
                     .child(Input::new(&self.name_input).small().disabled(self.read_only)),
             )
-            .child(chip(self.conn_name.clone()))
+            // The title bar already names the connection; at narrow widths the room goes to the buttons.
+            .when(!narrow, |d| d.child(chip(self.conn_name.clone())))
             .child(chip(kind.label().to_string()))
             .when(self.read_only, |d| d.child(chip("read-only".into())))
             .child(div().flex_1().min_w_0())
             .child(
                 div()
                     .min_w_0()
+                    .flex_shrink_1()
                     .truncate()
                     .text_size(CHROME_TEXT_SIZE)
                     .text_color(summary_color)
@@ -193,7 +196,7 @@ impl TableEditor {
                     .ghost()
                     .small()
                     .icon(Icon::new(IconName::Undo2))
-                    .label("Revert")
+                    .when(!narrow, |b| b.label("Revert"))
                     .tooltip("Discard every change (alt-r)")
                     .disabled(!dirty || self.is_running())
                     .on_click(cx.listener(|this, _, w, cx| this.command(Cmd::Revert, w, cx))),
@@ -203,7 +206,7 @@ impl TableEditor {
                     .ghost()
                     .small()
                     .icon(Icon::new(IconName::Copy))
-                    .label("Copy SQL")
+                    .when(!narrow, |b| b.label("Copy SQL"))
                     .tooltip("Copy the script (alt-c)")
                     .disabled(!dirty)
                     .on_click(cx.listener(|this, _, w, cx| this.command(Cmd::CopySql, w, cx))),
@@ -213,7 +216,7 @@ impl TableEditor {
                     .ghost()
                     .small()
                     .icon(Icon::new(IconName::SquareTerminal))
-                    .label("Open in Console")
+                    .when(!narrow, |b| b.label("Open in Console"))
                     .tooltip("Open the script in a console (alt-o)")
                     .disabled(!dirty)
                     .on_click(cx.listener(|this, _, w, cx| this.command(Cmd::OpenInConsole, w, cx))),
