@@ -306,6 +306,12 @@ impl TableEditor {
         cx.notify();
     }
 
+    /// SQLite triggers of the table (see [`DraftModel::set_recreate`]).
+    pub fn set_triggers(&mut self, triggers: Vec<String>, cx: &mut Context<Self>) {
+        self.model.set_recreate(triggers);
+        cx.notify();
+    }
+
     /// The table to reload once the next catalog has it (after a successful Execute).
     pub fn expect_table(&mut self, schema: Option<String>, table: String) {
         self.rebase = Some((schema, table));

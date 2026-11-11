@@ -148,10 +148,42 @@ Vim key maps, `:import` / `:export`), so they cannot conflict with an editor key
 | `tab` / `shift-tab` | next / previous control |
 | `enter` in the file field | read the file (Import); start the export (Export) |
 | `esc` | close the dialog; while an import, validation or export runs, cancel the run (the dialog stays so the result is seen) |
-| `enter` in a confirmation | confirm the primary action; destructive confirmations (Truncate, Drop) need a click or `tab` + `enter` on the button |
+| `enter` in a confirmation | confirm the primary action; destructive confirmations (Truncate, Drop, a table change that drops something) need a click, or `tab` to the button and `space` |
 
 Palette commands: *Import Data from CSV/TSV…*, *Import CSV/TSV as New Table…*, *Export Table Data…*,
-*Rename Table…*, *Duplicate Table Structure…*, *Truncate Table…*, *Drop Table…*.
+*New Table…*, *Modify Table…*, *Rename Table…*, *Duplicate Table Structure…*, *Truncate Table…*, *Drop Table…*.
+
+## Table editor
+
+The Modify Table / New Table tab (see [Change a table](USER_GUIDE.md#the-table-editor)). It adds **no** global
+chord: Execute is the existing `mod-enter` (*Run Statement*) and `mod-w` still closes the tab. The editor
+handles these in its own key handler while its grid has focus; a test (`no_global_binding_takes_a_chord_the_table_editor_uses`)
+checks that none of them is also a global binding.
+
+| Keys | Action |
+| --- | --- |
+| arrows, `home` / `end`, `pageup` / `pagedown` | move the cell cursor |
+| `h` `j` `k` `l`, `gg`, `G` (Helix, Vim) | move the cell cursor, first row, last row |
+| `tab` / `shift-tab` | next / previous cell (wraps to the next row); inside a cell editor, apply and open the next one |
+| `enter`, `f2`, `i` / `a` (Helix, Vim) | edit the cell (open a list, pick a table, flip a box) |
+| `space` / `shift-space` | flip a checkbox; step a choice (identity, `ON DELETE`, method) forward / back |
+| `insert` / `shift-insert`, `o` / `O` (Helix, Vim) | add a row below / above |
+| `delete`, `dd` (Helix, Vim) | remove the row (a column of an existing table stays struck through; again restores it) |
+| `yy` (Helix, Vim) | duplicate the column |
+| `alt-up` / `alt-down` | move the column (tables that do not exist yet) |
+| `ctrl-z`, `u` (Helix, Vim) | undo |
+| `ctrl-shift-z`, `ctrl-y`, `ctrl-r` (Helix, Vim), `U` | redo |
+| `alt-left` / `alt-right`, `[` / `]` (Helix, Vim) | previous / next section |
+| `alt-n` | put the cursor in the table name field (`enter` or `esc` returns to the grid) |
+| `alt-a` | choose a suggested foreign key |
+| `alt-p` | show / hide the DDL preview |
+| `alt-c` / `alt-o` / `alt-r` | copy the script / open it in a console / revert every change |
+| `mod-enter` | Execute (confirmation first) |
+| `mod-w` | close the tab (asks when there are unapplied changes) |
+
+In a cell editor: `enter` applies, `esc` cancels, `tab` / `shift-tab` apply and move on; in the type cell the
+up / down arrows choose a suggestion. In the column list (`enter` on a *Columns* cell): `up` / `down` (`k` /
+`j`), `space` or `x` chooses, `alt-up` / `alt-down` orders the chosen columns, `enter` or `esc` closes.
 
 ## Pickers and the command palette
 

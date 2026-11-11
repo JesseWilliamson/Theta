@@ -27,7 +27,8 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 | ![Light theme](docs/screenshots/07-theta-light.png) **Theta Light** | ![SSH](docs/screenshots/09-connection-ssh.png) **Connection dialog with SSH tunnel** |
 | ![Vim visual block](docs/screenshots/10-vim-visual-block.png) **Vim keymap: a `V-BLOCK` selection** | ![Keymap choice](docs/screenshots/11-keymap-choice-welcome.png) **Choose Helix, Vim or Standard on the welcome view** |
 | ![Record view](docs/screenshots/12-record-view.png) **Record view: one row as a list, JSON pretty-printed** | ![Query parameters](docs/screenshots/13-query-parameters.png) **Query parameters: values asked for before the run** |
-| ![Import](docs/screenshots/14-import-csv.png) **CSV import: detected format, column mapping, sample values and type checks** | |
+| ![Import](docs/screenshots/14-import-csv.png) **CSV import: detected format, column mapping, sample values and type checks** | ![Modify table](docs/screenshots/15-modify-table.png) **Modify Table: a rename, an added column and a dropped one, with the exact SQL and its warnings** |
+| ![New table](docs/screenshots/16-new-table.png) **New Table: columns, a foreign key and the `CREATE TABLE` it makes** | |
 
 ## Features
 
@@ -55,8 +56,9 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 - Connection folders (one level deep) and manual ordering: *New Folder*, *Move to Folder…*, *Move Up / Down*;
   collapsed state and order are saved, and the connection picker shows `Folder / Name`.
 - Context menu on a table: *Open Table*, *Copy Name*, *Copy Qualified Name*, *Generate* (`SELECT`, `INSERT`,
-  `UPDATE`, `DELETE`), *Show DDL*, *Related Tables…*, *Rename…*, *Duplicate Structure…*, *Truncate…*, *Drop…*,
-  *Import Data…*, *Export Data…*.
+  `UPDATE`, `DELETE`), *Show DDL*, *Related Tables…*, *Modify Table…*, *Rename…*, *Duplicate Structure…*,
+  *Truncate…*, *Drop…*, *Import Data…*, *Export Data…*; on the Tables group *New Table…*; on a column *Modify
+  Column…*, *Rename Column…*, *Drop Column…*.
 
 **Data in and out**
 - *Import Data* from CSV / TSV into an existing table (columns mapped by name, per-column skip, type checks) or as
@@ -65,8 +67,22 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
   transaction (or a savepoint in your manual-commit transaction), skip-bad-rows or abort. About 70k rows/s into
   PostgreSQL, 100k into MariaDB and 230k into SQLite on a developer machine (see the changelog).
 - *Export Data*: a whole table as CSV, TSV, JSON or SQL INSERTs, paged by primary key with constant memory.
-- *Rename*, *Duplicate Structure*, *Truncate* and *Drop* a table, each confirmed with the exact SQL; Drop lists the
-  foreign keys that point at the table.
+- **Modify Table / New Table editor** (a tab): columns (name, type with the dialect's suggestions, nullable, default,
+  primary key with its order, identity / auto-increment, comment), primary and unique keys, foreign keys (referenced
+  table and columns from the catalog, `ON DELETE` / `ON UPDATE`, deferrable) with one-click *suggested* keys, indexes
+  (columns in order, unique, method, partial `WHERE`), checks, table comment, and the MySQL engine / charset /
+  collation read-only. Every edit re-runs the DDL engine and shows the script beside the grid: one block per
+  statement with badges (destructive, table rewrite, lock, implicit commit, outside transaction, rebuild), the
+  engine's explanation, SQL highlighting, and validation problems with *Fix* buttons. A removed column stays in the
+  grid, struck through, until Execute. Execute confirms the exact SQL, runs it in one transaction (PostgreSQL,
+  SQLite), one statement at a time on MySQL / MariaDB (said plainly), or inside your open transaction in manual
+  mode, and marks the failing statement with the server's error while keeping your edits. Fully keyboard
+  operable in the Helix, Vim and Standard key maps; open it from the explorer (*New Table…*, *Modify Table…*,
+  *Modify Column…*, *New Index…*, *New Foreign Key…*, *Add as Foreign Key…*), the palette, `:table new` /
+  `:table modify NAME`, or `theta --modify TABLE` / `--new-table`.
+- *Rename Table*, *Rename Column*, *Drop Column*, *Drop Index*, *Drop Foreign Key*, *Duplicate Structure*,
+  *Truncate* and *Drop* from the explorer, each confirmed with the exact SQL; Drop lists the foreign keys that
+  point at the table.
 
 **Editor**
 - Three complete key maps: **Helix** (modal, selection-first, multiple selections, registers, macros, text
@@ -361,14 +377,18 @@ Editor
 - Undo is linear (no undo tree).
 
 Import, export and DDL
-- The modify-table editor (a tab with a column grid, keys, foreign keys, indexes and a live DDL preview) is not
-  built yet. The engine it needs is: `theta_sql::ddl` builds `CREATE TABLE` and per-dialect `ALTER` scripts
-  (including SQLite's table rebuild) and is tested against live databases. Today the explorer offers Rename,
-  Duplicate Structure, Truncate and Drop.
+- The table editor changes tables, not views, routines or sequences. It cannot reorder the columns of an existing
+  table (no dialect's `ALTER TABLE` does; reordering is available while a table is new), edit generated columns
+  (they are shown and kept) or author an expression index (one is shown with its definition and can be kept or
+  dropped; write new ones in a console). Foreign keys on MySQL / MariaDB cannot change the type of a column they
+  use: the editor says so before Execute instead of letting the server refuse. SQLite changes that need a table
+  rebuild copy every row (and the confirmation says so); the table's triggers are read first and recreated
+  afterwards. The tab's edits are not saved across a restart.
 - Import does not use PostgreSQL `COPY`; it sends batched multi-row `INSERT`s (about 70k rows/s). TSV files whose
   values use backslash escapes (`\t`, `\n`) are read literally. Browse… and Open use the system file dialog, which
   has not been tried on macOS or Windows; the path field always works.
-- MySQL commits DDL implicitly, so *Rename / Truncate / Drop* there cannot be rolled back, and importing into a new
+- MySQL commits DDL implicitly, so *Rename / Truncate / Drop* and a multi-statement table edit there cannot be rolled
+  back (the editor names the statements that were already applied if one fails), and importing into a new
   table commits the `CREATE TABLE` (a failed import drops it again).
 
 Databases
@@ -397,8 +417,8 @@ Added in 0.1.0-alpha.5
   menus, `alt-up` / `alt-down` and the palette.
 - In manual transaction mode a plain `SELECT` also starts a transaction (as JDBC does); an open transaction on
   a busy production database holds locks and a snapshot until you end it.
-- CSV / TSV import and whole-table export arrived in 0.1.0-alpha.6; the create / alter table editor is still not
-  built (see Import, export and DDL above).
+- CSV / TSV import, whole-table export and the Modify Table / New Table editor arrived in 0.1.0-alpha.6 (see
+  Import, export and DDL above for what the editor does not do).
 
 Platform and packaging
 - Without a keychain (a bare Linux session) passwords are not persisted. Saved connections open without

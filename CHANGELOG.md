@@ -10,6 +10,33 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Added
 
+- **Modify Table / New Table editor.** A workspace tab with a header (table name, connection, database kind, a
+  summary such as `3 statements · 1 destructive`, **Revert**, **Copy SQL**, **Open in Console**, **Execute**), the
+  sections **Columns · Keys · Foreign Keys · Indexes · Checks · Options** (counts and error / warning dots) and a
+  persistent **DDL Preview** (beside the grid, below it in a narrow window, resizable, collapsible): one block per
+  statement with badges (destructive, table rewrite, lock, implicit commit, outside transaction, rebuild), the
+  engine's explanation, SQL highlighting and a copy button, validation problems with **Fix** buttons, and a
+  "No changes" state. *Columns* is a virtualised, typed, keyboard-driven grid: name, type (dialect-aware
+  suggestions, free text allowed), nullable, default, primary key (with its position), identity /
+  auto-increment, comment; a removed column stays, struck through, until Execute. *Keys* edits the primary and
+  unique keys, *Foreign Keys* picks the referenced table from the catalog and offers the inferred keys with one
+  click, *Indexes* edit columns in order, unique, method and a partial predicate, *Checks* and the table comment
+  are editable, and the MySQL engine / charset / collation are shown. Undo and redo within the tab. **Execute**
+  confirms the exact SQL with its badges and runs it through the same path as the explorer's table actions: one
+  transaction on PostgreSQL and SQLite (SQLite's rebuild keeps its pragmas outside it and checks foreign keys
+  before committing), statement by statement on MySQL / MariaDB (stated, and a failure names what was already
+  applied), inside the open transaction in manual mode, refused on read-only connections. On failure the failing
+  statement is marked with the server's error and every edit is kept; on success the tab reloads as *Modify
+  <name>* and the table is selected in the explorer. Closing a tab with unapplied changes asks.
+  Entry points: *New Table…* (Tables group, palette, `:table new [SCHEMA]`, `theta --new-table [SCHEMA]`),
+  *Modify Table…* (table menu, palette, `:table modify NAME`, `theta --modify TABLE`), *Modify Column…*, *Rename
+  Column…*, *Drop Column…*, *New Index…*, *Drop Index…*, *New Foreign Key…*, *Drop Foreign Key…* and *Add as
+  Foreign Key…* on a suggested key. Fully keyboard operable in the Helix, Vim and Standard key maps (see
+  [KEYBINDINGS](docs/KEYBINDINGS.md#table-editor)); no new global chord (Execute is `mod-enter`).
+- **DDL engine additions** (`theta_sql::ddl`): per-dialect type, index-method, foreign-key-action and identity
+  vocabulary; `plan_script` (how a script is wrapped and run); validation issues carry their section;
+  `check_names` (table, constraint and index name clashes) and `check_changes` (MySQL refuses to change the type
+  of a column that a foreign key uses, on either side).
 - **Import Data (CSV / TSV).** *Import Data…* on a table, *Import as New Table…* on the Tables group, the palette
   (*Import Data from CSV/TSV…*, *Import CSV/TSV as New Table…*), `:import [FILE]` in Helix and Vim, and
   `theta --import FILE [--into [SCHEMA.]TABLE]`. The dialog has a typed path field (Browse… is optional), a
@@ -48,7 +75,10 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Changed
 
-- Table context menu: *Rename…*, *Duplicate Structure…*, *Truncate…*, *Drop…*, *Import Data…*, *Export Data…*.
+- Table context menu: *Modify Table…*, *Rename…*, *Duplicate Structure…*, *Truncate…*, *Drop…*, *Import Data…*,
+  *Export Data…*; column menu: *Modify Column…*, *Rename Column…*, *Drop Column…*.
+- Confirmation dialogs take keyboard focus when they open, so `tab` reaches their buttons even when the SQL editor
+  had it (a destructive confirmation has no default button: `tab` to it and `space`).
 - `ExportEncoder` in `theta_sql::export` streams CSV, TSV, JSON and SQL INSERTs page by page.
 - Theta is now released under the MIT licence (`LICENSE`).
 - The repository moved to <https://github.com/JesseWilliamson/Theta>; links, the map-tile User-Agent and the

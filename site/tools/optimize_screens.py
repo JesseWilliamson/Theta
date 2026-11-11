@@ -31,6 +31,8 @@ NAMES = {
     "09-connection-ssh": "connection-ssh",
     "10-vim-visual-block": "vim-visual-block",
     "11-keymap-choice-welcome": "keymap-choice",
+    "15-modify-table": "modify-table",
+    "16-new-table": "new-table",
 }
 
 

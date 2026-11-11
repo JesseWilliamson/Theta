@@ -133,7 +133,7 @@ impl Workspace {
         });
         self.table_subs.insert(id, sub);
         self.console_views.insert(id, editor.clone().into());
-        self.active_connection = Some(conn_id);
+        self.active_connection = Some(conn_id.clone());
         self.activate_tab(id, window, cx);
         if let EditorTarget::Modify { column: Some(col), .. } = &target {
             editor.update(cx, |e, cx| e.focus_column(col, window, cx));
@@ -141,8 +141,45 @@ impl Workspace {
         if new {
             editor.update(cx, |e, cx| e.focus_name(window, cx));
         }
+        if let EditorTarget::Modify { table, .. } = &target
+            && config.kind == DatabaseKind::Sqlite
+        {
+            self.load_sqlite_triggers(&conn_id, table, editor, window, cx);
+        }
         self.save_all_consoles(cx);
         Some(id)
+    }
+
+    /// A SQLite table rebuild drops the table's triggers; read them so the engine can recreate them.
+    fn load_sqlite_triggers(
+        &mut self,
+        conn_id: &str,
+        table: &str,
+        editor: Entity<TableEditor>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(connection) = self.store.read(cx).connection(conn_id) else { return };
+        let query = format!(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = '{}' AND sql IS NOT NULL ORDER BY name",
+            table.replace('\'', "''")
+        );
+        let task = runtime::spawn(async move {
+            connection.execute(&query, &theta_core::ExecOptions { row_limit: Some(1000) }).await
+        });
+        cx.spawn_in(window, async move |_, cx| {
+            let Ok(Ok(out)) = task.await else { return };
+            let triggers: Vec<String> = out
+                .result
+                .map(|r| {
+                    r.rows.into_iter().filter_map(|row| row.into_iter().next()).map(|v| v.display()).collect()
+                })
+                .unwrap_or_default();
+            if !triggers.is_empty() {
+                editor.update(cx, |e, cx| e.set_triggers(triggers, cx));
+            }
+        })
+        .detach();
     }
 
     fn on_table_event(
@@ -1371,5 +1408,31 @@ mod tests {
             })
         });
         assert_eq!(stmts.iter().map(|s| s.sql.as_str()).collect::<Vec<_>>(), vec!["DROP INDEX a_x_idx"]);
+    }
+
+    #[gpui_kit::test]
+    fn sqlite_triggers_survive_a_rebuild_because_the_editor_reads_and_replays_them(cx: &mut TestAppContext) {
+        let (f, vcx) = setup(cx, false);
+        sql(&f, vcx, "CREATE TABLE log (msg TEXT)").unwrap();
+        sql(&f, vcx, "CREATE TABLE a (id INTEGER PRIMARY KEY, x TEXT)").unwrap();
+        sql(&f, vcx, "CREATE TRIGGER a_log AFTER INSERT ON a BEGIN INSERT INTO log VALUES (new.x); END")
+            .unwrap();
+        refresh(&f, vcx);
+        let (tab, editor) = open_modify(&f, vcx, "a");
+        wait_for(vcx, "the triggers", |vcx| {
+            !editor.read_with(vcx, |e, _| e.model().draft().recreate.is_empty())
+        });
+        editor.update(vcx, |e, cx| {
+            e.set_cell(RowId::Column(2), Field::Type, CellValue::Text("VARCHAR(20)".into()), cx);
+        });
+        assert!(script(&editor, vcx).iter().any(|s| s.starts_with("CREATE TRIGGER a_log")));
+        execute(&f, vcx, tab, &editor);
+        wait_for(vcx, "the reload", |vcx| !editor.read_with(vcx, |e, _| e.dirty()));
+        sql(&f, vcx, "INSERT INTO a (x) VALUES ('hi')").unwrap();
+        assert_eq!(
+            sql(&f, vcx, "SELECT count(*) FROM log").unwrap()[0][0],
+            Value::Int(1),
+            "the trigger still fires"
+        );
     }
 }

@@ -236,6 +236,48 @@
 
         <article class="feature flip">
           <div class="feature-text">
+            <h3>Change a table, and read the SQL before it runs</h3>
+            <p>The Modify Table editor is a tab: a grid for columns, keys, foreign keys, indexes and checks, and beside it the exact script your edits amount to. Every statement is tagged, so a drop or a table rewrite is never a surprise.</p>
+            <ul>
+              <li>Renames are renames, never a drop and an add; a removed column stays struck through until you execute</li>
+              <li>One transaction on PostgreSQL and SQLite, rolled back whole if a statement fails; MySQL says it commits as it goes</li>
+              <li>Every cell is reachable from the keyboard in Helix, Vim and Standard</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/modify-table-900.webp 900w, assets/screens/modify-table.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/modify-table.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta Modify Table tab for a tickets table. The column grid shows a renamed column, a struck-through column that will be dropped and a new priority column. The DDL Preview beside it lists three statements: a destructive DROP COLUMN, a RENAME COLUMN and an ADD COLUMN.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature">
+          <div class="feature-text">
+            <h3>New tables, with keys the catalog already knows</h3>
+            <p>Name the table, type the columns, pick a foreign key from the tables that exist (or take one Theta inferred from the column names) and read the <code>CREATE TABLE</code> as it takes shape.</p>
+            <ul>
+              <li>Type suggestions per database, free text for anything else</li>
+              <li>Composite primary keys, unique constraints, partial indexes, checks</li>
+              <li>Open the script in a console, copy it, or execute it after one confirmation</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/new-table-900.webp 900w, assets/screens/new-table.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/new-table.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta New Table tab for a table called invoices with columns id, customer_id, amount and issued_on, and a DDL Preview showing a CREATE TABLE statement with a primary key and a foreign key to customers.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature flip">
+          <div class="feature-text">
             <h3>Query plans that say what to do</h3>
             <p>Explain and Explain Analyze for PostgreSQL, MySQL/MariaDB and SQLite, as a tree, a flame graph or raw output. Insights are written for the specific plan, and when an index would help, the insight carries the <code>CREATE INDEX</code> statement.</p>
             <ul>

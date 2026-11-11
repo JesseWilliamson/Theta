@@ -349,8 +349,21 @@ one handler per action in `Workspace::render` (`crates/theta/src/workspace/mod.r
   transaction) and an explanation. SQLite changes that `ALTER TABLE` cannot express go through
   `diff_sqlite` / `sqlite_rebuild` (`:953`, `:1077`), the documented rebuild. `validate` (`:1208`) is the
   inline-validation source for an editor. The live round trip (create, alter step by step, re-introspect) is
-  `crates/theta-drivers/tests/ddl_roundtrip.rs`. `workspace/ddl_actions.rs` (`run_ddl`, `:378`) is the only
-  place that executes engine output: Rename, Truncate, Drop and Duplicate Structure confirm the exact SQL first.
+  `crates/theta-drivers/tests/ddl_roundtrip.rs`. `workspace/ddl_actions.rs` (`run_ddl`) runs the explorer's
+  table actions (Rename, Truncate, Drop, Duplicate Structure), each confirming the exact SQL first. `plan_script`
+  (`ddl.rs`) decides how a script is wrapped (one transaction, SQLite's pragmas outside it, joined to the
+  session's own transaction, MySQL one by one); `check_changes` and `check_names` report what only the original
+  and the edit reveal.
+- **The table editor** is a workspace tab, `crates/theta/src/table_editor/`. `model.rs` (`DraftModel`) is pure: the
+  original and edited `TableDraft`, undo and redo, the rows each section shows (`Spec`), what a cell edit means
+  (a primary key column becomes NOT NULL, deleting a column takes its constraints with it, a removed column stays
+  as a struck-through row, new ids never reuse a removed column's) and the `Analysis` (`diff` or `create_table`,
+  `validate`, the catalog checks) that every edit re-runs. `keys.rs` is the key map as a table (key and modifiers
+  in, `Cmd` out); `highlight.rs` colours the preview; `mod.rs` (`TableEditor`) owns cursor, cell editor, popups
+  and run state and emits `TableEditorEvent`s; `render.rs` paints. The editor never touches a database:
+  `workspace/table_tabs.rs` hosts the tab (`ConsoleTab::table`), answers the events (confirmation with badges,
+  `run_table_script` with per-statement outcomes, catalog refresh and reload, discard prompt), and holds the
+  explorer entry points, `:table` and `--modify` / `--new-table`.
 - **Catalog extras** (`theta-core/src/schema.rs`): identity, generated columns, checks, unique constraints,
   partial and expression indexes, deferrable foreign keys, view definitions, MySQL table options; filled by the
   three introspection modules and covered by `crates/theta-drivers/tests/catalog_extras.rs`.

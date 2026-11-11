@@ -445,6 +445,22 @@ impl DraftModel {
         });
     }
 
+    /// The `CREATE TRIGGER` statements of a SQLite table. A table rebuild drops the triggers with the old table,
+    /// so the engine replays these afterwards; the catalog does not carry them, the workspace reads them from
+    /// `sqlite_master` and hands them over. Not an edit: the original and the baseline get them too.
+    pub fn set_recreate(&mut self, triggers: Vec<String>) {
+        if let Some(o) = &mut self.original {
+            o.recreate = triggers.clone();
+        }
+        self.baseline.recreate = triggers.clone();
+        self.draft.recreate = triggers;
+        self.undo
+            .iter_mut()
+            .chain(self.redo.iter_mut())
+            .for_each(|d| d.recreate = self.draft.recreate.clone());
+        self.reanalyze();
+    }
+
     /// What was just applied becomes the original: the diff is empty again and undo starts afresh. Used when
     /// the database cannot be asked what the table looks like now (the change sits in an open transaction).
     pub fn accept(&mut self) {
@@ -1779,6 +1795,18 @@ mod tests {
         t.foreign_keys[0].name = "fk_to_t".into();
         let kept = DraftModel::modify(DatabaseKind::Sqlite, "main", &t, None);
         assert_eq!(kept.draft().foreign_keys[0].name.as_deref(), Some("fk_to_t"));
+    }
+
+    #[test]
+    fn triggers_are_replayed_after_a_sqlite_rebuild() {
+        let mut m = DraftModel::modify(DatabaseKind::Sqlite, "main", &customers(), None);
+        m.set_recreate(vec!["CREATE TRIGGER trg AFTER INSERT ON customers BEGIN SELECT 1; END".into()]);
+        assert!(!m.dirty(), "handing over the triggers is not an edit");
+        m.set_cell(RowId::Column(2), Field::Type, CellValue::Text("VARCHAR(20)".into())).unwrap();
+        let out = sql(&m);
+        assert!(out.iter().any(|s| s.starts_with("CREATE TRIGGER trg")), "{out:?}");
+        let at = |needle: &str| out.iter().position(|s| s.starts_with(needle)).unwrap();
+        assert!(at("ALTER TABLE customers__new RENAME") < at("CREATE TRIGGER"));
     }
 
     #[test]

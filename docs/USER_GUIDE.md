@@ -137,7 +137,7 @@ declare but that column names imply (`orders.customer_id` → `customers.id`), e
   - *Generate* › `SELECT`, `INSERT`, `UPDATE`, `DELETE`, which open a console with the statement (the
     `UPDATE` and `DELETE` templates use `WHERE key = NULL`, so an unedited template changes nothing);
   - *Show DDL*;
-  - *Rename…*, *Duplicate Structure…*, *Truncate…*, *Drop…* (see [Change a table](#change-a-table));
+  - *Modify Table…*, *Rename…*, *Duplicate Structure…*, *Truncate…*, *Drop…* (see [Change a table](#change-a-table));
   - *Import Data…* and *Export Data…* (see [Import and export data](#import-and-export-data));
   - *Related Tables…*: a picker of the tables reachable through foreign keys, in two groups: *Foreign keys*
     (declared) and *Suggested* (inferred, with a confidence percentage). Choosing one opens a console with a
@@ -551,16 +551,77 @@ field and the empty string as `""`, so importing the file back gives the same da
 
 Right-click a table (or use the palette's *Table* commands):
 
+- *Modify Table…* opens the editor in a tab (below). *New Table…* on the **Tables** group, or in the palette,
+  opens it on a table that does not exist yet.
 - *Rename…* asks for the name, then shows the exact `ALTER TABLE … RENAME TO …` and runs it when you confirm.
 - *Duplicate Structure…* opens a console with the `CREATE TABLE` of a copy (columns, keys, indexes; no rows).
 - *Truncate…* shows `TRUNCATE TABLE` (`DELETE FROM` on SQLite) and asks.
 - *Drop…* shows `DROP TABLE` and lists any foreign keys elsewhere that reference the table.
 
+Right-click a **column** for *Modify Column…* (the editor with the cursor on it), *Rename Column…* (a name
+dialog, then one `RENAME COLUMN`) and *Drop Column…* (the exact SQL, including any key or index that goes with
+it). Right-click the **Indexes** or **Foreign Keys** group for *New Index…* / *New Foreign Key…*, an index or
+key for *Drop Index…* / *Drop Foreign Key…*, and a **Suggested** key for *Add as Foreign Key…*.
+
+### The table editor
+
+The tab is named *Modify customers* or *New table*. Its header holds the table name (edit it to rename the
+table), the connection and database kind, a summary of what the edit would do (`3 statements · 1 destructive`),
+and the buttons **Revert**, **Copy SQL**, **Open in Console** and **Execute**. A strip of sections follows:
+**Columns · Keys · Foreign Keys · Indexes · Checks · Options**, each with a count and a red or amber dot when
+validation flags something in it. The **DDL Preview** sits to the right of the grid (below it in a narrow
+window; resize it by dragging its edge, hide it with its **x** or `alt-p`).
+
+Every edit re-runs the DDL engine (`theta_sql::ddl`): the preview is the script that turns the table as it is
+into the table as you edited it, one block per statement. A block carries badges (**destructive**, **table
+rewrite**, **lock**, **implicit commit**, **outside transaction**, **rebuild**), the engine's explanation as a
+comment, the highlighted SQL, and a copy button. Problems (a missing name, a primary key on a nullable column, a
+table that already exists, a foreign key whose types differ) are listed above the blocks; errors stop Execute,
+and a warning that has a fix gets a **Fix** button.
+
+- **Columns.** One row per column: name, type, *Null*, default (a raw SQL expression), *PK* (with the position in
+  a composite key), identity / auto-increment (PostgreSQL *by default* / *always*, MySQL `AUTO_INCREMENT`, SQLite
+  `AUTOINCREMENT`) and a comment (not on SQLite). The type cell offers the dialect's types as you type and takes
+  any text (`varchar(120)`, `numeric(12,2)`, an extension type). A column you remove stays in the grid, struck
+  through, until Execute; delete it again (or undo) to keep it. A column of a table that does not exist yet can
+  be moved (`alt-up` / `alt-down`); an existing table's columns cannot, because no `ALTER TABLE` reorders them.
+- **Keys.** The primary key (an ordered list of columns) and unique constraints (name and columns).
+- **Foreign Keys.** Name, columns, referenced table (chosen from the catalog; the referenced columns default to
+  its primary key), `ON DELETE`, `ON UPDATE` and, where the database has it, deferrable. Below the list, keys
+  suggested from column names (the same inference as the explorer's *Suggested* rows) with an **Add** button; `alt-a`
+  chooses one from a picker.
+- **Indexes.** Name, columns in order, unique, method (PostgreSQL `btree`, `hash`, `gin`, `gist`, `brin`,
+  `spgist`; MySQL `BTREE`, `HASH`) and a partial `WHERE` (PostgreSQL, SQLite). An index with an expression is
+  shown with its definition and can be kept or dropped.
+- **Checks.** Name and expression.
+- **Options.** The table comment (not on SQLite); the MySQL engine, charset and collation, read-only.
+
+Keys (full list in [KEYBINDINGS.md](KEYBINDINGS.md#table-editor)): arrows (and `hjkl` in Helix and Vim) move the
+cell cursor, `Enter` (`i`, `F2`) edits the cell, `Space` flips a checkbox or steps a choice, `Tab` / `Shift-Tab`
+move across cells, `Insert` (`o` / `O`) adds a row, `Delete` (`dd`) removes one, `Ctrl-Z` (`u`) undoes and
+`Ctrl-Shift-Z` (`Ctrl-R`) redoes. A new row starts with its name cell open, and `Tab` after a text cell opens the
+next one, so a whole column can be typed without leaving the keyboard. `Enter` on a *Columns* cell opens a small
+list: `Space` chooses, `Alt-Up` / `Alt-Down` orders what is chosen. `Alt-Left` / `Alt-Right` switch sections and
+`Alt-N` puts the cursor in the table name.
+
+**Execute** (`mod-enter`, or the button) shows the exact SQL with its badges and asks. PostgreSQL and SQLite run
+the whole script in one transaction: if a statement fails, nothing is changed. (SQLite's table rebuild keeps its
+`PRAGMA foreign_keys` outside the transaction, checks foreign keys before it commits, and turns enforcement back
+on whatever happens.) MySQL / MariaDB commit every DDL statement by themselves, so the dialog says so and, if a
+statement fails, the tab names the ones already applied. In manual-commit mode the statements join your open
+transaction and are not committed. A read-only connection refuses. On success the tab reloads from the database
+as *Modify <name>* with an empty diff and the table is selected in the explorer; on failure the failing statement
+is marked in the preview with the server's error text and every edit is kept. Closing a tab with unapplied
+changes asks (*Discard* / *Cancel*); the edits survive switching tabs but not restarting Theta.
+
 Every confirmation shows the SQL and what is destructive. PostgreSQL and SQLite run the statements in one
 transaction; MySQL / MariaDB commit each DDL statement by itself (the dialog says so). In manual-commit mode the
-statement joins your open transaction. Read-only connections refuse. The full modify-table editor (add, change
-and drop columns and keys in a grid with a live DDL preview) is not part of this release; the engine behind it
-(`theta_sql::ddl`) is, with its tests.
+statement joins your open transaction. Read-only connections refuse. A destructive confirmation has no default
+button: click it, or press `Tab` to move to it and `Space`.
+
+From the command line, `theta --connect URL --modify [SCHEMA.]TABLE` and `--new-table [SCHEMA]` open the editor
+as soon as the connection and its catalog are ready; in the Helix and Vim key maps `:table new [SCHEMA]` and
+`:table modify [SCHEMA.]TABLE` do the same from a console.
 
 ## Explain and query plans
 
