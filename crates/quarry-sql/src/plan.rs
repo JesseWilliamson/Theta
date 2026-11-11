@@ -587,9 +587,17 @@ fn visit(c: &mut Ctx, n: &PlanNode, path: &mut Vec<usize>) {
         let parallel = own > total * 1.02;
         let share = (own / total).min(1.0);
         let body = if parallel {
-            format!("This step spent {} summed over parallel workers, against {} of wall-clock time for the whole query, excluding its children. It is the best place to look first when making the query faster.", fmt_ms(own), fmt_ms(total))
+            format!(
+                "This step spent {} summed over parallel workers, against {} of wall-clock time for the whole query, excluding its children. It is the best place to look first when making the query faster.",
+                fmt_ms(own),
+                fmt_ms(total)
+            )
         } else {
-            format!("This step alone spent {} out of {} in total, excluding its children. It is the best place to look first when making the query faster.", fmt_ms(own), fmt_ms(total))
+            format!(
+                "This step alone spent {} out of {} in total, excluding its children. It is the best place to look first when making the query faster.",
+                fmt_ms(own),
+                fmt_ms(total)
+            )
         };
         c.push(
             if share >= 0.8 && own >= 100.0 { Severity::Critical } else { Severity::Warning },
@@ -1165,7 +1173,12 @@ mod tests {
         let mut t = cat.schemas[0].tables.iter().find(|t| t.name == "orders").unwrap().clone();
         t.name = "qa_events".into();
         t.indexes.clear();
-        cat.schemas.push(Schema { name: "qa_perf".into(), tables: vec![t as Table], routines: vec![], sequences: vec![] });
+        cat.schemas.push(Schema {
+            name: "qa_perf".into(),
+            tables: vec![t as Table],
+            routines: vec![],
+            sequences: vec![],
+        });
         let mut n = scan("qa_events", "((status)::text = 'open'::text)");
         n.actual_rows = Some(10.0);
         n.rows_removed_by_filter = Some(299_990.0);

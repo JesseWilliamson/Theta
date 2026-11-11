@@ -493,7 +493,9 @@ fn join_items(env: &Env, scan: &ScopeScan) -> Vec<Raw> {
         .map(|j| {
             let text = j.clause.strip_prefix("JOIN ").unwrap_or(&j.clause);
             // Keywords follow the casing the user is typing in (`join … on`, not `join … ON`).
-            let text = text.replace(" ON ", &format!(" {} ", env.kw("ON"))).replace(" AND ", &format!(" {} ", env.kw("AND")));
+            let text = text
+                .replace(" ON ", &format!(" {} ", env.kw("ON")))
+                .replace(" AND ", &format!(" {} ", env.kw("AND")));
             let detail = if j.inferred { format!("suggested · {}", j.via) } else { format!("FK {}", j.via) };
             raw(text.clone(), CompletionKind::Join, Some(detail), text, if j.inferred { 450 } else { 600 })
         })

@@ -123,7 +123,12 @@ impl HistoryPanel {
                     .text_color(if e.ok { theme.success } else { theme.danger }),
             )
             .child(
-                div().w(px(96.)).flex_shrink_0().whitespace_nowrap().text_color(theme.muted_foreground).child(clock(e.at)),
+                div()
+                    .w(px(96.))
+                    .flex_shrink_0()
+                    .whitespace_nowrap()
+                    .text_color(theme.muted_foreground)
+                    .child(clock(e.at)),
             )
             .child(
                 div()

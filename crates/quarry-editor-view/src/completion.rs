@@ -31,7 +31,15 @@ impl CompletionState {
         if list.items.is_empty() {
             return None;
         }
-        Some(CompletionState { items: list.items, selected: 0, top: 0, replace, prefix, manual: false, navigated: false })
+        Some(CompletionState {
+            items: list.items,
+            selected: 0,
+            top: 0,
+            replace,
+            prefix,
+            manual: false,
+            navigated: false,
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -137,23 +145,14 @@ pub fn auto_trigger_after_space(before: &str) -> bool {
     if let Some(prefix) = head.strip_suffix(',') {
         return in_from_list(prefix);
     }
-    let word: String = head
-        .chars()
-        .rev()
-        .take_while(|c| is_word_char(*c))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
+    let word: String =
+        head.chars().rev().take_while(|c| is_word_char(*c)).collect::<Vec<_>>().into_iter().rev().collect();
     // The word must stand alone (`a.from` or `x_join` are identifiers, not keywords).
     let preceding = head[..head.len() - word.len()].chars().next_back();
     if preceding.is_some_and(|c| is_word_char(c) || c == '.' || c == '"' || c == '`') {
         return false;
     }
-    matches!(
-        word.to_ascii_lowercase().as_str(),
-        "from" | "join" | "on" | "into" | "update" | "table"
-    )
+    matches!(word.to_ascii_lowercase().as_str(), "from" | "join" | "on" | "into" | "update" | "table")
 }
 
 /// Whether the last clause keyword before the end of `text` (in the current statement, outside

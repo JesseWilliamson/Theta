@@ -669,13 +669,14 @@ impl EditorView {
         let new = self.text_snapshot();
         let Some(old) = old else { return };
         let Some((start, removed, inserted)) = crate::util::diff_edit(&old, &new) else { return };
-        self.diagnostics.retain_mut(|d| match crate::util::shift_range(d.range.clone(), start, removed, inserted)
-        {
-            Some(r) => {
-                d.range = r;
-                true
+        self.diagnostics.retain_mut(|d| {
+            match crate::util::shift_range(d.range.clone(), start, removed, inserted) {
+                Some(r) => {
+                    d.range = r;
+                    true
+                }
+                None => false,
             }
-            None => false,
         });
     }
 

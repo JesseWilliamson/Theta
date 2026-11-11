@@ -1683,7 +1683,8 @@ fn resolve_theme(names: &[String], arg: &str) -> Result<String, Vec<String>> {
         [] => Err(Vec::new()),
         many => {
             // A prefix match on a unique theme wins over incidental substrings.
-            let prefixed: Vec<&&String> = many.iter().filter(|n| n.to_lowercase().starts_with(&want)).collect();
+            let prefixed: Vec<&&String> =
+                many.iter().filter(|n| n.to_lowercase().starts_with(&want)).collect();
             match prefixed.as_slice() {
                 [one] => Ok((**one).clone()),
                 _ => Err(many.iter().map(|n| (*n).clone()).collect()),
@@ -1698,10 +1699,11 @@ mod theme_resolve_tests {
 
     #[test]
     fn exact_substring_and_ambiguous() {
-        let names: Vec<String> = ["Quarry Dark", "Quarry Light", "Tokyo Night", "Catppuccin Latte", "Catppuccin Mocha"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let names: Vec<String> =
+            ["Quarry Dark", "Quarry Light", "Tokyo Night", "Catppuccin Latte", "Catppuccin Mocha"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
         assert_eq!(resolve_theme(&names, "tokyo"), Ok("Tokyo Night".into()));
         assert_eq!(resolve_theme(&names, "QUARRY LIGHT"), Ok("Quarry Light".into()));
         assert_eq!(resolve_theme(&names, "mocha"), Ok("Catppuccin Mocha".into()));

@@ -633,7 +633,14 @@ impl Explorer {
                         .child(row.label.clone()),
                 )
                 .context_menu(move |menu, window, cx| {
-                    Explorer::context_menu_for(explorer.clone(), menu_key.clone(), state.clone(), menu, window, cx)
+                    Explorer::context_menu_for(
+                        explorer.clone(),
+                        menu_key.clone(),
+                        state.clone(),
+                        menu,
+                        window,
+                        cx,
+                    )
                 })
                 .into_any_element();
         }
@@ -890,10 +897,10 @@ enum Generate {
 /// that was never saved (no keychain on this machine).
 fn failure_text(e: &quarry_core::Error, id: &str, store: &ConnectionStore) -> String {
     let mut text = e.to_string();
-    let needs_password =
-        matches!(e, quarry_core::Error::Auth(_)) && store.config_with_secrets(id).is_some_and(|c| {
-            !c.kind.is_file_based() && c.password.as_deref().is_none_or(str::is_empty)
-        });
+    let needs_password = matches!(e, quarry_core::Error::Auth(_))
+        && store
+            .config_with_secrets(id)
+            .is_some_and(|c| !c.kind.is_file_based() && c.password.as_deref().is_none_or(str::is_empty));
     if needs_password {
         text.push_str("\nNo password is stored for this connection (there is no system keychain). Use Edit Connection to enter it.");
     }

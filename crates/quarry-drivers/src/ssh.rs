@@ -12,8 +12,8 @@ use russh::keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate, ssh_key};
 use russh::{ChannelMsg, Disconnect};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex as StdMutex;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
@@ -203,16 +203,21 @@ impl Tunnel {
         let report: Report = Arc::default();
         let handler = Handler { host: ssh.host.clone(), port: ssh.port, report: report.clone() };
         let addr = (ssh.host.as_str(), if ssh.port == 0 { 22 } else { ssh.port });
-        let connected =
-            tokio::time::timeout(Duration::from_secs(15), client::connect(config, addr, handler))
-                .await
-                .map_err(|_| Error::Tunnel(format!("timed out connecting to {}:{}", ssh.host, ssh.port)))?;
+        let connected = tokio::time::timeout(Duration::from_secs(15), client::connect(config, addr, handler))
+            .await
+            .map_err(|_| Error::Tunnel(format!("timed out connecting to {}:{}", ssh.host, ssh.port)))?;
         let seen = report.lock().ok().and_then(|r| r.clone());
         let mut session = match connected {
             Ok(session) => session,
             Err(_) if matches!(seen, Some(HostKeyCheck::Changed { .. })) => {
                 let Some(HostKeyCheck::Changed { fingerprint, file, line }) = seen else { unreachable!() };
-                return Err(Error::Tunnel(changed_key_message(&ssh.host, ssh.port, &fingerprint, &file, line)));
+                return Err(Error::Tunnel(changed_key_message(
+                    &ssh.host,
+                    ssh.port,
+                    &fingerprint,
+                    &file,
+                    line,
+                )));
             }
             Err(e) => {
                 return Err(Error::Tunnel(format!("cannot connect to {}:{}: {e}", ssh.host, ssh.port)));
@@ -347,7 +352,10 @@ mod tests {
         match check_host_key("db.example", 2222, &key(2), &file) {
             HostKeyCheck::Changed { line, file: f, fingerprint } => {
                 let text = std::fs::read_to_string(&file).unwrap();
-                assert!(text.lines().nth(line - 1).is_some_and(|l| l.starts_with("[db.example]:2222")), "{line}");
+                assert!(
+                    text.lines().nth(line - 1).is_some_and(|l| l.starts_with("[db.example]:2222")),
+                    "{line}"
+                );
                 assert_eq!(f, file);
                 assert!(fingerprint.starts_with("SHA256:"));
             }
@@ -358,8 +366,13 @@ mod tests {
     #[test]
     fn changed_key_message_names_host_fingerprint_file_line_and_remedy() {
         let m = changed_key_message("db.example", 2222, "SHA256:abc", Path::new("/h/.ssh/known_hosts"), 7);
-        for needle in ["[db.example]:2222", "SHA256:abc", "/h/.ssh/known_hosts", "line 7", "ssh-keygen -R \"[db.example]:2222\""]
-        {
+        for needle in [
+            "[db.example]:2222",
+            "SHA256:abc",
+            "/h/.ssh/known_hosts",
+            "line 7",
+            "ssh-keygen -R \"[db.example]:2222\"",
+        ] {
             assert!(m.contains(needle), "{needle} in {m}");
         }
         assert!(changed_key_message("h", 22, "x", Path::new("f"), 1).contains("ssh-keygen -R \"h\""));

@@ -798,7 +798,10 @@ mod tests {
 
     #[test]
     fn wrapping_splits_on_words_and_hard_splits_long_tokens() {
-        assert_eq!(wrap_text("connection refused (os error 111)", 16, 8), vec!["connection", "refused (os", "error 111)"]);
+        assert_eq!(
+            wrap_text("connection refused (os error 111)", 16, 8),
+            vec!["connection", "refused (os", "error 111)"]
+        );
         assert_eq!(wrap_text("aaaaaaaaaaaaaaaaaaaa", 8, 8), vec!["aaaaaaaa", "aaaaaaaa", "aaaa"]);
         assert_eq!(wrap_text("a\n\n b", 8, 8), vec!["a", "b"]);
         let cut = wrap_text(&"word ".repeat(40), 10, 3);
@@ -810,7 +813,12 @@ mod tests {
     fn long_connection_errors_get_an_inline_detail_block() {
         let c = catalog();
         let long = "could not connect: error connecting to server: Connection refused (os error 111) at 127.0.0.1:5999";
-        let r = flatten_wrapped(&[ConnView { phase: Phase::Failed(long.into()), ..view(&c).remove(0) }], &set(vec![NodeKey::Connection("c1".into())]), "", 30);
+        let r = flatten_wrapped(
+            &[ConnView { phase: Phase::Failed(long.into()), ..view(&c).remove(0) }],
+            &set(vec![NodeKey::Connection("c1".into())]),
+            "",
+            30,
+        );
         assert!(r[1].is_error && r[1].retry && r[1].icon == RowIcon::Error);
         let details: Vec<_> = r.iter().filter(|x| matches!(x.key, NodeKey::Detail(..))).collect();
         assert!(details.len() >= 3);
@@ -818,7 +826,12 @@ mod tests {
         let joined = details.iter().map(|d| d.label.as_str()).collect::<Vec<_>>().join(" ");
         assert_eq!(joined, long);
         // A short one-liner needs no block.
-        let r = flatten_wrapped(&[ConnView { phase: Phase::Failed("refused".into()), ..view(&c).remove(0) }], &set(vec![NodeKey::Connection("c1".into())]), "", 30);
+        let r = flatten_wrapped(
+            &[ConnView { phase: Phase::Failed("refused".into()), ..view(&c).remove(0) }],
+            &set(vec![NodeKey::Connection("c1".into())]),
+            "",
+            30,
+        );
         assert_eq!(r.len(), 2);
     }
 

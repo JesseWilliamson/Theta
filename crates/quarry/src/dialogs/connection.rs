@@ -180,16 +180,20 @@ impl ConnectionForm {
             &ssh_key_path,
             &ssh_secret,
         ] {
-            subscriptions.push(cx.subscribe_in(input, window, |this, state, event: &InputEvent, window, cx| {
-                match event {
-                    InputEvent::PressEnter { .. } => this.save(true, window, cx),
-                    // Tabbing into a field selects its text so typing replaces a default.
-                    InputEvent::Focus if !this.pointer_focus => {
-                        state.update(cx, |s, cx| s.select_all(window, cx))
+            subscriptions.push(cx.subscribe_in(
+                input,
+                window,
+                |this, state, event: &InputEvent, window, cx| {
+                    match event {
+                        InputEvent::PressEnter { .. } => this.save(true, window, cx),
+                        // Tabbing into a field selects its text so typing replaces a default.
+                        InputEvent::Focus if !this.pointer_focus => {
+                            state.update(cx, |s, cx| s.select_all(window, cx))
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                }
-            }));
+                },
+            ));
         }
         subscriptions.push(cx.subscribe_in(
             &ssh_auth,

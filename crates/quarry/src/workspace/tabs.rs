@@ -3,13 +3,12 @@
 use super::Workspace;
 use crate::actions::*;
 use gpui_kit::assets::IconName;
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex};
 use gpui_kit::prelude::FluentBuilder as _;
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::{
-    AppContext as _,
-    Context, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render, ScrollEvent,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, linear_color_stop,
+    AppContext as _, Context, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render,
+    ScrollEvent, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, linear_color_stop,
     linear_gradient, px,
 };
 use quarry_ui::{CHROME_TEXT_SIZE, EmptyState, KeyHint, TAB_BAR_HEIGHT, tool_button};
@@ -65,9 +64,7 @@ impl Workspace {
         let next = match target {
             Some(t) => reordered(&order, dragged, t),
             // Dropped on the empty part of the strip: to the end.
-            None => {
-                order.last().and_then(|&last| reordered(&order, dragged, last))
-            }
+            None => order.last().and_then(|&last| reordered(&order, dragged, last)),
         };
         let Some(next) = next else { return };
         let mut tabs = std::mem::take(&mut self.tabs);
@@ -305,11 +302,12 @@ impl Workspace {
                                 for (id, title) in &menu_tabs {
                                     let (id, ws) = (*id, workspace.clone());
                                     menu = menu.item(
-                                        PopupMenuItem::new(title.clone()).checked(active == Some(id)).on_click(
-                                            move |_, window, cx| {
-                                                ws.update(cx, |this, cx| this.activate_tab(id, window, cx)).ok();
-                                            },
-                                        ),
+                                        PopupMenuItem::new(title.clone())
+                                            .checked(active == Some(id))
+                                            .on_click(move |_, window, cx| {
+                                                ws.update(cx, |this, cx| this.activate_tab(id, window, cx))
+                                                    .ok();
+                                            }),
                                     );
                                 }
                                 menu

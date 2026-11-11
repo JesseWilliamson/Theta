@@ -669,11 +669,8 @@ impl EditorView {
         let first_char = self.editor.line_to_char(vis.start);
         // `line_to_char` clamps to the last line's start, so "past the last line" must be spelled out:
         // otherwise the cursor and selections of the final line are culled unless they start at column 0.
-        let last_char = if vis.end >= line_count {
-            self.editor.len_chars()
-        } else {
-            self.editor.line_to_char(vis.end)
-        };
+        let last_char =
+            if vis.end >= line_count { self.editor.len_chars() } else { self.editor.line_to_char(vis.end) };
         let sels: Vec<_> = self.editor.selections().to_vec();
         let primary_idx = self.editor.primary_index();
         let lo = sels.partition_point(|s| s.to() < first_char);

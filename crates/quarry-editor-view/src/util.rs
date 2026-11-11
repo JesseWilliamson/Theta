@@ -101,7 +101,8 @@ pub fn diff_edit(old: &str, new: &str) -> Option<(usize, usize, usize)> {
         prefix -= 1;
     }
     let max_suffix = ob.len().min(nb.len()) - prefix;
-    let mut suffix = ob.iter().rev().zip(nb.iter().rev()).take(max_suffix).take_while(|(a, b)| a == b).count();
+    let mut suffix =
+        ob.iter().rev().zip(nb.iter().rev()).take(max_suffix).take_while(|(a, b)| a == b).count();
     while !old.is_char_boundary(ob.len() - suffix) || !new.is_char_boundary(nb.len() - suffix) {
         suffix -= 1;
     }

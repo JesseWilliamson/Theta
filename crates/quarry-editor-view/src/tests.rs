@@ -637,7 +637,10 @@ fn join_completion_footer_and_manual_request(cx: &mut TestAppContext) {
         (c.len(), c.footer().map(str::to_string))
     });
     assert!(n >= 3);
-    assert!(footer.is_some_and(|t| t.to_lowercase().contains(" on ")), "join suggestions show their ON clause");
+    assert!(
+        footer.is_some_and(|t| t.to_lowercase().contains(" on ")),
+        "join suggestions show their ON clause"
+    );
     f.keys(cx, "<tab>");
     assert!(f.text(cx).to_lowercase().contains(" on "), "{}", f.text(cx));
 }
@@ -765,7 +768,9 @@ fn dangerous_statements_are_never_held_back(cx: &mut TestAppContext) {
     f.keys(cx, "delete from orders");
     cx.executor().advance_clock(Duration::from_millis(400));
     cx.run_until_parked();
-    assert!(f.view.read_with(cx, |v, _| v.all_diagnostics().iter().any(|d| d.message.contains("without WHERE"))));
+    assert!(
+        f.view.read_with(cx, |v, _| v.all_diagnostics().iter().any(|d| d.message.contains("without WHERE")))
+    );
 }
 
 #[gpui_kit::test]
