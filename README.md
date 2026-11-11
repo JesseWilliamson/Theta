@@ -29,7 +29,8 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 | ![Vim visual block](docs/screenshots/10-vim-visual-block.png) **Vim keymap: a `V-BLOCK` selection** | ![Keymap choice](docs/screenshots/11-keymap-choice-welcome.png) **Choose Helix, Vim or Standard on the welcome view** |
 | ![Record view](docs/screenshots/12-record-view.png) **Record view: one row as a list, JSON pretty-printed** | ![Query parameters](docs/screenshots/13-query-parameters.png) **Query parameters: values asked for before the run** |
 | ![Import](docs/screenshots/14-import-csv.png) **CSV import: detected format, column mapping, sample values and type checks** | ![Modify table](docs/screenshots/15-modify-table.png) **Modify Table: a rename, an added column and a dropped one, with the exact SQL and its warnings** |
-| ![New table](docs/screenshots/16-new-table.png) **New Table: columns, a foreign key and the `CREATE TABLE` it makes** | |
+| ![New table](docs/screenshots/16-new-table.png) **New Table: columns, a foreign key and the `CREATE TABLE` it makes** | ![Sessions](docs/screenshots/17-sessions.png) **Sessions: a blocked session, its blocker and Cancel Query** |
+| ![Roles](docs/screenshots/18-roles.png) **Roles: attributes, memberships and privileges by object** | |
 
 ## Supported databases
 
@@ -109,6 +110,14 @@ Per-product behaviour (what is disabled and why) is in the [user guide](docs/USE
   operable in the Helix, Vim and Standard key maps; open it from the explorer (*New Table…*, *Modify Table…*,
   *Modify Column…*, *New Index…*, *New Foreign Key…*, *Add as Foreign Key…*), the palette, `:table new` /
   `:table modify NAME`, or `theta --modify TABLE` / `--new-table`.
+- **Server administration** (PostgreSQL, MySQL / MariaDB, SQL Server, ClickHouse as stated): a *Sessions* tab with a
+  live, filterable table of server sessions, blocked sessions shown with their blocker, and Cancel Query /
+  Terminate Session with the exact SQL confirmed first; a *Roles* tab with attributes, memberships and privileges
+  by object, and create / alter / set password / grant / revoke / drop through preview-and-confirm forms (the
+  password is never logged); *Export Database…*, Theta's own streaming SQL dump (and `pg_dump` / `mysqldump`
+  when installed, with the exact command), and *Run SQL Script…* for large files with progress, error policy,
+  single-transaction and cancel. Keyboard-driven in all three keymaps; what each product cannot do says why.
+  What the built-in dump leaves out is listed in the dialog and the user guide.
 - *Rename Table*, *Rename Column*, *Drop Column*, *Drop Index*, *Drop Foreign Key*, *Duplicate Structure*,
   *Truncate* and *Drop* from the explorer, each confirmed with the exact SQL; Drop lists the foreign keys that
   point at the table.
@@ -399,6 +408,23 @@ Databases added in 0.1.0-alpha.7
   address (127.0.0.1) and fails; use *Require* there.
 - A DuckDB build adds about 55 MB to the binary and about 15 minutes to a clean build; `cargo build
   --no-default-features` leaves it out.
+
+Server administration (Sessions, Roles, Export Database, Run SQL Script)
+- Verified live on PostgreSQL 16 (sessions with a blocked session and Cancel Query, every role action, dump and
+  restore), MariaDB 10.11 (sessions with InnoDB lock waits and Cancel Query, create / alter / password / drop of a
+  user, dump and restore) and ClickHouse 18.16 (sessions and Cancel Query). On MariaDB, *grant* and *revoke*
+  privileges could not be run end to end because the test account has no `GRANT OPTION`: the statements are
+  unit-tested and the server's refusal is shown as it arrives. SQL Server sessions and logins (and everything
+  with `sys.dm_*` / `sys.server_*`), MySQL 8's lock-wait and role queries, TimescaleDB, and `pg_dump` /
+  `mysqldump` runs through the dialog are unverified: unit tests only (the `pg_dump` / `mysqldump` command
+  builder is unit-tested; the dialog has not been run with the tools).
+- Sessions and Roles are off, with a reason, on SQLite, DuckDB, CockroachDB, Redshift, YugabyteDB and TiDB;
+  ClickHouse has no Roles. The built-in dump is off on SQL Server, ClickHouse, CockroachDB, Redshift, YugabyteDB and
+  TiDB. SQL Server cannot cancel a query without ending its session.
+- The built-in dump is not a backup: no routines, triggers, extensions, custom types, ownership or grants, and
+  its view definitions are as the server prints them (a MariaDB view body names its database). Restoring does
+  not support `COPY … FROM stdin`, `DELIMITER` or `/*! … */`. Roles lists explicit grants only. The Sessions list
+  has no horizontal scroll: below 1250 px wide the Database, Client and Application columns move to the detail pane.
 
 Editor
 - No soft wrap and no code folding. Long lines scroll horizontally.

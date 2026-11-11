@@ -111,7 +111,16 @@ impl DumpView {
         for s in &catalog.schemas {
             // PostGIS and similar extensions own tables of their own; they are listed but start unchecked.
             for t in &s.tables {
-                let extension_owned = t.name == "spatial_ref_sys";
+                // The catalog does not say which objects an extension owns; these are PostGIS's, the common
+                // case, and a restore into a database that has PostGIS would fail on them.
+                let extension_owned = matches!(
+                    t.name.as_str(),
+                    "spatial_ref_sys"
+                        | "geometry_columns"
+                        | "geography_columns"
+                        | "raster_columns"
+                        | "raster_overviews"
+                );
                 items.push(Item {
                     schema: s.name.clone(),
                     name: t.name.clone(),
@@ -604,7 +613,7 @@ impl Render for DumpView {
                     .border_1()
                     .border_color(theme.border)
                     .child(div().text_size(px(11.)).font_weight(FontWeight::MEDIUM).child("This dump does not contain:"))
-                    .child(div().id("dump-missing").max_h(px(84.)).overflow_y_scroll().text_size(px(11.)).text_color(theme.muted_foreground).child(v_flex().gap_0p5().children(missing.into_iter().map(|l| div().child(l))))),
+                    .child(div().id("dump-missing").max_h(px(104.)).overflow_y_scroll().text_size(px(11.)).text_color(theme.muted_foreground).child(v_flex().gap_0p5().children(missing.into_iter().map(|l| div().child(l))))),
             )
             .child(
                 v_flex()

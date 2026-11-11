@@ -70,7 +70,21 @@ impl Col {
     }
 }
 
-fn columns(kind: DatabaseKind) -> Vec<(Col, f32)> {
+fn columns(kind: DatabaseKind, narrow: bool) -> Vec<(Col, f32)> {
+    let all = columns_all(kind);
+    if !narrow {
+        return all;
+    }
+    // Below ~1250 px wide the least used columns move to the detail pane.
+    let drop: &[Col] = match kind.family() {
+        Family::MySql => &[Col::Plugin, Col::Limit, Col::Kind],
+        Family::SqlServer => &[],
+        _ => &[Col::Replication, Col::ValidUntil, Col::Limit],
+    };
+    all.into_iter().filter(|(c, _)| !drop.contains(c)).collect()
+}
+
+fn columns_all(kind: DatabaseKind) -> Vec<(Col, f32)> {
     match kind.family() {
         Family::MySql => vec![
             (Col::Name, 150.),
@@ -162,6 +176,7 @@ pub struct RolesView {
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
     pending: keys::Pending,
+    narrow: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -217,6 +232,7 @@ impl RolesView {
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
             pending: None,
+            narrow: false,
             _subs: vec![sub],
         };
         if kind.unsupported(Feature::Roles).is_none() {
@@ -974,6 +990,7 @@ fn parse_target(mysql: bool, choice: &str, object: &str) -> Result<Target, Strin
 impl Render for RolesView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
+        self.narrow = window.viewport_size().width < px(1250.);
         let body = match self.kind.unsupported(Feature::Roles) {
             Some(why) => self.render_unavailable(why, cx),
             None => self.render_body(window, cx),
@@ -1082,7 +1099,7 @@ impl RolesView {
 
     fn render_body(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let cols = columns(self.kind);
+        let cols = columns(self.kind, self.narrow);
         let head = h_flex()
             .flex_none()
             .h(px(24.))
@@ -1116,7 +1133,7 @@ impl RolesView {
                 "roles-rows",
                 self.shown.len(),
                 cx.processor(move |this, range: Range<usize>, _w, cx| {
-                    let cols = columns(this.kind);
+                    let cols = columns(this.kind, this.narrow);
                     range.map(|i| this.render_row(i, &cols, cx)).collect::<Vec<_>>()
                 }),
             )
@@ -1174,7 +1191,8 @@ impl RolesView {
             .into_any_element()
     }
 
-    fn render_detail(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render_detail(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let short = window.viewport_size().height < px(800.);
         let theme = cx.theme().clone();
         let Some(role) = self.selected_role().cloned() else {
             return div().flex_none().h(px(0.)).into_any_element();
@@ -1230,7 +1248,7 @@ impl RolesView {
         let supports_privs = self.kind.family() != Family::SqlServer;
         v_flex()
             .flex_none()
-            .h(px(250.))
+            .h(px(if short { 214. } else { 250. }))
             .gap_2()
             .p_3()
             .bg(theme.tab_bar)
@@ -1276,7 +1294,7 @@ impl RolesView {
                     .items_stretch()
                     .child(
                         v_flex()
-                            .w(px(320.))
+                            .w(px(if short { 250. } else { 320. }))
                             .flex_none()
                             .gap_1()
                             .child(caption("ATTRIBUTES"))
@@ -1323,7 +1341,7 @@ impl RolesView {
                                             )
                                             .child(
                                                 div()
-                                                    .w(px(220.))
+                                                    .w(px(if short { 170. } else { 220. }))
                                                     .flex_none()
                                                     .truncate()
                                                     .child(p.object.clone()),
@@ -1360,9 +1378,11 @@ impl RolesView {
                 self.error.clone().unwrap_or_else(|| "Changes are shown as SQL and confirmed before they run".to_string()),
             ))
             .child(div().flex_1())
-            .child(div().truncate().child(format!(
-                "{move_keys} move · / filter · r refresh · n new · e alter · w password · m membership · a grant · v revoke · Delete drop"
-            )))
+            .when(!self.narrow, |d| {
+                d.child(div().truncate().child(format!(
+                    "{move_keys} move · / filter · r refresh · n new · e alter · w password · m membership · a grant · v revoke · Delete drop"
+                )))
+            })
             .into_any_element()
     }
 }
@@ -1404,7 +1424,7 @@ mod tests {
 
     #[test]
     fn columns_differ_by_product() {
-        let names = |k| columns(k).into_iter().map(|c| c.0.label()).collect::<Vec<_>>();
+        let names = |k| columns(k, false).into_iter().map(|c| c.0.label()).collect::<Vec<_>>();
         assert!(names(DatabaseKind::Postgres).contains(&"Create DB"));
         assert!(
             names(DatabaseKind::MySql).contains(&"Host") && names(DatabaseKind::MySql).contains(&"Plugin")

@@ -6,7 +6,40 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+### Fixed
+
+- A console run (or `--run`) that contained DDL left the explorer showing the old schema on every product. The
+  catalog is now refreshed once after such a run.
+- `CREATE SPATIAL INDEX` / `FULLTEXT` on MySQL and MariaDB: the DDL engine wrote `USING SPATIAL`, a syntax error
+  (found by the dump round trip). DuckDB views are dumped from the whole `CREATE VIEW` its catalog stores.
+
 ### Added
+
+- **Server administration**: three tools, each reachable from the explorer's connection menu, the command palette
+  and a `:` command, and keyboard-driven in the Helix, Vim and Standard key maps (see the user guide chapter
+  *Administer a server*). Products that cannot do one say why, from the same capability table as everything else
+  (`Feature::Sessions`, `Roles`, `RoleEdit`, `Dump`).
+  - **Sessions** tab (`:sessions`): a live table of server sessions with a filter, sorting, a refresh interval and
+    a pause toggle; sessions that are blocked are highlighted with the session that blocks them, and Cancel Query
+    and Terminate Session confirm with the exact SQL first. PostgreSQL (and TimescaleDB), MySQL / MariaDB, SQL
+    Server and ClickHouse. The tab uses a session of its own, so it keeps working while a console is busy, and it
+    marks Theta's own sessions. Verified live on PostgreSQL 16, MariaDB 10.11 and ClickHouse 18.16.
+  - **Roles** tab (`:roles`): roles and users with their attributes, memberships and privileges grouped by object;
+    create, alter, set password, add to / remove from a role, grant, revoke and drop, each as a form with a live
+    preview and a confirmation. The password is never written to Messages, history or any file (shown as `'***'`),
+    and server errors that echo the statement are cleaned before they are logged. PostgreSQL and MySQL / MariaDB
+    edit; SQL Server lists logins and server roles read-only (unverified).
+  - **Export Database…** (`:dump`) and **Run SQL Script…** (`:script FILE`). The dump is Theta's own, streaming
+    and cancellable: DDL from the DDL engine in dependency order (foreign keys after the data on PostgreSQL and
+    MySQL), data as multi-row `INSERT`s, sequences and identity counters, views. The dialog lists what it does not
+    capture, and offers `pg_dump` / `mysqldump` when installed with the exact command (password in the
+    environment, never in the arguments). Run SQL Script splits the file as it reads it (never loaded whole), stops
+    at the first error or collects them, can run in one transaction, and cancels. Round trips of the demo data are
+    tested on PostgreSQL, MariaDB, SQLite and DuckDB.
+  - `theta_sql::admin` holds the per-product SQL and row mapping, `theta_import::dump`, `script` and `native` the
+    pipelines.
+- **New Table suggests foreign keys** before the table exists: inference runs on the draft
+  (`theta_sql::infer_foreign_keys_for`), with the same heuristics as the catalog-wide inference.
 
 - **Eight more databases.** CockroachDB, Amazon Redshift, TimescaleDB, YugabyteDB and TiDB (they reuse the
   PostgreSQL and MySQL drivers, each with its own descriptor, URL schemes, icon and the handling its

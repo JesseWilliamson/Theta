@@ -7,7 +7,7 @@ examples use the demo database (`theta --demo`).
 
 Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH tunnel](#connect-through-an-ssh-tunnel) ·
 [Explorer](#the-explorer) · [Write and run SQL](#write-and-run-sql) · [Transactions](#transactions) ·
-[Editor keys](#editor-keys) · [Vim keymap](#vim-keymap) · [Results grid](#the-results-grid) · [Edit data](#edit-data-safely) ·
+[Editor keys](#editor-keys) · [Vim keymap](#vim-keymap) · [Results grid](#the-results-grid) · [Edit data](#edit-data-safely) · [Administer a server](#administer-a-server) ·
 [Explain](#explain-and-query-plans) · [Map](#the-map) · [Messages and history](#messages-and-history) ·
 [Themes](#themes) · [Settings](#settings) · [Command palette](#the-command-palette) ·
 [Troubleshooting](#troubleshooting)
@@ -646,6 +646,115 @@ button: click it, or press `Tab` to move to it and `Space`.
 From the command line, `theta --connect URL --modify [SCHEMA.]TABLE` and `--new-table [SCHEMA]` open the editor
 as soon as the connection and its catalog are ready; in the Helix and Vim key maps `:table new [SCHEMA]` and
 `:table modify [SCHEMA.]TABLE` do the same from a console.
+
+## Administer a server
+
+Three tools for the server rather than the data, all in the explorer's connection menu (right-click a connected
+connection), the command palette (*Server* section) and as `:` commands. A product that cannot do one shows the
+reason when you choose it (for example *an embedded database runs inside Theta's own process and has no server
+sessions to list*); nothing is sent. They are keyboard-driven in all three key maps; the keys are in
+[KEYBINDINGS.md](KEYBINDINGS.md#sessions-and-roles-tabs). The tabs are not editors: *Run* (`mod-enter`, `F5`) in one
+refreshes it.
+
+![Sessions](screenshots/17-sessions.png)
+
+### Sessions
+
+*Sessions…* or `:sessions` opens a tab with a live table of the server's sessions: id, user, database, client,
+application, state, what it waits for, transaction age, query age and the current query. The detail pane under
+the table shows the selected session in full with the whole statement, and has *Copy* and *Open in Console*.
+
+- **Refresh**: every 1 to 60 seconds (the box in the header; `i` steps it), *Pause* (`p`) stops the timer and
+  *Refresh* (`r`) reads now. The tab opens a session of its own, so it keeps updating while a console runs a long
+  statement, and it can cancel that very statement.
+- **Filter and sort**: `/` focuses the filter (every word must match some field); click a column header, or `s`
+  / `S`, to sort. Your selection follows the session, not the row, across refreshes.
+- **Blocking**: a session that waits for another is tinted and its wait column says *blocked by 4321*; the
+  blocker is marked *blocking* in red and the header counts *N blocked*. The detail pane names who blocks whom.
+  PostgreSQL uses `pg_blocking_pids`; MySQL and MariaDB read the InnoDB lock waits (`INNODB_LOCK_WAITS`, or
+  `performance_schema.data_lock_waits` on MySQL 8; if they cannot be read the footer says so and the list still
+  works); SQL Server reports the blocking id on the request; ClickHouse has no locks to show.
+- **Cancel Query** (`c`) and **Terminate Session** (`x`) show the exact statement and what it does before they
+  run: `SELECT pg_cancel_backend(pid)` / `pg_terminate_backend`, `KILL QUERY id` / `KILL id`, SQL Server `KILL id`,
+  ClickHouse `KILL QUERY WHERE query_id = '…'`. A session that is one of Theta's own (a ● after the id: this tab's
+  session, or the one your consoles use) says so in the confirmation. The id is checked before it goes into SQL.
+- **Per product**: SQL Server has no statement that cancels only the running query (`KILL` ends the session), so
+  *Cancel Query* is disabled there with that reason; ClickHouse has queries, not sessions, so only *Cancel Query*
+  exists. PostgreSQL lists client backends (PostgreSQL 10 or later). Not available: SQLite and DuckDB (embedded),
+  CockroachDB, Redshift, YugabyteDB, TiDB (their catalogs differ; the reason is shown).
+
+### Roles and users
+
+![Roles](screenshots/18-roles.png)
+
+*Roles and Users…* or `:roles` lists roles (PostgreSQL: login, superuser, create DB / role, replication, connection
+limit, valid until, member of; system `pg_` roles are hidden until *Show system roles* / `t`) or accounts (MySQL
+and MariaDB: host, user or role, superuser, locked, plugin, password expiry, connection limit, member of). The
+pane below shows the selected one: attributes, memberships and its **privileges grouped by object** (database,
+schema, table, sequence, column grants as `SELECT (a, b)`; PostgreSQL also lists what the role owns). Only explicit
+grants are listed, not the defaults that apply to `PUBLIC`.
+
+The buttons and keys (`n` new, `e` / `enter` alter, `w` password, `m` membership, `a` grant, `v` revoke,
+`delete` drop) open a small form. The form shows the SQL it will run as you type, and *Review…* (or `enter` in a
+field) opens a confirmation with the same statement; nothing runs before it. Grant and revoke take the object
+(`schema.table`, a schema, a database; `db.table` or `db` on MySQL) and a comma-separated list of privileges that is
+checked against the product's list. Drop on PostgreSQL first counts what the role owns and holds and warns that
+PostgreSQL will refuse until that is reassigned (`REASSIGN OWNED BY`, `DROP OWNED BY`).
+
+**Passwords.** The password field is masked, the preview and the confirmation show `'***'`, the Messages panel
+records the statement the same way, no history entry or console is written, and if the server's error echoes the
+statement (MySQL quotes the part it could not parse) the password is replaced before the error is logged. What
+Theta cannot control: the *server* may log statements (`log_statement` in PostgreSQL, the general log in MySQL),
+and PostgreSQL receives the password in clear text unless you hash it yourself.
+
+Which products: PostgreSQL and TimescaleDB, MySQL and MariaDB edit; SQL Server lists server logins and server
+roles with their memberships, read-only (the `sys.server_principals` views; unverified, see below); the others are
+disabled with a reason. Privilege and membership statements need privileges of yours: the server's refusal
+(MariaDB: *GRANT command denied*) is shown as it comes.
+
+### Export a database
+
+*Export Database…* or `:dump` writes a SQL file with Theta's own dump: choose the tables and views, *Structure and
+data*, *Structure only* or *Data only*, rows per `INSERT`, and whether to write schema names (off by default for
+one schema, so the file restores into any schema or database you point the session at). It is streamed: each
+table is read page by page by primary key and written as multi-row `INSERT`s, memory stays at one page, *Cancel*
+leaves no file, and the file appears (renamed from `.part`) only when it is complete.
+
+The file contains: tables with columns, defaults, identity, primary / unique / check constraints, indexes, comments;
+foreign keys (after the data on PostgreSQL and MySQL; inline, tables in dependency order, on SQLite and DuckDB;
+a key into a table you did not choose is left out and listed); views (from their definitions, ordered by
+dependency); on PostgreSQL the sequences that `serial` defaults use and the identity / sequence counters after
+the data. **What it does not contain** is shown in the dialog and written in the file header; the list depends
+on the product:
+
+- all: users, roles and grants; view data (a view is recreated from its definition).
+- PostgreSQL: functions, procedures and triggers; extensions (a restore needs `CREATE EXTENSION` first, for
+  example PostGIS), custom types (columns of an enum or domain type fail unless the type exists); ownership;
+  materialized views, partitioning, row-level security, tablespaces; sequences no column uses.
+- MySQL / MariaDB: stored routines, triggers, events; view `DEFINER`; partitioning; engine and charset options;
+  executable comments (`/*! … */`).
+- SQLite: triggers and virtual tables. DuckDB: macros, types, extensions; sequence positions.
+
+When `pg_dump` (PostgreSQL) or `mysqldump` / `mariadb-dump` is found on `PATH`, *Use pg_dump instead* is offered:
+that is the complete native format. The exact command line is shown; the password is passed in `PGPASSWORD` /
+`MYSQL_PWD`, never as an argument. It is off for connections through an SSH tunnel, whose host and port the tool
+would not use. Not available (built-in dump): SQL Server, ClickHouse, CockroachDB, Redshift, YugabyteDB, TiDB, whose DDL is not
+verified or needs engine-specific clauses; the reason is shown.
+
+### Run a SQL script
+
+*Run SQL Script…* or `:script [FILE]` runs a `.sql` file on the connection's session, statement by statement, using
+the same splitter as the editor (strings, comments, dollar-quoting, `GO` on SQL Server). The file is read in pieces,
+never loaded whole; the dialog shows the statement number, the bytes read of the total and the current statement.
+
+- *Stop at the first error* (default) or keep going and list the errors with their line numbers.
+- *Run in one transaction* rolls everything back if anything fails (off with a reason where there are no
+  transactions: ClickHouse). On MySQL and MariaDB DDL commits implicitly, so only the data statements are covered.
+- *Cancel* stops the running statement and the loop; a single transaction is rolled back.
+- It runs on the shared session of the connection, so `SET search_path` / `USE` typed in a console first apply: this
+  is how a dump is restored into a scratch schema. When it ends, the explorer refreshes.
+- Not supported: `COPY … FROM stdin` blocks (pg_dump's default format; re-create the dump with `--inserts`),
+  `DELIMITER` blocks (mysqldump routines) and `/*! … */` executable comments, which the splitter treats as comments.
 
 ## Explain and query plans
 

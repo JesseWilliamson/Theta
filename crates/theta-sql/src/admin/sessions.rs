@@ -603,7 +603,9 @@ mod tests {
 
     #[test]
     fn unavailable_actions_name_their_reason_without_an_id() {
-        assert!(action_unavailable(DatabaseKind::ClickHouse, Action::Terminate).unwrap().contains("only Cancel"));
+        assert!(
+            action_unavailable(DatabaseKind::ClickHouse, Action::Terminate).unwrap().contains("only Cancel")
+        );
         assert!(action_unavailable(DatabaseKind::SqlServer, Action::Cancel).is_some());
         assert!(action_unavailable(DatabaseKind::Postgres, Action::Cancel).is_none());
         assert!(action_unavailable(DatabaseKind::MySql, Action::Terminate).is_none());

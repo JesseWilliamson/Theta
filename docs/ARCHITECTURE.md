@@ -441,6 +441,37 @@ own. What makes that cheap is that a *kind* and a *dialect* are different things
 - **ClickHouse**: the HTTP interface through `ureq` (`clickhouse.rs`); results are
   `TabSeparatedWithNamesAndTypes` parsed by type; sessions make `SET` stick; cancel is `KILL QUERY`.
 
+### Added in 0.1.0-alpha.7 (part 2): server administration
+
+Three tools that work on the server instead of the data. Each follows the rule of the rest of the codebase: the
+decisions are pure functions with unit tests, the view only paints and asks, and what a product cannot do is a
+reason in the capability table.
+
+- **Capabilities.** `Feature::Sessions`, `Roles`, `RoleEdit` and `Dump` (`crates/theta-core/src/config.rs`) with a reason per
+  product; `Workspace::refuse_unsupported` shows it. SQL Server has `Roles` but not `RoleEdit` (read-only).
+- **`theta_sql::admin`** (pure): `sessions.rs` has one list query per product with the same aliased columns, one parser,
+  `apply_blockers` for MySQL's second query, `kill_statement` (the id is validated, never concatenated) and the
+  sort / filter used by the view; `roles.rs` has the role and privilege queries, `parse_show_grants`, and the
+  statements that change roles as a `Change` whose `sql` goes to the server and whose `shown` goes everywhere else
+  (`Change::scrub` cleans a server error; `Debug` never prints the password). Where a MySQL and a MariaDB query
+  differ the server banner decides (`MariaDB` in it).
+- **`theta_import::dump`**: `plan` is pure (topological order by foreign keys, keys inline or after the data per
+  product, sequences, identity counters, views, notes) and `dump` streams it through `export_table` with the
+  `SqlInsertsMulti` format. `not_captured` is the list the dialog and the file header print. **`script`**:
+  `StatementStream` re-uses `split_statements` on a buffer and holds the last statement back until more text
+  arrives, re-splitting only when the buffer doubles; `run_script` is the loop (stop / continue, transaction,
+  cancel, progress). **`native`** builds the `pg_dump` / `mysqldump` command (password in the environment).
+  `crates/theta-import/tests/dump_roundtrip.rs` dumps the demo data, restores it into a scratch schema and compares
+  columns, keys, indexes, row counts and a checksum of every row (PostgreSQL, MariaDB, SQLite; DuckDB with
+  `--features duckdb`).
+- **The tabs** are `crates/theta/src/admin/`: `keys.rs` (the key table, pure, with the collision test),
+  `sessions.rs` and `roles.rs` (views that emit `AdminEvent`s and own a `SideConnection`, a session opened with
+  `ConnectionStore::open_side_connection` so a busy console cannot block them), `form.rs` (a generic form with a
+  live preview). `workspace/admin_tabs.rs` hosts them as `ConsoleTab::admin`, handles the events (Messages,
+  notices, Open in Console), and has the `:` commands. `dialogs/dump.rs` and `dialogs/script.rs` are the two dialogs.
+  Because *Run* arrives inside a workspace update, a view must not read the workspace from `refresh`
+  (`refresh_with(console_busy)`); `admin_tests.rs` covers it.
+
 ## Status
 
 0.1.0-alpha.6 is the sixth pre-release (0.1.0-alpha.1 to -alpha.5 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense

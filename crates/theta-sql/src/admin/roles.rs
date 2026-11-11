@@ -468,7 +468,10 @@ pub struct Change {
 // Never derive `Debug` here: a `{:?}` in a log line or a panic message would print the password.
 impl std::fmt::Debug for Change {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Change").field("shown", &self.shown).field("summary", &self.summary).finish_non_exhaustive()
+        f.debug_struct("Change")
+            .field("shown", &self.shown)
+            .field("summary", &self.summary)
+            .finish_non_exhaustive()
     }
 }
 
@@ -1178,7 +1181,8 @@ mod tests {
     fn a_change_never_prints_its_password() {
         let c = set_password(PG, &pg_role("app"), "hunter2-xyz").unwrap();
         assert!(!format!("{c:?}").contains("hunter2"), "Debug must not show the password");
-        let echoed = "ERROR: syntax error at or near \"hunter2-xyz\" in ALTER ROLE app PASSWORD 'hunter2-xyz'";
+        let echoed =
+            "ERROR: syntax error at or near \"hunter2-xyz\" in ALTER ROLE app PASSWORD 'hunter2-xyz'";
         assert!(!c.scrub(echoed).contains("hunter2"));
         assert_eq!(c.scrub("nothing to hide"), "nothing to hide");
     }

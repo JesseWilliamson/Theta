@@ -34,18 +34,27 @@ use theta_sql::admin::sessions::{self as logic, Action, Queries, Session, Sessio
 use theta_ui::{ROW_HEIGHT, Settings, data_surface};
 
 /// (column, width in px; 0 = takes the rest).
-const COLUMNS: [(SessionColumn, f32); 10] = [
-    (SessionColumn::Id, 64.),
-    (SessionColumn::User, 104.),
-    (SessionColumn::Database, 104.),
-    (SessionColumn::Client, 140.),
-    (SessionColumn::Application, 96.),
-    (SessionColumn::State, 130.),
-    (SessionColumn::Wait, 190.),
-    (SessionColumn::TxnAge, 84.),
-    (SessionColumn::QueryAge, 84.),
-    (SessionColumn::Query, 0.),
-];
+/// The columns for the window width: below this width Database, Client and Application move to the detail
+/// pane (they are all there) so the rest keep their room and nothing is cut off.
+fn columns(narrow: bool) -> Vec<(SessionColumn, f32)> {
+    use SessionColumn::*;
+    if narrow {
+        vec![(Id, 64.), (User, 90.), (State, 112.), (Wait, 150.), (TxnAge, 72.), (QueryAge, 72.), (Query, 0.)]
+    } else {
+        vec![
+            (Id, 64.),
+            (User, 104.),
+            (Database, 104.),
+            (Client, 140.),
+            (Application, 96.),
+            (State, 130.),
+            (Wait, 190.),
+            (TxnAge, 84.),
+            (QueryAge, 84.),
+            (Query, 0.),
+        ]
+    }
+}
 
 pub struct SessionsView {
     conn_id: String,
@@ -73,6 +82,7 @@ pub struct SessionsView {
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
     pending: keys::Pending,
+    narrow: bool,
     _timer: Option<Task<()>>,
     _subs: Vec<Subscription>,
 }
@@ -155,6 +165,7 @@ impl SessionsView {
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
             pending: None,
+            narrow: false,
             _timer: None,
             _subs: subs,
         };
@@ -571,6 +582,7 @@ impl Render for SessionsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let surface = data_surface(cx);
+        self.narrow = window.viewport_size().width < px(1250.);
         let body = match &self.queries {
             Err(why) => self.render_unavailable(why, cx),
             Ok(_) => self.render_body(window, cx),
@@ -676,7 +688,7 @@ impl SessionsView {
             .bg(theme.tab_bar)
             .border_b_1()
             .border_color(theme.border)
-            .children(COLUMNS.iter().map(|(c, w)| {
+            .children(columns(self.narrow).iter().map(|(c, w)| {
                 let col = *c;
                 let active = self.sort.0 == col;
                 sized(*w)
@@ -769,7 +781,7 @@ impl SessionsView {
                 window.focus(&this.focus, cx);
                 cx.notify();
             }))
-            .children(COLUMNS.iter().map(|(c, w)| {
+            .children(columns(self.narrow).iter().map(|(c, w)| {
                 let mut text = cell_text(&s, *c);
                 if *c == SessionColumn::Id && s.is_self {
                     text.push_str(" ●");
@@ -793,7 +805,8 @@ impl SessionsView {
             .into_any_element()
     }
 
-    fn render_detail(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render_detail(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let short = window.viewport_size().height < px(800.);
         let theme = cx.theme().clone();
         let mono = Settings::get(cx).buffer_font_family.clone();
         let Some(s) = self.selected_session().cloned() else {
@@ -836,7 +849,7 @@ impl SessionsView {
         };
         v_flex()
             .flex_none()
-            .h(px(238.))
+            .h(px(if short { 196. } else { 238. }))
             .gap_2()
             .p_3()
             .bg(theme.tab_bar)
@@ -954,7 +967,8 @@ impl SessionsView {
                 d.child(div().truncate().text_color(theme.warning).child(n))
             })
             .child(div().flex_1())
-            .child(div().truncate().text_color(theme.muted_foreground).child(keys))
+            // Below ~1250 px the legend would be cut off; the keys are in the user guide and the palette.
+            .when(!self.narrow, |d| d.child(div().truncate().text_color(theme.muted_foreground).child(keys)))
             .into_any_element()
     }
 }

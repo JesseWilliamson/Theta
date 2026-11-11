@@ -185,6 +185,37 @@ In a cell editor: `enter` applies, `esc` cancels, `tab` / `shift-tab` apply and 
 up / down arrows choose a suggestion. In the column list (`enter` on a *Columns* cell): `up` / `down` (`k` /
 `j`), `space` or `x` chooses, `alt-up` / `alt-down` orders the chosen columns, `enter` or `esc` closes.
 
+## Sessions and Roles tabs
+
+The Sessions and Roles tabs (see [Administer a server](USER_GUIDE.md#administer-a-server)) are lists with a filter box.
+They add **no** global chord: `mod-w` still closes the tab and *Run* (`mod-enter`, `F5`) refreshes it. Every
+other key is a plain key handled by the tab while its list has focus, and is the same in the Helix, Vim and
+Standard key maps (the tabs have no text to edit, so the Standard map needs no chords); Helix and Vim add `j` /
+`k` / `gg` / `G`. A test (`no_global_binding_takes_a_plain_key_used_here`) checks that none of them is also a
+global binding, and `a_password_never_reaches_messages_history_or_files` and `keys_drive_the_sessions_tab` drive
+the tabs through the workspace.
+
+| Keys | Sessions | Roles |
+| --- | --- | --- |
+| arrows, `pageup` / `pagedown`, `home` / `end`; `j` `k` `gg` `G` (Helix, Vim) | move the selection | move the selection |
+| `/` | focus the filter (`enter` returns to the list, `esc` clears it) | same |
+| `r` | refresh now | reload roles and privileges |
+| `p` / `i` | pause / resume; step the refresh interval | |
+| `s` / `shift-s` | sort by the next column / reverse | |
+| `c` / `x` | Cancel Query / Terminate Session (each confirms with the SQL) | |
+| `y` / `o` | copy the query / open it in a console | `y` copies the name |
+| `enter` | | alter attributes |
+| `n` `e` `w` `m` `a` `v` | | new role · alter · set password · membership · grant · revoke |
+| `delete`, `shift-d` | | drop the role (confirms; PostgreSQL warns about owned objects) |
+| `t` | | show / hide system roles (PostgreSQL) |
+
+In the role forms: `tab` moves between fields, `enter` in a field reviews the statement (when it is valid),
+`esc` closes. In every confirmation `tab` walks the buttons and `space` presses one, as everywhere.
+
+Palette commands (section *Server*): *Sessions…*, *Roles and Users…*, *Export Database…*, *Run SQL Script…*.
+Host commands (`:` in the editor, any key map): `:sessions`, `:roles`, `:dump`, `:script [FILE]` (also `:source`,
+`:restore`), all on the active connection.
+
 ## Pickers and the command palette
 
 The command palette, table picker, connection picker, theme picker and related-tables picker share these

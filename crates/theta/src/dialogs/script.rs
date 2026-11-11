@@ -79,6 +79,7 @@ pub fn open(
         }
     });
     let for_cancel = view.clone();
+    let shown = view.clone();
     window.open_dialog(cx, move |dialog, _, cx| {
         let for_cancel = for_cancel.clone();
         dialog
@@ -88,7 +89,11 @@ pub fn open(
             .overlay_closable(false)
             .on_ok(|_, _, _| false)
             .on_cancel(move |_, _, cx| for_cancel.update(cx, |v, cx| v.escape(cx)))
-            .child(view.clone())
+            .child(shown.clone())
+    });
+    window.defer(cx, move |window, cx| {
+        let input = view.read(cx).path.clone();
+        input.update(cx, |s, cx| s.focus(window, cx));
     });
 }
 
