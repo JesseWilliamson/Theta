@@ -193,12 +193,13 @@ impl Workspace {
         }));
     }
 
-    fn save_console_now(&mut self, id: u64, cx: &mut Context<Self>) {
-        let Some(order) = self.tabs.iter().position(|t| t.id == id) else { return };
+    /// Everything needed to bring console `id` back: text, connection, cursor, file.
+    pub(super) fn snapshot_console(&self, id: u64, cx: &App) -> Option<consoles::SavedConsole> {
+        let order = self.tabs.iter().position(|t| t.id == id)?;
         let tab = &self.tabs[order];
-        let Some(c) = self.consoles.get(&id) else { return };
+        let c = self.consoles.get(&id)?;
         let ed = c.editor.read(cx);
-        let saved = consoles::SavedConsole {
+        Some(consoles::SavedConsole {
             key: c.key.clone(),
             order,
             title: tab.title.to_string(),
@@ -207,8 +208,26 @@ impl Workspace {
             cursor: ed.editor().cursor_of(&ed.editor().primary()),
             active: self.active_tab == Some(id),
             file: c.file.clone(),
+        })
+    }
+
+    fn save_console_now(&mut self, id: u64, cx: &mut Context<Self>) {
+        if let Some(saved) = self.snapshot_console(id, cx) {
+            let _ = consoles::save(&self.data_dir.join("consoles"), &saved);
+        }
+    }
+
+    /// Bring back the most recently closed console (text, connection, cursor, file).
+    pub(super) fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = consoles::pop_closed(&consoles::closed_dir(&self.data_dir)) else {
+            self.notify(NoticeKind::Info, "No closed tab to reopen", window, cx);
+            return;
         };
-        let _ = consoles::save(&self.data_dir.join("consoles"), &saved);
+        let conn = s.connection_id.filter(|c| self.store.read(cx).config(c).is_some());
+        // The key is free again: the old console's file was removed when it closed.
+        let id = self.create_console(s.key, s.title, conn, s.text, s.cursor, s.file, window, cx);
+        self.activate_tab(id, window, cx);
+        self.save_all_consoles(cx);
     }
 
     pub(super) fn on_console_activated(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
@@ -361,6 +380,7 @@ impl Workspace {
                     }
                 }
             }
+            "reopen" | "reopen-tab" => self.reopen_closed_tab(window, cx),
             "run" => self.run_request(self.active_tab.unwrap_or(0), RunReq::Statement, window, cx),
             "format" | "fmt" => self.format_console(self.active_tab.unwrap_or(0), false, window, cx),
             "open" | "e" => self.open_sql_file(window, cx),

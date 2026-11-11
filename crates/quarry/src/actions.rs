@@ -15,6 +15,7 @@ actions!(
         ToggleExplorer,
         ToggleBottomPanel,
         CloseTab,
+        ReopenClosedTab,
         NextTab,
         PreviousTab,
         FocusExplorer,

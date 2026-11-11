@@ -23,6 +23,9 @@ mod tabs;
 mod title_bar;
 mod welcome;
 
+#[cfg(test)]
+mod shortcut_tests;
+
 use crate::actions::*;
 use crate::connections::{ConnState, ConnectionStore, NoticeKind, StoreEvent};
 use crate::exec::history::HistoryStore;
@@ -369,9 +372,17 @@ impl Workspace {
 
     pub fn close_tab(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some(pos) = self.tabs.iter().position(|t| t.id == id) else { return };
+        // Closing must never silently lose work: the console goes on the reopen stack first.
+        let saved = self.snapshot_console(id, cx);
         self.tabs.remove(pos);
         self.console_views.remove(&id);
         if let Some(c) = self.consoles.remove(&id) {
+            if let Some(saved) = saved {
+                let _ = crate::exec::consoles::push_closed(
+                    &crate::exec::consoles::closed_dir(&self.data_dir),
+                    &saved,
+                );
+            }
             crate::exec::consoles::remove(&self.data_dir.join("consoles"), &c.key);
         }
         cx.emit(WorkspaceEvent::ConsoleClosed { tab_id: id });
@@ -883,6 +894,9 @@ impl Render for Workspace {
                     this.request_close_tab(id, window, cx);
                 }
             }))
+            .on_action(
+                cx.listener(|this, _: &ReopenClosedTab, window, cx| this.reopen_closed_tab(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.cycle_tab(1, window, cx)))
             .on_action(cx.listener(|this, _: &PreviousTab, window, cx| this.cycle_tab(-1, window, cx)))
             .on_action(cx.listener(|this, _: &FocusExplorer, window, cx| {

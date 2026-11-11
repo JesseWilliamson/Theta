@@ -48,6 +48,7 @@ fn commands() -> Vec<Command> {
         cmd!("Focus Editor", "View", IconName::SquareTerminal, FocusEditor),
         cmd!("Focus Results", "View", IconName::Table, FocusResults),
         cmd!("Close Tab", "View", IconName::X, CloseTab),
+        cmd!("Reopen Closed Tab", "View", IconName::Undo2, ReopenClosedTab),
         cmd!("Select Theme…", "Appearance", IconName::Palette, SelectTheme),
         cmd!("Import Zed Theme…", "Appearance", IconName::FileDown, ImportZedTheme),
         cmd!("Toggle Keymap (Helix / Standard)", "Appearance", IconName::Keyboard, ToggleKeymap),
