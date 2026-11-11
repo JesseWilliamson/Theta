@@ -45,7 +45,20 @@ async fn pg() -> Option<Box<dyn Connection>> {
     let mut c = ConnectionConfig::new("t", "pg", DatabaseKind::Postgres);
     (c.host, c.user, c.password, c.database) =
         ("127.0.0.1".into(), "postgres".into(), Some("postgres".into()), "quarry_demo".into());
-    Some(theta_drivers::connect(&c).await.expect("postgres"))
+    let conn = theta_drivers::connect(&c).await.expect("postgres");
+    ensure_demo(conn.as_ref()).await;
+    Some(conn)
+}
+
+/// The round trips dump the seeded demo tables. A developer's database has them; a fresh CI service
+/// does not, so seed once there. The lock keeps parallel tests from seeding the same database twice
+/// (seeding drops and recreates the tables).
+async fn ensure_demo(conn: &dyn Connection) {
+    static SEEDING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one_at_a_time = SEEDING.lock().await;
+    if conn.execute("SELECT 1 FROM customers WHERE 1 = 0", &ExecOptions::default()).await.is_err() {
+        theta_drivers::demo::seed(conn).await.expect("seed the demo data");
+    }
 }
 
 async fn mysql() -> Option<Box<dyn Connection>> {
@@ -56,7 +69,9 @@ async fn mysql() -> Option<Box<dyn Connection>> {
     let mut c = ConnectionConfig::new("t", "my", DatabaseKind::MySql);
     (c.host, c.user, c.password, c.database) =
         ("127.0.0.1".into(), "quarry".into(), Some("quarry".into()), "quarry_demo".into());
-    Some(theta_drivers::connect(&c).await.expect("mysql"))
+    let conn = theta_drivers::connect(&c).await.expect("mysql");
+    ensure_demo(conn.as_ref()).await;
+    Some(conn)
 }
 
 async fn sqlite(path: &std::path::Path) -> Box<dyn Connection> {
