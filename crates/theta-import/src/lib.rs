@@ -7,13 +7,17 @@
 pub mod convert;
 pub mod decode;
 pub mod infer;
+pub mod job;
 pub mod parser;
 pub mod plan;
+pub mod run;
 pub mod scalar;
 pub mod sniff;
 
 pub use convert::{ConvertError, ConvertOptions, Target, convert};
 pub use decode::Encoding;
 pub use infer::{ColumnType, TypeInferer};
+pub use job::*;
 pub use parser::{CsvOptions, CsvReader, Field, ParseError, Record};
+pub use run::{Item, RowReader, run_import, validate};
 pub use sniff::{Sniffed, sniff};
