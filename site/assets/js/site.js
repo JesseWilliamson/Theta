@@ -19,18 +19,17 @@
   $$("a[data-repo]").forEach(function (a) { a.href = REPO + a.getAttribute("data-repo"); });
 
   /* ---------- theme toggle ---------- */
+  // Dark is the default for everyone; the system colour scheme is not consulted. The head script has
+  // already applied an explicit "light" choice, so the only state is the data-theme attribute.
   var themeBtn = $(".theme-toggle");
-  function effectiveTheme() {
-    var t = root.getAttribute("data-theme");
-    if (t) return t;
-    return window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-  }
+  function effectiveTheme() { return root.getAttribute("data-theme") === "light" ? "light" : "dark"; }
   function syncThemeUi() {
-    if (!themeBtn) return;
     var now = effectiveTheme();
-    themeBtn.setAttribute("aria-label", "Switch to " + (now === "dark" ? "light" : "dark") + " theme");
+    if (themeBtn) themeBtn.setAttribute("aria-label", "Switch to " + (now === "dark" ? "light" : "dark") + " theme");
     var meta = $('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", now === "dark" ? "#181b1f" : "#f6f4ef");
+    if (meta) meta.setAttribute("content", now === "dark" ? "#111216" : "#f6f4ef");
+    var scheme = $('meta[name="color-scheme"]');
+    if (scheme) scheme.setAttribute("content", now);
   }
   if (themeBtn) {
     themeBtn.addEventListener("click", function () {
@@ -41,6 +40,18 @@
     });
     syncThemeUi();
   }
+
+  /* ---------- single-key shortcuts: <a data-key="d"> is followed when its key is pressed ---------- */
+  doc.addEventListener("keydown", function (e) {
+    var t = e.target;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented || e.repeat) return;
+    if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+    // A focused control keeps its own keys: Space and Enter must still activate a focused button.
+    var a = $('a[data-key="' + e.key.toLowerCase() + '"]');
+    if (!a || (e.key.length !== 1)) return;
+    e.preventDefault();
+    a.click();
+  });
 
   /* ---------- mobile menu ---------- */
   var menuBtn = $(".menu-btn"), links = $("#nav-links");

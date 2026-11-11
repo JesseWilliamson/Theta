@@ -1,0 +1,24 @@
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#111216">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="preload" href="assets/fonts/{{SERIF}}-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/site.css">
+<script>
+  // Runs before first paint. The site is dark for everyone: the system colour scheme is deliberately ignored,
+  // and the only thing read here is a choice the visitor made with the toggle. Storage can throw (private
+  // windows), hence try/catch.
+  (function () {
+    var d = document.documentElement;
+    d.classList.add("js");
+    try {
+      if (localStorage.getItem("theta-theme") === "light") {
+        d.setAttribute("data-theme", "light");
+        document.querySelector('meta[name="color-scheme"]').content = "light";
+        document.querySelector('meta[name="theme-color"]').content = "#f6f4ef";
+      }
+    } catch (e) {}
+  })();
+</script>
