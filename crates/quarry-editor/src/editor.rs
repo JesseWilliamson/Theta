@@ -563,6 +563,11 @@ impl Editor {
         self.vim.opts.clipboard_unnamed = on;
     }
 
+    /// The Vim register a `q{a-z}` macro is being recorded into, for a status bar indicator.
+    pub fn recording_register(&self) -> Option<char> {
+        if self.keymap == Keymap::Vim { self.vim.macro_rec.as_ref().map(|(r, _)| *r) } else { None }
+    }
+
     pub fn prompt(&self) -> Option<Prompt<'_>> {
         self.prompt.as_ref().map(|p| Prompt { prefix: &p.prefix, text: &p.text, cursor: p.cursor })
     }
@@ -764,6 +769,17 @@ impl Editor {
         match self.keymap {
             Keymap::Helix => self.helix_key(k),
             Keymap::Standard => self.standard_key(k),
+            // `canon` folds shift into the case of the char, and Vim's ctrl handling ignores case
+            // (ctrl-E is ctrl-e). A host chord such as ctrl-shift-f (Format Document) must not be
+            // taken for ctrl-f (page down), so ctrl + an uppercase letter is not a Vim key.
+            Keymap::Vim
+                if matches!(k.key, crate::keys::Key::Char(c) if c.is_ascii_uppercase())
+                    && k.modifiers.ctrl
+                    && !k.modifiers.alt
+                    && !k.modifiers.platform =>
+            {
+                false
+            }
             Keymap::Vim => self.vim_key(k),
         }
     }
