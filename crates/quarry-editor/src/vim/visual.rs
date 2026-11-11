@@ -250,9 +250,7 @@ impl Editor {
                     }
                     _ => o.end,
                 };
-                if sel.is_none() {
-                    nv.anchor = o.start;
-                } else if o.start < nv.anchor.min(nv.cursor) {
+                if sel.is_none() || o.start < nv.anchor.min(nv.cursor) {
                     nv.anchor = o.start;
                 }
                 nv.cursor = end;
@@ -435,7 +433,7 @@ impl Editor {
             Simple::Dot | Simple::RecordStart(_) | Simple::RecordStop | Simple::Play(_) => {
                 self.exec_simple(s, reg, count)
             }
-            Simple::Esc | Simple::Nop => {}
+            Simple::Nop => {}
             Simple::Scroll(_) | Simple::JumpBack | Simple::JumpForward | Simple::SetMark(_) => {
                 self.exec_simple(s, reg, count)
             }

@@ -35,10 +35,6 @@ pub(crate) fn has_term(t: Text, l: usize) -> bool {
     text::eol_len(t, l.min(nlines(t) - 1)) > 0 || lnext(t, l) > lend(t, l)
 }
 
-pub(crate) fn term_len(t: Text, l: usize) -> usize {
-    lnext(t, l) - lend(t, l)
-}
-
 pub(crate) fn line_of(t: Text, pos: usize) -> usize {
     t.char_to_line(pos.min(t.len_chars())).min(nlines(t) - 1)
 }

@@ -7,7 +7,9 @@
 
 use regex::{Regex, RegexBuilder};
 
+// the variant names are Vim's own terms (`\v`, `\m`, `\M`, `\V`)
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 enum Magic {
     VeryMagic,
     Magic,
@@ -463,7 +465,7 @@ pub(crate) fn expand(parts: &[Rep], caps: &regex::Captures) -> String {
     let mut out = String::new();
     let mut span: Option<bool> = None;
     let mut one: Option<bool> = None;
-    let mut push = |s: &str, out: &mut String, span: Option<bool>, one: &mut Option<bool>| {
+    let push = |s: &str, out: &mut String, span: Option<bool>, one: &mut Option<bool>| {
         for c in s.chars() {
             let up = one.take().or(span);
             match up {

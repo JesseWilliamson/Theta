@@ -318,7 +318,7 @@ impl Editor {
         force: Option<char>,
     ) {
         if let Motion::SearchPrompt { fwd } = m {
-            self.vim.search_op = Some(SearchOp { op, reg, count, force });
+            self.vim.search_op = Some(SearchOp { op, reg, force });
             self.vim.search_dir_fwd = fwd;
             self.open_prompt(
                 PromptKind::Search { backwards: !fwd },
@@ -497,11 +497,9 @@ impl Editor {
         // line with nothing but blanks after it deletes whole lines (see :help d-special)
         if op == Op::Delete && r.kind == RK::Char && !r.visual && r.l1 > r.l0 {
             let le = lend(t, line_of(t, r.end));
-            if r.end >= le || (r.end..le).all(|i| is_blank_char(t.char(i))) {
-                if start_in_indent(t, r.start) {
-                    let l1 = line_of(t, r.end);
-                    r = region_lines(t, r.l0, l1, r.cur);
-                }
+            if (r.end >= le || (r.end..le).all(|i| is_blank_char(t.char(i)))) && start_in_indent(t, r.start) {
+                let l1 = line_of(t, r.end);
+                r = region_lines(t, r.l0, l1, r.cur);
             }
         }
         let rg = self.region_reg(&r);
@@ -702,7 +700,7 @@ impl Editor {
             let w = indent_width(t, l);
             let nw = if right { w + 4 * times } else { w.saturating_sub(4 * times) };
             let new = " ".repeat(nw);
-            if t.slice(ls..ws_end).to_string() != new {
+            if t.slice(ls..ws_end) != new {
                 changes.push(Change { from: ls, to: ws_end, text: new });
             }
         }
@@ -928,7 +926,7 @@ impl Editor {
                 }
                 if !extra.is_empty() {
                     // append new lines at the end of the buffer
-                    let end = if has_term(t, nl - 1) { lstart(t, nl - 1) + 0 } else { len };
+                    let end = if has_term(t, nl - 1) { lstart(t, nl - 1) } else { len };
                     let at = lend(t, nl - 1);
                     let _ = end;
                     changes.push(Change { from: at, to: at, text: extra });

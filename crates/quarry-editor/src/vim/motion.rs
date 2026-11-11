@@ -326,15 +326,25 @@ pub(crate) fn findpar(t: Text, pos: usize, dir_fwd: bool, count: usize) -> Optio
     let n = nlines(t);
     let mut curr = line_of(t, pos) as isize;
     let mut count = count;
+    let mut budget = 2_000usize;
     while count > 0 {
         count -= 1;
         let mut did_skip = false;
         let mut first = true;
         loop {
-            if !line_empty(t, curr as usize) {
+            // same bound as the paragraph object: a document without blank lines is one paragraph
+            budget -= 1;
+            if budget == 0 {
+                return None;
+            }
+            // inlined `line_empty`/`start_ps` with `n` computed once: on a document without blank
+            // lines this loop walks every line, so the per-line cost is what bounds the key
+            let (ls, le) = (t.line_to_char(curr as usize), text::line_end(t, curr as usize));
+            let empty = ls == le;
+            if !empty {
                 did_skip = true;
             }
-            if !first && did_skip && start_ps(t, curr as usize) {
+            if !first && did_skip && (empty || t.char(ls) == '\x0c') {
                 break;
             }
             curr += if dir_fwd { 1 } else { -1 };
@@ -368,6 +378,8 @@ fn is_sent_close(c: char) -> bool {
 
 /// `(` / `)`: a port of Vim's `findsent`.
 pub(crate) fn findsent(t: Text, pos: usize, fwd: bool, count: usize) -> Option<usize> {
+    // a text without sentence ends would otherwise be scanned to its far end on every `)`
+    let mut budget = 1_500usize;
     let mut p = Cur::new(t, pos, false);
     let mut count = count;
     while count > 0 {
@@ -445,6 +457,10 @@ pub(crate) fn findsent(t: Text, pos: usize, fwd: bool, count: usize) -> Option<u
                     }
                 }
                 let r = if fwd { p.incl() } else { p.decl() };
+                budget -= 1;
+                if budget == 0 {
+                    return None;
+                }
                 if r == -1 {
                     if count > 0 {
                         return None;

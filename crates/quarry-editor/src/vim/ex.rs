@@ -5,10 +5,9 @@
 use super::geom::*;
 use super::ops::*;
 use super::vregex;
-use super::{Op, Reg, RegKind};
+use super::{Op, RegKind};
 use crate::editor::{Editor, Effect, Mode};
 use crate::keys::KeyInput;
-use crate::selection::{Selection, Selections};
 use crate::transaction::Change;
 use regex::Regex;
 
@@ -72,7 +71,9 @@ impl Editor {
         if let Some(&(_, c)) = chars.peek() {
             if c.is_ascii_alphabetic() {
                 while let Some(&(i, c)) = chars.peek() {
-                    if c.is_ascii_alphabetic() {
+                    // names like `run-all` and `write-quit` (the host commands) have hyphens
+                    let hyphen = c == '-' && rest[i + 1..].starts_with(|n: char| n.is_ascii_alphabetic());
+                    if c.is_ascii_alphabetic() || hyphen {
                         end = i + 1;
                         chars.next();
                     } else {
@@ -120,12 +121,10 @@ impl Editor {
         let takes_bar = (name.starts_with('g') && "global".starts_with(name.as_str()) && name != "go")
             || (name.starts_with('v') && "vglobal".starts_with(name.as_str()))
             || (name.len() >= 4 && "normal".starts_with(name.as_str()));
-        if !takes_bar {
-            if let Some(i) = find_bar(args) {
-                let (head, tail) = (&args[..i], &args[i + 1..]);
-                self.ex_dispatch(&name, bang, head.trim_end(), &range)?;
-                return self.ex_run(tail.trim_start());
-            }
+        if !takes_bar && let Some(i) = find_bar(args) {
+            let (head, tail) = (&args[..i], &args[i + 1..]);
+            self.ex_dispatch(&name, bang, head.trim_end(), &range)?;
+            return self.ex_run(tail.trim_start());
         }
         self.ex_dispatch(&name, bang, args, &range)
     }
@@ -243,7 +242,7 @@ impl Editor {
             return Ok(());
         }
         if name == "&" || name == "&&" || name == "~" {
-            return self.ex_substitute(range, &(if name == "&&" { "&&" } else { "" }).to_string());
+            return self.ex_substitute(range, if name == "&&" { "&&" } else { "" });
         }
         if is("gotoline", 4) {
             return Ok(());
@@ -428,11 +427,11 @@ impl Editor {
         let (mut a, mut b) = self.lines_of(range);
         let mut reg = None;
         let mut rest = args.trim();
-        if let Some(c) = rest.chars().next() {
-            if !c.is_ascii_digit() {
-                reg = Some(c);
-                rest = rest[c.len_utf8()..].trim();
-            }
+        if let Some(c) = rest.chars().next()
+            && !c.is_ascii_digit()
+        {
+            reg = Some(c);
+            rest = rest[c.len_utf8()..].trim();
         }
         if let Ok(n) = rest.parse::<usize>() {
             a = b;
@@ -473,16 +472,10 @@ impl Editor {
         let body = body.replace('\n', le);
         if !copy {
             if dest > a && dest <= b {
-                return if dest == b + 1 - 1 + 0 && false {
-                    Ok(())
-                } else {
-                    Err("E134: Cannot move a range of lines into itself".into())
-                };
+                return Err("E134: Cannot move a range of lines into itself".into());
             }
             if dest == a || dest == b + 1 {
                 // moving onto itself: nothing changes
-                let l = if dest == a { b } else { b };
-                let _ = l;
                 self.vset(first_nonblank(t, b));
                 return Ok(());
             }
@@ -510,8 +503,8 @@ impl Editor {
         let t2 = rope.slice(..);
         let count = b - a + 1;
         // the cursor lands on the last moved / copied line
-        let first_new = if copy {
-            if dest <= b { dest } else { dest }
+        let first_new = if copy || dest <= b {
+            dest
         } else if dest > b {
             dest - count
         } else {
@@ -674,7 +667,7 @@ impl Editor {
 
     fn ex_normal(&mut self, range: &Range, args: &str) -> Res<()> {
         let keys: Vec<KeyInput> = args.chars().map(KeyInput::ch).collect();
-        let mut run = |ed: &mut Editor| {
+        let run = |ed: &mut Editor| {
             ed.vim.replaying_macro += 1;
             ed.vim_feed_keys(&keys);
             // an incomplete command is aborted, like Escape
@@ -883,7 +876,7 @@ impl Editor {
     // ---- :substitute ------------------------------------------------------------------------------------------------
 
     fn ex_substitute(&mut self, range: &Range, args: &str) -> Res<()> {
-        let (mut pat, mut rep, mut flags, mut rest): (String, String, String, String);
+        let (mut pat, rep, mut flags, rest): (String, String, String, String);
         let a0 = args;
         let first = a0.chars().next();
         match first {

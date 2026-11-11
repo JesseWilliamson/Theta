@@ -230,7 +230,7 @@ impl Editor {
                     if c > 100 {
                         return None;
                     }
-                    let l = ((c * nl + 99) / 100).saturating_sub(1).min(nl - 1);
+                    let l = (c * nl).div_ceil(100).saturating_sub(1).min(nl - 1);
                     return jmp(first_nonblank(t, l), MK::Line);
                 }
                 let p = match_bracket(t, cur)?;
@@ -374,10 +374,11 @@ impl Editor {
         }
         self.vset(pos);
         // a jump that did not move keeps the previous context mark (Vim's `checkpcmark`)
-        if mv.jump && self.vcur() == before {
-            if let Some(m) = prev_mark {
-                self.vim.marks.insert('\'', m);
-            }
+        if mv.jump
+            && self.vcur() == before
+            && let Some(m) = prev_mark
+        {
+            self.vim.marks.insert('\'', m);
         }
     }
 
@@ -485,20 +486,21 @@ impl Editor {
             let at_line_start = |i: usize| i == 0 || rope.char(i - 1) == '\n';
             let mut dead = false;
             for c in &tx.changes {
-                if c.from < *p && *p < c.to {
-                    dead = true;
-                } else if c.from == *p
+                let inside = c.from < *p && *p < c.to;
+                let whole_line = c.from == *p
                     && c.to > *p
                     && c.text.is_empty()
                     && at_line_start(c.from)
-                    && rope.char(c.to - 1) == '\n'
-                {
-                    dead = true;
-                } else if c.to == *p && c.from < *p && !at_line_start(c.from) && rope.char(c.to - 1) == '\n' {
-                    dead = true;
-                }
+                    && rope.char(c.to - 1) == '\n';
+                let joined =
+                    c.to == *p && c.from < *p && !at_line_start(c.from) && rope.char(c.to - 1) == '\n';
+                dead |= inside || whole_line || joined;
             }
             *p = if dead { usize::MAX } else { tx.map_pos(*p, Assoc::After) };
+        }
+        if let Some(vv) = &mut v.vis {
+            vv.anchor = tx.map_pos(vv.anchor, Assoc::After);
+            vv.cursor = tx.map_pos(vv.cursor, Assoc::After);
         }
         if let Some(l) = &mut v.last_vis {
             l.anchor = tx.map_pos(l.anchor, Assoc::After);
@@ -767,7 +769,7 @@ impl Editor {
         self.vim.search_visual = false;
         let Some(mv) = mv else { return };
         match sop {
-            Some(SearchOp { op, reg, count: _, force }) => self.run_op_with_mv(op, mv, reg, force),
+            Some(SearchOp { op, reg, force }) => self.run_op_with_mv(op, mv, reg, force),
             None => self.apply_move(mv),
         }
     }
@@ -785,10 +787,11 @@ impl Editor {
             .filter(|p| matches!(p.kind, PromptKind::Search { .. }) && !p.text.is_empty())
             .map(|p| split_offset(&p.text, if p.prefix == "?" { '?' } else { '/' }).0);
         let Some(pat) = live.or_else(|| self.search.pattern.clone()) else { return Vec::new() };
-        if let Some((rev, p, m)) = &*self.search.cache.borrow() {
-            if *rev == self.revision && *p == pat {
-                return m.clone();
-            }
+        if let Some((rev, p, m)) = &*self.search.cache.borrow()
+            && *rev == self.revision
+            && *p == pat
+        {
+            return m.clone();
         }
         let Ok(re) = self.vim_regex(&pat) else { return Vec::new() };
         let hay = self.rope.to_string();

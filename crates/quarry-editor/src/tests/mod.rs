@@ -15,6 +15,7 @@ mod helix_prompt;
 mod perf;
 mod standard;
 mod syntax;
+mod vim_api;
 mod vim_dot_cases;
 mod vim_dsl;
 mod vim_edge_cases;

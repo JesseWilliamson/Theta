@@ -39,7 +39,11 @@ use std::collections::HashMap;
 pub(crate) use ops::{Reg, RegKind};
 pub(crate) use visual::{VKind, Visual};
 
-const MAX_COUNT: usize = 100_000;
+/// Counts are capped (like in the Helix keymap) so `99999999o` cannot hang the UI thread.
+const MAX_COUNT: usize = 10_000;
+
+/// Keys one command may replay (macros calling macros, `.`, `:normal`) before it is cut short.
+const REPLAY_FUEL: usize = 200_000;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Op {
@@ -157,7 +161,6 @@ pub(crate) enum Simple {
     BigU,
     SaveQuit,
     QuitNoSave,
-    Esc,
     Nop,
 }
 
@@ -274,7 +277,6 @@ impl Default for VimOpts {
 pub(crate) struct SearchOp {
     pub op: Op,
     pub reg: Option<char>,
-    pub count: Option<usize>,
     pub force: Option<char>,
 }
 
@@ -313,6 +315,7 @@ pub(crate) struct VimState {
     pub last_put: Option<(usize, usize)>,
     pub block_insert: Option<insert::BlockInsert>,
     pub ins_eol: bool,
+    pub fuel: usize,
     /// where the cursor was when the next edit started, for placing it after undo
     pub edit_at: Option<usize>,
     /// `=` leaves its lines selected for the host to format: do not collapse them yet
@@ -356,6 +359,7 @@ impl Default for VimState {
             last_put: None,
             block_insert: None,
             ins_eol: false,
+            fuel: REPLAY_FUEL,
             edit_at: None,
             keep_sel: false,
             ex_depth: 0,
@@ -386,7 +390,7 @@ impl Editor {
 
     pub(crate) fn vcur(&self) -> usize {
         if let Some(v) = &self.vim.vis {
-            return v.cursor;
+            return v.cursor.min(self.rope.len_chars());
         }
         let p = self.sels.primary();
         match self.mode {
@@ -417,11 +421,6 @@ impl Editor {
         }
     }
 
-    pub(crate) fn vim_reset(&mut self) {
-        self.vim = VimState::default();
-        self.mode = Mode::Normal;
-    }
-
     /// After `set_keymap(Vim)` or host selection changes: collapse to a Normal-mode cursor.
     pub(crate) fn vim_collapse_to_cursor(&mut self) {
         let t = self.rope.slice(..);
@@ -450,12 +449,30 @@ impl Editor {
         self.vim.want = want_col(t, c, !insert);
     }
 
+    /// A programmatic edit (`replace_range`, `set_text`) moved text under the cursor: keep the
+    /// Normal-mode invariant (the cursor is on a character) and any Visual state in range.
+    pub(crate) fn vim_after_host_edit(&mut self) {
+        let len = self.rope.len_chars();
+        if let Some(v) = &mut self.vim.vis {
+            v.anchor = v.anchor.min(len);
+            v.cursor = v.cursor.min(len);
+            self.vis_sync();
+        } else if self.mode == Mode::Normal && self.sels.len() == 1 && self.sels.primary().len() <= 1 {
+            let t = self.rope.slice(..);
+            let c = clamp_normal(t, self.vcur());
+            self.set_sels(Selections::single(Selection::point(c)));
+        }
+    }
+
     pub(crate) fn vim_cursor_of(&self, sel: &Selection) -> usize {
         match self.mode {
             Mode::Insert | Mode::Replace => sel.head,
             Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
                 if *sel == self.sels.primary() {
-                    self.vim.vis.as_ref().map_or_else(|| sel.block_cursor(self.t()), |v| v.cursor)
+                    self.vim
+                        .vis
+                        .as_ref()
+                        .map_or_else(|| sel.block_cursor(self.t()), |v| v.cursor.min(self.rope.len_chars()))
                 } else {
                     sel.block_cursor(self.t())
                 }
@@ -478,6 +495,10 @@ impl Editor {
             self.vim.search_op = None;
             self.vim.search_visual = false;
         }
+        self.vim.keep_sel = false;
+        if self.vim.replaying_dot == 0 && self.vim.replaying_macro == 0 {
+            self.vim.fuel = REPLAY_FUEL;
+        }
         // Escape and ctrl-c / ctrl-[ are Escape everywhere
         let esc = k.key == Key::Escape || (ctrl_char(k).is_some_and(|c| c == 'c' || c == '['));
         match self.mode {
@@ -495,6 +516,10 @@ impl Editor {
 
     /// Run a key through the whole pipeline from inside a replay (`.`, macros, `:normal`).
     pub(crate) fn vim_feed(&mut self, k: &KeyInput) {
+        if self.vim.fuel == 0 {
+            return;
+        }
+        self.vim.fuel -= 1;
         if self.prompt.is_some() {
             self.prompt_key(k);
         } else if !self.global_key(k) {
@@ -536,12 +561,12 @@ impl Editor {
         // register prefix
         if self.vim.pend.awaiting_reg {
             self.vim.pend.awaiting_reg = false;
-            if let Some(c) = pc {
-                if valid_reg(c) {
-                    self.vim.pend.reg = Some(c);
-                    self.vim.pend.disp.push(c);
-                    return true;
-                }
+            if let Some(c) = pc
+                && valid_reg(c)
+            {
+                self.vim.pend.reg = Some(c);
+                self.vim.pend.disp.push(c);
+                return true;
             }
             self.vim.pend = Pend::default();
             return true;
@@ -891,10 +916,12 @@ impl Editor {
             }
             Cmd::Op(op) => {
                 if let Some(cur) = pend.op {
-                    // doubled operator: linewise on `count` lines
-                    debug_assert_eq!(cur, op);
-                    self.vim.keep_want = false;
-                    self.run_op_lines(cur, count.unwrap_or(1), reg);
+                    // doubled operator (`dd`, `g~~`): linewise on `count` lines; a different
+                    // operator (`dc`) just cancels
+                    if cur == op {
+                        self.vim.keep_want = false;
+                        self.run_op_lines(cur, count.unwrap_or(1), reg);
+                    }
                 } else if self.vim.vis.is_some() {
                     self.visual_operator(op, reg, count);
                 } else {
@@ -1013,7 +1040,7 @@ impl Editor {
                 self.effects.push(Effect::CloseTab);
             }
             Simple::QuitNoSave => self.effects.push(Effect::CloseTab),
-            Simple::Esc | Simple::Nop => {}
+            Simple::Nop => {}
         }
     }
 
@@ -1083,12 +1110,12 @@ impl Editor {
         let count = count.or(d.count);
         let mut reg = d.reg;
         // "1p . . walks through the numbered registers
-        if let Some(r) = reg {
-            if ('1'..='8').contains(&r) {
-                reg = Some((r as u8 + 1) as char);
-                if let Some(dd) = &mut self.vim.dot {
-                    dd.reg = reg;
-                }
+        if let Some(r) = reg
+            && ('1'..='8').contains(&r)
+        {
+            reg = Some((r as u8 + 1) as char);
+            if let Some(dd) = &mut self.vim.dot {
+                dd.reg = reg;
             }
         }
         self.vim.replaying_dot += 1;
@@ -1128,6 +1155,7 @@ impl Editor {
         let r = if r == '@' { self.vim.last_macro.unwrap_or('@') } else { r };
         let text = if r == ':' {
             // `@:` repeats the last command line
+            self.vim.last_macro = Some(':');
             match self.vim.last_ex.clone() {
                 Some(c) => {
                     for _ in 0..n {
@@ -1157,7 +1185,7 @@ impl Editor {
                 let before = self.revision;
                 self.vim_feed(k);
                 let _ = before;
-                if self.vim.replaying_macro == 0 {
+                if self.vim.replaying_macro == 0 || self.vim.fuel == 0 {
                     break 'outer;
                 }
             }
@@ -1315,6 +1343,11 @@ impl Editor {
     }
 
     fn vim_select_visual(&mut self, anchor: usize, cursor: usize, kind: VKind) {
+        let t = self.rope.slice(..);
+        let (anchor, cursor) = (
+            text::floor_grapheme(t, anchor.min(t.len_chars())),
+            text::floor_grapheme(t, cursor.min(t.len_chars())),
+        );
         if matches!(self.mode, Mode::Insert | Mode::Replace) {
             self.vim.ins = None;
             self.mode = Mode::Normal;
@@ -1345,7 +1378,7 @@ impl Editor {
         };
         let first_line = line_of(t, first.min(len));
         let s_line = line_of(t, saved);
-        let in_range = s_line + 1 >= first_line && s_line + 1 <= first_line + newsize + 1;
+        let in_range = s_line + 1 >= first_line && s_line < first_line + newsize + 1;
         let mut line = if in_range { s_line } else { first_line };
         if s_line + 1 == line && line > 0 {
             line = s_line;

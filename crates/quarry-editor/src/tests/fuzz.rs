@@ -154,6 +154,117 @@ fn standard_pool() -> Vec<KeyInput> {
     v
 }
 
+fn vim_pool() -> Vec<KeyInput> {
+    let mut v = Vec::new();
+    for c in (0x20u8..0x7f).map(|b| b as char) {
+        // letters and digits get more weight: they start most commands
+        v.push(KeyInput::ch(c));
+        if c.is_ascii_alphanumeric() {
+            v.push(KeyInput::ch(c));
+        }
+    }
+    for l in "adefghjklmnopqrtuvwxyb[c ".chars() {
+        v.push(KeyInput { key: Key::Char(l), modifiers: Modifiers { ctrl: true, ..Default::default() } });
+    }
+    for name in [
+        "esc",
+        "esc",
+        "ret",
+        "tab",
+        "backspace",
+        "del",
+        "left",
+        "right",
+        "up",
+        "down",
+        "home",
+        "end",
+        "pageup",
+        "pagedown",
+        "C-ret",
+        "C-S-ret",
+        "F5",
+        "C-space",
+    ] {
+        v.push(KeyInput::parse(name).unwrap());
+    }
+    v
+}
+
+/// A few whole commands, typed in one go: random single keys rarely form valid ones.
+const VIM_WORDS: &[&str] = &[
+    "dd",
+    "yyp",
+    "ciwx<esc>",
+    "dap",
+    "ci(y<esc>",
+    "vipd",
+    "<C-v>jjIx<esc>",
+    "<C-v>jj$Ay<esc>",
+    "Vjd",
+    "viwp",
+    "qaxjq@a",
+    "3@a",
+    "10.",
+    "gUU",
+    "g~w",
+    ">>",
+    "<lt><lt>",
+    "==",
+    "gcc",
+    "J",
+    "gJ",
+    ":s/a/b/g<ret>",
+    ":%s/\\(a\\)/[&]/g<ret>",
+    ":g/e/d<ret>",
+    ":g/x/normal Ax<ret>",
+    ":sort<ret>",
+    ":%norm Ix<ret>",
+    ":2,3m0<ret>",
+    ":1,2t$<ret>",
+    ":noh<ret>",
+    "/a<ret>",
+    "?e<ret>",
+    "*",
+    "#",
+    "n",
+    "N",
+    "ma",
+    "'a",
+    "`a",
+    "gv",
+    "<C-o>",
+    "<C-i>",
+    "ifoo<C-o>0bar<esc>",
+    "Rab<bs><esc>",
+    "ix<C-r>\"<esc>",
+    "<C-a>",
+    "5<C-x>",
+    "p",
+    "P",
+    "gp",
+    "u",
+    "<C-r>",
+    ".",
+    "x",
+    "~",
+    "ra",
+    "r<ret>",
+    "cc<esc>",
+    "S<esc>",
+    "C<esc>",
+    "D",
+    "A<ret><esc>",
+    "o<esc>",
+    "O<esc>",
+    "zz",
+    "<C-d>",
+    "<C-u>",
+    "H",
+    "M",
+    "L",
+];
+
 fn check_invariants(e: &Editor, ctx: &str) {
     let len = e.len_chars();
     let sels = e.selections();
@@ -187,10 +298,33 @@ fn check_invariants(e: &Editor, ctx: &str) {
     if let Some(p) = e.prompt() {
         assert!(p.cursor <= p.text.chars().count(), "{ctx}: prompt cursor");
     }
+    if e.keymap() == Keymap::Vim
+        && e.prompt().is_none()
+        && e.mode() == Mode::Normal
+        && e.selections().len() == 1
+    {
+        // Normal mode never rests on the line end of a non-empty line
+        let c = e.cursor_of(&e.primary());
+        let l = e.char_to_line(c.min(len));
+        let ls = e.line_to_char(l);
+        let content = e.line(l).chars().count();
+        if content > 0 && e.primary().len() <= 1 {
+            assert!(
+                c < ls + content,
+                "{ctx}: Normal-mode cursor {c} is past the end of its line; text {:?} sels {:?}",
+                e.text(),
+                e.selections()
+            );
+        }
+    }
 }
 
 fn run_fuzz(keymap: Keymap, seed: u64, iterations: usize, keys_per_run: usize) {
-    let pool = if keymap == Keymap::Helix { helix_pool() } else { standard_pool() };
+    let pool = match keymap {
+        Keymap::Helix => helix_pool(),
+        Keymap::Standard => standard_pool(),
+        Keymap::Vim => vim_pool(),
+    };
     let mut rng = Rng(seed);
     for iter in 0..iterations {
         let doc = *rng.pick(DOCS);
@@ -240,14 +374,32 @@ fn run_fuzz(keymap: Keymap, seed: u64, iterations: usize, keys_per_run: usize) {
                     e.replace_range(a.min(b)..a.max(b), t);
                 }
                 7 => {
-                    log.push("viewport".into());
-                    e.set_viewport(rng.below(5), 1 + rng.below(30));
+                    let (first, visible) = (rng.below(5), 1 + rng.below(30));
+                    log.push(format!("viewport({first},{visible})"));
+                    e.set_viewport(first, visible);
+                }
+                8 | 9 if keymap == Keymap::Vim => {
+                    let w = *rng.pick(VIM_WORDS);
+                    log.push(w.to_string());
+                    for k in parse_keys(w) {
+                        e.handle_key(&k);
+                        check_invariants(&e, &format!("{ctx} word {w}"));
+                    }
                 }
                 _ => {
                     let k = rng.pick(&pool).clone();
                     log.push(k.display());
                     e.handle_key(&k);
                 }
+            }
+            if std::env::var("QUARRY_FUZZ_TRACE").ok().and_then(|v| v.parse::<usize>().ok()) == Some(iter) {
+                eprintln!(
+                    "step {step}: {} -> mode {:?} sels {:?} text {:?}",
+                    log.last().unwrap(),
+                    e.mode(),
+                    e.selections(),
+                    e.text()
+                );
             }
             check_invariants(&e, &ctx);
             let _ = e.pending_keys();
@@ -307,7 +459,19 @@ fn fuzz_standard() {
 }
 
 #[test]
+fn fuzz_vim() {
+    let (seed, iters) = campaign(0x5EED_0003, 3000);
+    run_fuzz(Keymap::Vim, seed, iters, 30);
+}
+
+#[test]
+fn fuzz_vim_second_seed() {
+    run_fuzz(Keymap::Vim, 0x7E57_BEEF, 2000, 40);
+}
+
+#[test]
 fn fuzz_long_sessions() {
     run_fuzz(Keymap::Helix, 0xABCD_1234, 150, 400);
     run_fuzz(Keymap::Standard, 0xABCD_5678, 150, 400);
+    run_fuzz(Keymap::Vim, 0xABCD_9ABC, 150, 400);
 }

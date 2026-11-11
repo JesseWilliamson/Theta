@@ -143,24 +143,24 @@ impl Editor {
             }
             let _ = second;
         }
-        if let Some(op) = p.op {
-            if p.toks.is_empty() {
-                let name = op_name(op);
-                return Some((
-                    format!("{name} (operator pending)"),
-                    vec![
-                        h("i", "inside object"),
-                        h("a", "around object"),
-                        h(name, "this line"),
-                        h("w W b B e E", "words"),
-                        h("$ 0 ^", "line end / start"),
-                        h("} {", "paragraph"),
-                        h("f t F T", "up to a character"),
-                        h("%", "matching bracket"),
-                        h("v V", "force charwise / linewise"),
-                    ],
-                ));
-            }
+        if let Some(op) = p.op
+            && p.toks.is_empty()
+        {
+            let name = op_name(op);
+            return Some((
+                format!("{name} (operator pending)"),
+                vec![
+                    h("i", "inside object"),
+                    h("a", "around object"),
+                    h(name, "this line"),
+                    h("w W b B e E", "words"),
+                    h("$ 0 ^", "line end / start"),
+                    h("} {", "paragraph"),
+                    h("f t F T", "up to a character"),
+                    h("%", "matching bracket"),
+                    h("v V", "force charwise / linewise"),
+                ],
+            ));
         }
         let _ = (VKind::Char, Key::Escape);
         None

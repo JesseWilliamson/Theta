@@ -243,6 +243,10 @@ fn first_nonblank_opt(t: Text, l: usize) -> Option<usize> {
     text::first_non_blank(t, l)
 }
 
+/// A paragraph longer than this many lines is not scanned (every key must stay O(viewport) on
+/// a 20k-line document without blank lines; see README, "Deviations").
+const CAP: isize = 2_000;
+
 fn paragraph(t: Text, cur: usize, include: bool, count: usize, sel: Option<(usize, usize)>) -> Option<Obj> {
     let nl = nlines(t) as isize;
     let _ = sel;
@@ -251,7 +255,7 @@ fn paragraph(t: Text, cur: usize, include: bool, count: usize, sel: Option<(usiz
     let start_ps_line = |l: isize| -> bool { line_empty(t, l as usize) };
     let white_in_front = white(line);
     let mut start = line;
-    while start > 0 {
+    while start > 0 && line - start < CAP {
         if white_in_front {
             if !white(start - 1) {
                 break;
@@ -261,8 +265,11 @@ fn paragraph(t: Text, cur: usize, include: bool, count: usize, sel: Option<(usiz
         }
         start -= 1;
     }
+    if line - start >= CAP {
+        return None;
+    }
     let mut end = start;
-    while end < nl && white(end) {
+    while end < nl && end - start < CAP && white(end) {
         end += 1;
     }
     end -= 1;
@@ -281,7 +288,7 @@ fn paragraph(t: Text, cur: usize, include: bool, count: usize, sel: Option<(usiz
         }
         if include || !do_white {
             end += 1;
-            while end < nl - 1 && !white(end + 1) && !start_ps_line(end + 1) {
+            while end < nl - 1 && end - start < CAP && !white(end + 1) && !start_ps_line(end + 1) {
                 end += 1;
             }
         }
@@ -289,7 +296,7 @@ fn paragraph(t: Text, cur: usize, include: bool, count: usize, sel: Option<(usiz
             break;
         }
         if include || do_white {
-            while end < nl - 1 && white(end + 1) {
+            while end < nl - 1 && end - start < CAP && white(end + 1) {
                 end += 1;
             }
         }
@@ -299,7 +306,7 @@ fn paragraph(t: Text, cur: usize, include: bool, count: usize, sel: Option<(usiz
             start -= 1;
         }
     }
-    if end < start {
+    if end < start || end - start >= CAP {
         return None;
     }
     Some(Obj { start: lstart(t, start as usize), end: lstart(t, end as usize), kind: MK::Line })

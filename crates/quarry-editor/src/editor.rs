@@ -518,6 +518,9 @@ impl Editor {
         self.apply(Transaction::new(vec![Change { from, to, text: text.to_string() }]));
         self.commit_group();
         self.vert = None;
+        if self.keymap == Keymap::Vim {
+            self.vim_after_host_edit();
+        }
     }
 
     /// Replace the whole text with a minimal diff (common prefix and suffix), so cursors outside
@@ -579,6 +582,9 @@ impl Editor {
         }
         if self.keymap == Keymap::Vim {
             self.vim_click(pos, extend);
+            if !extend {
+                self.drag_anchor = Some(pos);
+            }
             return;
         }
         let p = self.sels.primary();
@@ -682,10 +688,11 @@ impl Editor {
             if self.group.is_none() && !matches!(self.mode, Mode::Insert | Mode::Replace) {
                 self.group_base = self.sels.clone();
             }
-            if self.vim.replaying_dot == 0 && self.vim.replaying_macro == 0 {
-                if let Some((_, rec)) = &mut self.vim.macro_rec {
-                    rec.push(k.clone());
-                }
+            if self.vim.replaying_dot == 0
+                && self.vim.replaying_macro == 0
+                && let Some((_, rec)) = &mut self.vim.macro_rec
+            {
+                rec.push(k.clone());
             }
         } else if self.keymap == Keymap::Helix {
             if self.group.is_none() && self.mode != Mode::Insert {

@@ -166,10 +166,10 @@ impl Editor {
             if let Some(s) = &mut self.vim.ins {
                 s.await_reg = false;
             }
-            if let Some(c) = k.text_char() {
-                if let Some(r) = self.reg_get(Some(c)) {
-                    self.insert_register_text(&r);
-                }
+            if let Some(c) = k.text_char()
+                && let Some(r) = self.reg_get(Some(c))
+            {
+                self.insert_register_text(&r);
             }
             self.log_key(k);
             return true;
@@ -265,10 +265,10 @@ impl Editor {
     }
 
     fn log_key(&mut self, k: &KeyInput) {
-        if let Some(s) = &mut self.vim.ins {
-            if !s.in_repeat {
-                s.keys.push(k.clone());
-            }
+        if let Some(s) = &mut self.vim.ins
+            && !s.in_repeat
+        {
+            s.keys.push(k.clone());
         }
     }
 
@@ -505,14 +505,14 @@ impl Editor {
         if !typed.is_empty() || sess.keys.is_empty() {
             self.vim.last_insert = typed;
         }
-        if let Some(b) = self.vim.block_insert.take() {
-            if let Some(at) = self.finish_block_insert(b) {
-                self.vim.marks.insert('^', at);
-                self.mode = Mode::Normal;
-                self.set_sels(Selections::single(Selection::point(at)));
-                self.effects.push(Effect::DismissCompletion);
-                return;
-            }
+        if let Some(b) = self.vim.block_insert.take()
+            && let Some(at) = self.finish_block_insert(b)
+        {
+            self.vim.marks.insert('^', at);
+            self.mode = Mode::Normal;
+            self.set_sels(Selections::single(Selection::point(at)));
+            self.effects.push(Effect::DismissCompletion);
+            return;
         }
         let cur = self.vcur();
         self.vim.marks.insert('^', cur);

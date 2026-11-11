@@ -131,14 +131,6 @@ pub fn vis(before: &str, keys: &str, expected: &str) {
     assert_eq!(render_vis(&e), expected, "\nbefore: {before:?}\nkeys:   {keys:?}\nmode:   {:?}", e.mode());
 }
 
-#[track_caller]
-pub fn vis_mode(before: &str, keys: &str, expected: &str, mode: Mode) {
-    let mut e = vim_editor(before);
-    feed(&mut e, keys);
-    assert_eq!(render_vis(&e), expected, "\nbefore: {before:?}\nkeys:   {keys:?}");
-    assert_eq!(e.mode(), mode, "\nbefore: {before:?}\nkeys:   {keys:?}");
-}
-
 /// Text only (cursor ignored).
 #[track_caller]
 pub fn vim_text(before: &str, keys: &str, after: &str) {
@@ -162,19 +154,9 @@ macro_rules! vim_cases {
     ($($name:ident: $before:expr, $keys:expr => $after:expr;)*) => {
         $(
             #[test]
+            #[allow(non_snake_case)] // names are derived from the key sequence
             fn $name() {
                 $crate::tests::vim_dsl::vim($before, $keys, $after);
-            }
-        )*
-    };
-}
-
-macro_rules! vim_text_cases {
-    ($($name:ident: $before:expr, $keys:expr => $after:expr;)*) => {
-        $(
-            #[test]
-            fn $name() {
-                $crate::tests::vim_dsl::vim_text($before, $keys, $after);
             }
         )*
     };
@@ -184,13 +166,14 @@ macro_rules! vis_cases {
     ($($name:ident: $before:expr, $keys:expr => $after:expr;)*) => {
         $(
             #[test]
+            #[allow(non_snake_case)] // names are derived from the key sequence
             fn $name() {
                 $crate::tests::vim_dsl::vis($before, $keys, $after);
             }
         )*
     };
 }
-pub(crate) use {vim_cases, vim_text_cases, vis_cases};
+pub(crate) use {vim_cases, vis_cases};
 
 #[test]
 fn dsl_parses_markers() {
