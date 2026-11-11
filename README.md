@@ -12,7 +12,7 @@ editor are plain Rust libraries with ordinary tests, and the UI crates are thin 
 
 ## What works today
 
-Theta 0.1.0-alpha.4 is an alpha. The application is fully wired together: every feature below is
+Theta 0.1.0-alpha.5 is an alpha. The application is fully wired together: every feature below is
 implemented and was run by hand on Linux (X11) against PostgreSQL 16 with PostGIS, MariaDB 10.11 and
 SQLite. SSH tunnelling is covered by the driver integration tests only. The macOS and Windows builds are
 compiled and unit-tested in CI but nobody has used them by hand yet. See
@@ -26,6 +26,7 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 | ![Editable grid](docs/screenshots/05-editable-grid.png) **Staged edits in the grid** | ![Explorer](docs/screenshots/06-explorer-suggested-fks-related.png) **Suggested foreign keys and related tables** |
 | ![Light theme](docs/screenshots/07-theta-light.png) **Theta Light** | ![SSH](docs/screenshots/09-connection-ssh.png) **Connection dialog with SSH tunnel** |
 | ![Vim visual block](docs/screenshots/10-vim-visual-block.png) **Vim keymap: a `V-BLOCK` selection** | ![Keymap choice](docs/screenshots/11-keymap-choice-welcome.png) **Choose Helix, Vim or Standard on the welcome view** |
+| ![Record view](docs/screenshots/12-record-view.png) **Record view: one row as a list, JSON pretty-printed** | ![Query parameters](docs/screenshots/13-query-parameters.png) **Query parameters: values asked for before the run** |
 
 ## Features
 
@@ -50,6 +51,8 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 - Foreign keys that the database does not declare are *suggested* from column names (`customer_id`,
   `customerId`) with a confidence percentage. They appear under *Foreign Keys › Suggested* and in the
   **Related Tables…** picker, which lists both kinds and opens a ready-made `JOIN` query.
+- Connection folders (one level deep) and manual ordering: *New Folder*, *Move to Folder…*, *Move Up / Down*;
+  collapsed state and order are saved, and the connection picker shows `Folder / Name`.
 - Context menu on a table: *Open Table*, *Copy Name*, *Copy Qualified Name*, *Generate* (`SELECT`, `INSERT`,
   `UPDATE`, `DELETE`), *Show DDL*, *Related Tables…*.
 
@@ -70,6 +73,10 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
   `UPDATE`/`DELETE` without `WHERE`, unknown tables and columns), and a statement splitter that understands
   comments, quoting and dollar-quoted bodies, so "run statement under the cursor" works in scripts.
 - Hand-written SQL highlighter that copes with half-typed statements.
+- **Live templates**: `sel`, `join`, `cte`, `crt` and a dozen more expand with Tab into snippets with tab stops,
+  linked placeholders (typing in one edits the mirrors), and variables (`${table}` asks which table, `${columns}`,
+  `${selection}`, `${clipboard}`, `${date}`). Add your own in `templates.json`; Settings › Templates lists them all.
+  *Surround Selection with…* wraps SQL in `SELECT count(*) FROM (…) t`, a CTE, `EXISTS (…)` and so on.
 - Zoom (`mod-=`, `mod--`, `mod-0`) changes the editor and results font size only. The rest of the interface
   keeps its size.
 
@@ -86,6 +93,13 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
   statement that writes.
 - Read-only connections refuse statements that write data or change the schema.
 - Statement history (up to 5,000 entries), searchable, in the History tab.
+- **Query parameters**: `?`, `$1`, `:name` and `@name` ask for values (typed: Auto, Text, Number, Boolean, NULL,
+  Raw SQL) before Run, Run All and Explain; values are remembered per console and substituted client-side as
+  escaped literals. Strings, comments, `::casts`, jsonb `?` operators and MySQL user variables are left alone.
+- **Transaction mode and isolation level** per connection and per session: auto-commit, or manual (Theta
+  starts the transaction lazily and keeps it open) with Read Committed / Repeatable Read / Serializable
+  (PostgreSQL, MySQL; Read Uncommitted too on MySQL) or SQLite's `BEGIN` modes. The title-bar chip reads
+  `Manual · TXN open · Repeatable Read` and reflects what the server says, including MySQL's implicit commits.
 
 **Results**
 - Virtualised grid (100,000 rows by 60 columns stays interactive): type-aware sorting, filtering, rectangular
@@ -97,6 +111,9 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
   says why.
 - Export to CSV, TSV, JSON, Markdown or SQL `INSERT` statements, for the whole result or the selection, to a
   file or the clipboard.
+- **Record view** (one row as a list of fields: wrapped values, pretty JSON, editable in place, row navigation,
+  virtualised for 500 columns) and a **selection statistics** popover (count, distinct, nulls, min, max, sum,
+  average, text lengths; computed off the UI thread for large selections).
 - Foreign-key columns carry a link icon; ctrl-click (cmd-click on macOS) opens the referenced row in a new
   console.
 
@@ -348,6 +365,16 @@ Results and map
 - Results are not saved across restarts (console text is).
 - Export covers the rows that were loaded into the grid, which the row limit caps.
 - The grid cannot reorder or hide columns.
+
+Added in 0.1.0-alpha.5
+- Query parameters are substituted by Theta, not bound by the server: they stand where a literal can, and a
+  parameter for an identifier needs the *Raw SQL* type.
+- Connection folders are one level deep and have no drag and drop (the tree list has no drop target); use the
+  menus, `alt-up` / `alt-down` and the palette.
+- In manual transaction mode a plain `SELECT` also starts a transaction (as JDBC does); an open transaction on
+  a busy production database holds locks and a snapshot until you end it.
+- Not in this release: CSV / TSV import and whole-table export, and the create / alter table editor. Both were
+  planned for 0.1.0-alpha.5 and are not started.
 
 Platform and packaging
 - Without a keychain (a bare Linux session) passwords are not persisted. Saved connections open without

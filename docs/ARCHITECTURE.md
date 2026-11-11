@@ -302,9 +302,30 @@ Every user-invokable command is a type in `crates/theta/src/actions.rs:6`. The k
 and the title bar all refer to those types, so a command has one name everywhere. The workspace registers
 one handler per action in `Workspace::render` (`crates/theta/src/workspace/mod.rs:820`).
 
+### Added in 0.1.0-alpha.5
+
+- **Query parameters** are pure: `theta_sql::params` finds placeholders with the lexer and substitutes literals
+  built by `sql_literal`; `exec/params.rs` applies them to the statements a run picked, and
+  `workspace/params.rs` asks (`dialogs/params.rs`) before `start_run` / `explain_picked`, so Run, Run Selection,
+  Run All and Explain share one path. History and Messages see the substituted text.
+- **Record view and statistics** live in `theta-grid` (`record.rs`, `aggregate.rs`, `agg_ui.rs`). The record is a
+  *view of the grid's own selection* (row = cursor row, field = cursor column), so editing, staging and copying
+  are the grid's, not a second implementation.
+- **Connection folders**: `connections/folders.rs` is the pure model (one level, order within a group is the
+  list order); the store persists it in `connections.json` next to each connection (`folder` key), and
+  `explorer/tree.rs::flatten_grouped` turns it into rows.
+- **Transactions**: `theta_core::txn` holds `TransactionConfig` (saved per connection) and builds the
+  statements that start a transaction; `workspace/txn.rs` keeps the session override and `run.rs` issues them
+  lazily in `execute_picks`, then asks `Connection::in_transaction` after every statement. No driver change.
+- **Live templates**: `theta_editor::snippet` is the engine-level snippet session (tab stops are ranges mapped
+  through every transaction; a linked stop is a multi-selection, so mirrors are edited by the engine's own
+  multi-cursor editing). `theta_sql::templates` is the pure model (built-ins per dialect, variables, surround);
+  `theta::templates` owns `templates.json`; the editor view asks the host to expand an abbreviation
+  (`EditorEvent::ExpandSnippet`) because variables such as `${table}` need a picker.
+
 ## Status
 
-0.1.0-alpha.4 is the fourth pre-release (0.1.0-alpha.1 to -alpha.3 came before it; the product was called Quarry until this one). The application is complete in the sense
+0.1.0-alpha.5 is the fifth pre-release (0.1.0-alpha.1 to -alpha.4 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
 that every crate in the workspace is wired into it and used:
 
 - All eleven crates exist and are used; the application runs against PostgreSQL, MySQL/MariaDB and SQLite.

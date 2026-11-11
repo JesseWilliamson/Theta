@@ -6,6 +6,54 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+## [0.1.0-alpha.5] - 2026-11-11
+
+### Added
+
+- **Query parameters.** A statement with `?`, `$1`, `:name` or `@name` asks for values before it runs (Run, Run
+  Selection, Run All, Explain): a *Parameters* dialog with a type per value (Auto, Text, Number, Boolean, NULL,
+  Raw SQL), values remembered per console, Enter to run. The values are substituted client-side as escaped
+  literals; History records the substituted statement and Messages lists the values. Placeholders inside strings,
+  comments and dollar-quoted bodies, Postgres `::casts` and jsonb `?` / `?|` / `?&`, and MySQL user variables
+  (`@x := 1`, `SET @x`, `@@system`) are not parameters. Setting `editor.parameters`, palette *Toggle Query
+  Parameters*. New module `theta_sql::params`.
+- **Record view** in the results grid (toolbar button, `F4`, `r` in Helix and Vim): the current row as a list
+  of fields with wrapped values, pretty-printed JSON, NULL styling and a geometry summary; `up`/`down` (`k`/`j`)
+  change rows, `tab` and `left`/`right` change fields, fields are editable through the grid's usual staging, and
+  *Value* / *Row* copy buttons. The list is virtualised, so a 500-column row is cheap.
+- **Selection statistics** popover (click the footer summary, `F3`, `a` in Helix and Vim): count, distinct,
+  NULLs, min, max, sum, average and text lengths, computed on a background thread for large selections, with a
+  copy button.
+- **Connection folders and ordering.** Folders (one level) in the explorer: create, rename, delete, move a
+  connection into one, collapse state remembered; *Move Up / Down* (`alt-up` / `alt-down`) within a folder; the
+  connection picker shows and matches `Folder / Name`. Saved in `connections.json`; existing files load unchanged.
+- **Transaction mode and isolation level.** Per connection (dialog) and per session (title-bar chip, palette):
+  auto-commit or manual, with PostgreSQL / MySQL isolation levels and SQLite `BEGIN` modes; manual mode starts
+  the transaction lazily, starts it read-only on read-only connections, and shows `Manual · TXN open ·
+  Repeatable Read`. MySQL's implicit commit on DDL is detected and reported.
+- **Live templates.** Built-in and user templates (`templates.json`) with tab stops, linked placeholders and
+  variables (`${table}`, `${columns}`, `${selection}`, `${clipboard}`, `${date}`), expanded with Tab or from
+  the completion list (kind Snippet); engine-level snippet sessions in all three key maps; Settings ›
+  Templates; *Surround Selection with…*; *Edit Live Templates…*.
+
+### Changed
+
+- The fixed completion snippets are now the built-in live templates (their bodies carry tab stops).
+- Accepting a *Snippet* completion goes through the template expansion instead of inserting plain text.
+
+### Contract changes
+
+- `theta-core`: new `txn` module (`TransactionConfig`, `Isolation`, `SqliteBegin`, `begin_statements`,
+  `isolation_levels`, `starts_transaction`, `implicit_commit_note`) and a new field
+  `ConnectionConfig::transaction` (serde-default, omitted when default, so existing files are unaffected).
+  No `Connection` / `Driver` trait or driver change; new integration tests cover the three live databases.
+- `theta-editor`: `Editor::insert_snippet`, `snippet_active`, `snippet_navigate`, `end_snippet`; `Snippet` type.
+- `theta-editor-view`: `CompletionProvider::snippet_for`, `EditorEvent::ExpandSnippet`, `EditorView::insert_snippet`.
+
+### Not in this release
+
+- CSV / TSV import, whole-table CSV export and the create / alter table editor were planned and are not started.
+
 ### Changed
 
 - Theta is now released under the MIT licence (`LICENSE`).
