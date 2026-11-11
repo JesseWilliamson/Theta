@@ -129,6 +129,47 @@ const vis = await np.$$eval('#keymaps [role="tabpanel"]', (els) => els.map((e) =
 console.log("no-JS keymap panels visible:", vis.join(","));
 if (!vis.every(Boolean)) bad("a keymap panel is hidden without JS");
 
+// dark first: with the OS asking for light and nothing stored, every page must still be dark
+const dk = await browser.newContext({ colorScheme: "light", viewport: { width: 1440, height: 900 } });
+for (const name of pages) {
+  const dp = await dk.newPage();
+  const fontReqs = [];
+  dp.on("request", (r) => { if (/\.woff2?$/.test(r.url())) fontReqs.push(r.url().split("/").pop()); });
+  await dp.goto(`${base}/${name}`, { waitUntil: "networkidle" });
+  await dp.evaluate(() => document.fonts.ready);
+  const st = await dp.evaluate(() => ({ theme: document.documentElement.getAttribute("data-theme"), bg: getComputedStyle(document.body).backgroundColor,
+    scheme: getComputedStyle(document.documentElement).colorScheme, meta: document.querySelector('meta[name="theme-color"]').content,
+    serif: document.fonts.check(`${getComputedStyle(document.querySelector("h1")).fontStyle} 300 20px "IBM Plex Serif"`),
+    h1: getComputedStyle(document.querySelector("h1")).fontFamily.split(",")[0] }));
+  console.log(`dark-first ${name}: bg ${st.bg}, color-scheme ${st.scheme}, data-theme ${st.theme}, h1 ${st.h1}, serif loaded ${st.serif}, fonts ${fontReqs.join(" ")}`);
+  if (st.bg !== "rgb(17, 18, 22)" || st.theme !== null || !st.scheme.startsWith("dark") || st.meta !== "#111216") bad(`${name} is not dark by default under a light OS preference`);
+  if (!/Plex Serif/.test(st.h1)) bad(`${name}: h1 is not set in IBM Plex Serif`);
+  if (name !== "404.html" && !fontReqs.some((f) => f.startsWith("IBMPlexSerif"))) bad(`${name}: no IBM Plex Serif file was requested`);
+  if (!fontReqs.every((f) => f.endsWith(".woff2"))) bad(`${name}: a non-WOFF2 font was requested`);
+  await dp.close();
+}
+await dk.close();
+// no stylesheet or script may consult the system colour scheme
+for (const f of ["assets/css/site.css", "assets/js/site.js"]) {
+  const t = await (await fetch(`${base}/${f}`)).text();
+  if (/prefers-color-scheme|matchMedia\([^)]*color-scheme/.test(t.replace(/\/\*[\s\S]*?\*\//g, ""))) bad(`${f} reads prefers-color-scheme`);
+}
+// the D chip really is a shortcut
+const kp = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+const kpp = await kp.newPage();
+await kpp.goto(`${base}/index.html`, { waitUntil: "networkidle" });
+await kpp.keyboard.press("d");
+await kpp.waitForTimeout(300);
+const hash = await kpp.evaluate(() => location.hash);
+console.log("pressing d ->", hash);
+if (hash !== "#download") bad("the D shortcut did not go to #download");
+await kp.close();
+// the mark on the site is derived from packaging/icons: not out of date
+const { spawnSync } = await import("node:child_process");
+const sync = spawnSync("python3", [new URL("./mark.py", import.meta.url).pathname, "--check"], { encoding: "utf8" });
+console.log("mark single-source check:", sync.status === 0 ? "in sync" : sync.stdout);
+if (sync.status !== 0) bad("site copies of the theta mark are out of date (run python3 site/tools/mark.py)");
+
 console.log(`\n${problems === 0 ? "ALL CHECKS PASSED" : problems + " PROBLEM(S)"}`);
 await browser.close();
 process.exit(problems ? 1 : 0);

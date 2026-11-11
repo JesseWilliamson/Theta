@@ -12,6 +12,14 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 - The repository moved to <https://github.com/JesseWilliamson/Theta>; links, the map-tile User-Agent and the
   website point there.
 - Website at <https://jessewilliamson.github.io/Theta/>, deployed from `site/` by GitHub Pages.
+- Website redesign: it opens in the dark theme for every visitor (the system colour scheme is no longer consulted;
+  light is available from the toggle), headlines are set in IBM Plex Serif Light, the hero is centred under a faint
+  square grid with a three-column summary strip, and `D` jumps to the download section. Fonts are self-hosted WOFF2.
+  The editor illustration now uses only tables and keys that exist in the demo database, and the hero screenshot shows
+  a connection called "demo".
+- The θ mark has a shorter bar: 55% of the ring's inner width, centred a hair above the middle and a little lighter than
+  the ring, with a clear gap on both sides. The 16, 24 and 32 px drawings were redrawn on their pixel grids, and the
+  website now derives its copy of the mark from `packaging/icons/theta-mark.svg` so the two cannot drift apart.
 
 ## [0.1.0-alpha.4] - 2026-11-11
 

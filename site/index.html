@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Theta: a keyboard-first database IDE</title>
 <meta name="description" content="Theta is a native, GPU-accelerated database IDE for PostgreSQL, MySQL/MariaDB and SQLite, with Helix, Vim or standard keys and completion that writes your joins from foreign keys. Alpha, open source.">
-<meta name="theme-color" content="#181b1f">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Theta">
 <meta property="og:title" content="Theta: a keyboard-first database IDE">
@@ -18,20 +17,32 @@
 <meta name="twitter:title" content="Theta: a keyboard-first database IDE">
 <meta name="twitter:description" content="Native SQL editor with Helix, Vim or standard keys and completion that writes your joins from foreign keys. Alpha.">
 <meta name="twitter:image" content="https://jessewilliamson.github.io/Theta/assets/og.png">
+<!--@assets-->
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#111216">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<link rel="preload" href="assets/fonts/IBMPlexSans-Regular.woff" as="font" type="font/woff" crossorigin>
-<link rel="preload" href="assets/fonts/IBMPlexSans-SemiBold.woff" as="font" type="font/woff" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexSerif-LightItalic-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/css/site.css">
 <script>
-  // Runs before first paint so the saved theme never flashes. Storage can throw (private windows), hence try/catch.
+  // Runs before first paint. The site is dark for everyone: the system colour scheme is deliberately ignored,
+  // and the only thing read here is a choice the visitor made with the toggle. Storage can throw (private
+  // windows), hence try/catch.
   (function () {
     var d = document.documentElement;
     d.classList.add("js");
-    try { var t = localStorage.getItem("theta-theme"); if (t === "light" || t === "dark") d.setAttribute("data-theme", t); } catch (e) {}
+    try {
+      if (localStorage.getItem("theta-theme") === "light") {
+        d.setAttribute("data-theme", "light");
+        document.querySelector('meta[name="color-scheme"]').content = "light";
+        document.querySelector('meta[name="theme-color"]').content = "#f6f4ef";
+      }
+    } catch (e) {}
   })();
 </script>
+<!--/@assets-->
 </head>
 <body>
 <!--@nav-->
@@ -45,12 +56,12 @@
   <symbol id="i-fk" viewBox="0 0 14 14"><g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="3.5" cy="3" r="1.7"/><circle cx="10.5" cy="11" r="1.7"/><path d="M3.5 4.7v1.3a2 2 0 0 0 2 2h3.2a1.8 1.8 0 0 1 1.8 1.8"/></g></symbol>
   <symbol id="i-table" viewBox="0 0 14 14"><g fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="2" width="11" height="10" rx="1.5"/><path d="M1.5 5.5h11M5.5 5.5V12"/></g></symbol>
   <symbol id="i-replay" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 8a5.2 5.2 0 1 0 1.6-3.7"/><path d="M2.6 2.4v2.5h2.5"/></g></symbol>
-  <g id="theta" fill="none" stroke="currentColor" style="stroke-width:var(--mark-w,2)" stroke-linecap="butt"><ellipse cx="16" cy="22" rx="9.8" ry="14"/><path d="M6.2 22H25.8"/></g>
+  <symbol id="theta" viewBox="0 0 216 280"><g transform="translate(108 140)" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="butt"><path d="M98 0 L97.91 -5.67 L97.63 -11.33 L97.16 -16.97 L96.51 -22.57 L95.68 -28.14 L94.66 -33.65 L93.46 -39.09 L92.09 -44.46 L90.54 -49.75 L88.82 -54.94 L86.93 -60.03 L84.87 -65 L82.65 -69.85 L80.28 -74.56 L77.75 -79.14 L75.07 -83.56 L72.25 -87.83 L69.3 -91.92 L66.21 -95.85 L62.99 -99.59 L59.66 -103.14 L56.21 -106.49 L52.66 -109.64 L49 -112.58 L45.25 -115.31 L41.42 -117.82 L37.5 -120.1 L33.52 -122.16 L29.47 -123.98 L25.36 -125.57 L21.21 -126.92 L17.02 -128.03 L12.79 -128.89 L8.54 -129.51 L4.27 -129.88 L0 -130 L-4.27 -129.88 L-8.54 -129.51 L-12.79 -128.89 L-17.02 -128.03 L-21.21 -126.92 L-25.36 -125.57 L-29.47 -123.98 L-33.52 -122.16 L-37.5 -120.1 L-41.42 -117.82 L-45.25 -115.31 L-49 -112.58 L-52.66 -109.64 L-56.21 -106.49 L-59.66 -103.14 L-62.99 -99.59 L-66.21 -95.85 L-69.3 -91.92 L-72.25 -87.83 L-75.07 -83.56 L-77.75 -79.14 L-80.28 -74.56 L-82.65 -69.85 L-84.87 -65 L-86.93 -60.03 L-88.82 -54.94 L-90.54 -49.75 L-92.09 -44.46 L-93.46 -39.09 L-94.66 -33.65 L-95.68 -28.14 L-96.51 -22.57 L-97.16 -16.97 L-97.63 -11.33 L-97.91 -5.67 L-98 0 L-97.91 5.67 L-97.63 11.33 L-97.16 16.97 L-96.51 22.57 L-95.68 28.14 L-94.66 33.65 L-93.46 39.09 L-92.09 44.46 L-90.54 49.75 L-88.82 54.94 L-86.93 60.03 L-84.87 65 L-82.65 69.85 L-80.28 74.56 L-77.75 79.14 L-75.07 83.56 L-72.25 87.83 L-69.3 91.92 L-66.21 95.85 L-62.99 99.59 L-59.66 103.14 L-56.21 106.49 L-52.66 109.64 L-49 112.58 L-45.25 115.31 L-41.42 117.82 L-37.5 120.1 L-33.52 122.16 L-29.47 123.98 L-25.36 125.57 L-21.21 126.92 L-17.02 128.03 L-12.79 128.89 L-8.54 129.51 L-4.27 129.88 L0 130 L4.27 129.88 L8.54 129.51 L12.79 128.89 L17.02 128.03 L21.21 126.92 L25.36 125.57 L29.47 123.98 L33.52 122.16 L37.5 120.1 L41.42 117.82 L45.25 115.31 L49 112.58 L52.66 109.64 L56.21 106.49 L59.66 103.14 L62.99 99.59 L66.21 95.85 L69.3 91.92 L72.25 87.83 L75.07 83.56 L77.75 79.14 L80.28 74.56 L82.65 69.85 L84.87 65 L86.93 60.03 L88.82 54.94 L90.54 49.75 L92.09 44.46 L93.46 39.09 L94.66 33.65 L95.68 28.14 L96.51 22.57 L97.16 16.97 L97.63 11.33 L97.91 5.67 L98 0Z" style="stroke-width:var(--mark-w,20)"/><path d="M-48.34 -6 L48.34 -6" style="stroke-width:calc(var(--mark-w,20)*0.85)"/></g></symbol>
 </svg>
 <a class="skip" href="#main">Skip to content</a>
 <header class="nav">
   <div class="wrap">
-    <a class="brand" href="index.html" aria-label="Theta, home"><svg class="mark" viewBox="0 0 32 44" aria-hidden="true"><use href="#theta"/></svg><span>Theta</span></a>
+    <a class="brand" href="index.html" aria-label="Theta, home"><svg class="mark" aria-hidden="true"><use href="#theta"/></svg><span>Theta</span></a>
     <nav class="nav-main" aria-label="Primary">
       <ul class="nav-links" id="nav-links">
         <li><a href="index.html#features">Features</a></li>
@@ -63,7 +74,7 @@
     <div class="nav-actions">
       <button class="icon-btn theme-toggle" type="button" aria-label="Switch colour theme"><svg class="moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
       <button class="icon-btn menu-btn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links"><svg aria-hidden="true"><use href="#i-menu"/></svg></button>
-      <a class="btn btn-primary btn-sm" href="index.html#download">Download</a>
+      <a class="btn btn-primary btn-sm" href="index.html#download" data-key="d" aria-keyshortcuts="d">Download<kbd class="k" aria-hidden="true">D</kbd></a>
     </div>
   </div>
 </header>
@@ -74,19 +85,31 @@
   <!-- HERO -->
   <section class="hero" aria-labelledby="hero-title">
     <div class="wrap">
-      <p class="eyebrow"><svg class="m" viewBox="0 0 32 44" aria-hidden="true"><use href="#theta"/></svg><span>Keyboard-first database IDE &middot; Alpha</span></p>
+      <p class="eyebrow"><svg class="m" aria-hidden="true"><use href="#theta"/></svg><span>Keyboard-first database IDE &middot; Alpha</span></p>
       <h1 id="hero-title">A database IDE that joins the dots.</h1>
-      <p class="lead">A native, GPU-accelerated SQL editor for PostgreSQL, MySQL and SQLite, with Helix, Vim or standard keys and completion that writes your joins from the schema.</p>
+      <p class="lead">A native SQL editor for PostgreSQL, MySQL and SQLite, with Helix, Vim or standard keys and completion that writes your joins from the schema.</p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/JesseWilliamson/Theta/releases/latest" data-repo="/releases/latest"><svg aria-hidden="true"><use href="#i-download"/></svg>Download alpha</a>
-        <a class="btn" href="https://github.com/JesseWilliamson/Theta" data-repo=""><svg aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
+        <a class="btn btn-primary" href="#download" data-key="d" aria-keyshortcuts="d"><svg aria-hidden="true"><use href="#i-download"/></svg>Download alpha<kbd class="k" aria-hidden="true">D</kbd></a>
+        <a class="btn" href="https://github.com/JesseWilliamson/Theta" data-repo="" data-key="g" aria-keyshortcuts="g"><svg aria-hidden="true"><use href="#i-github"/></svg>View on GitHub<kbd class="k" aria-hidden="true">G</kbd></a>
       </div>
-      <p class="hint" id="dl-hint" aria-live="polite">Alpha builds for <strong>Linux</strong> (x86_64), <strong>macOS</strong> (Apple Silicon, Intel) and <strong>Windows</strong> (x86_64). Details <a href="#download">below</a>.</p>
+      <p class="hint" id="dl-hint" aria-live="polite">Alpha builds for <strong>Linux</strong> (x86_64), <strong>macOS</strong> (Apple Silicon, Intel) and <strong>Windows</strong> (x86_64).</p>
+    </div>
+  </section>
 
+  <section class="strip" aria-label="In short">
+    <div class="wrap">
+      <div class="strip-item"><h2>Keyboard-first</h2><p>Helix, Vim or standard keys, and a command palette for the rest. No mouse required.</p></div>
+      <div class="strip-item"><h2>Schema-aware</h2><p>Completion writes whole JOIN clauses from declared and inferred foreign keys.</p></div>
+      <div class="strip-item"><h2>Native</h2><p>GPU-rendered, not a web view. A grid of 100,000 rows by 60 columns stays interactive.</p></div>
+    </div>
+  </section>
+
+  <section class="showcase" aria-label="Screenshot">
+    <div class="wrap">
       <figure class="frame hero-shot">
         <div class="frame-inner">
           <picture>
-            <source type="image/webp" srcset="assets/screens/editor-results-900.webp 900w, assets/screens/editor-results.webp 1600w" sizes="(min-width: 1300px) 1160px, 100vw">
+            <source type="image/webp" srcset="assets/screens/editor-results-900.webp 900w, assets/screens/editor-results.webp 1600w" sizes="(min-width: 1300px) 1080px, 100vw">
             <img src="assets/screens/editor-results.png" width="1600" height="1000" fetchpriority="high" decoding="async"
                  alt="Theta window in the dark theme. On the left the schema explorer; at the top a SQL console with a query that joins customers to orders and groups revenue by city; below it the results grid with twelve rows, one per city.">
           </picture>
@@ -112,7 +135,7 @@
         </div>
 
         <figure style="margin:0" data-demo>
-          <div class="mock" role="img" aria-label="Illustration of the Theta editor. The query reads: select o.id, o.total, c.last_name from orders o join. A completion popup is open beneath it. Its first suggestion, a foreign key, reads: customers c on o.customer_id = c.id. Below are another declared key, order_items i on i.order_id = o.id, an inferred key, shipments s on s.order_id = o.id, and two plain tables.">
+          <div class="mock" role="img" aria-label="Illustration of the Theta editor. The query reads: select o.id, o.total, c.last_name from orders o join. A completion popup is open beneath it. Its first suggestion, a foreign key, reads: customers c on o.customer_id = c.id. Below are another declared key, order_items i on i.order_id = o.id, and three plain tables: customers, order_items and products.">
             <div class="mock-tabs" aria-hidden="true"><span class="mock-tab"><i></i>console 1</span></div>
             <button class="icon-btn mock-replay" type="button" aria-label="Replay the animation" data-replay><svg aria-hidden="true"><use href="#i-replay"/></svg></button>
             <div class="mock-body" aria-hidden="true">
@@ -122,15 +145,16 @@
               <ul class="pop" data-pop>
                 <li class="sel"><svg class="ico"><use href="#i-fk"/></svg><span class="lbl">customers c on o.customer_id = c.id</span><span class="meta">FK orders_customer_id_fkey</span></li>
                 <li><svg class="ico"><use href="#i-fk"/></svg><span class="lbl">order_items i on i.order_id = o.id</span><span class="meta">FK order_items_order_id_fkey</span></li>
-                <li><svg class="ico"><use href="#i-fk"/></svg><span class="lbl">shipments s on s.order_id = o.id</span><span class="meta">suggested &middot; inferred</span></li>
+                <li class="sep"></li>
                 <li><svg class="ico tbl"><use href="#i-table"/></svg><span class="lbl">customers</span><span class="meta">table &middot; 200 rows</span></li>
+                <li><svg class="ico tbl"><use href="#i-table"/></svg><span class="lbl">order_items</span><span class="meta">table &middot; 1.8k rows</span></li>
                 <li><svg class="ico tbl"><use href="#i-table"/></svg><span class="lbl">products</span><span class="meta">table &middot; 40 rows</span></li>
                 <li class="detail">customers c on o.customer_id = c.id</li>
               </ul>
             </div>
             <div class="mock-status" aria-hidden="true"><span class="tip" data-tip><kbd>Tab</kbd> accepted</span><span data-col>Ln 3, Col 6</span><span class="mode">INS</span><span>demo &middot; PostgreSQL</span></div>
           </div>
-          <figcaption class="fig-cap"><b>Fig. 02</b><span>The completion popup, set in the app&rsquo;s own colours and fonts. Table names are from the demo database.</span></figcaption>
+          <figcaption class="fig-cap"><b>Fig. 02</b><span>The completion popup, set in the app&rsquo;s own colours and fonts. Tables, keys and row counts are from the demo database.</span></figcaption>
         </figure>
       </div>
     </div>
@@ -412,7 +436,7 @@
     <div class="wrap">
       <p class="eyebrow"><span class="num">04</span> <span id="why-title">Why Theta?</span></p>
       <div class="why">
-        <div class="why-mark" aria-hidden="true"><svg viewBox="0 0 32 44"><use href="#theta"/></svg></div>
+        <div class="why-mark" aria-hidden="true"><svg><use href="#theta"/></svg></div>
         <div>
           <p class="passage">In relational algebra, a theta join (<em>&theta;-join</em>) is the general form of <code>JOIN</code>: rows from two tables, combined under any condition &theta;. Theta&rsquo;s job is to write that condition for you, from the foreign keys your database declares and the ones it should have.</p>
           <p class="formula"><b>R &#8904;<sub>&theta;</sub> S</b> = &sigma;<sub>&theta;</sub>(R &times; S)</p>
@@ -497,7 +521,7 @@
   <div class="wrap">
     <div class="footer-grid">
       <div>
-        <a class="brand" href="index.html" aria-label="Theta, home"><svg class="mark" viewBox="0 0 32 44" aria-hidden="true"><use href="#theta"/></svg><span>Theta</span></a>
+        <a class="brand" href="index.html" aria-label="Theta, home"><svg class="mark" aria-hidden="true"><use href="#theta"/></svg><span>Theta</span></a>
         <p style="max-width:34ch">A keyboard-first database IDE for PostgreSQL, MySQL/MariaDB and SQLite. Alpha software, built in the open.</p>
       </div>
       <div>
@@ -523,7 +547,7 @@
         <ul>
           <li>Built with <a href="https://www.gpui.rs/">GPUI</a></li>
           <li>Theta is open source under the <a data-repo="/blob/main/LICENSE" href="https://github.com/JesseWilliamson/Theta/blob/main/LICENSE">MIT licence</a></li>
-          <li>Type: <a href="assets/fonts/IBMPlexSans-OFL.txt">IBM Plex Sans</a> and <a href="assets/fonts/Lilex-OFL.txt">Lilex</a>, SIL Open Font License 1.1</li>
+          <li>Type: <a href="assets/fonts/IBMPlexSerif-OFL.txt">IBM Plex Serif</a>, <a href="assets/fonts/IBMPlexSans-OFL.txt">IBM Plex Sans</a> and <a href="assets/fonts/Lilex-OFL.txt">Lilex</a>, SIL Open Font License 1.1</li>
           <li>Map screenshot: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors</li>
         </ul>
       </div>

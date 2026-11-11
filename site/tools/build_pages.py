@@ -4,10 +4,11 @@ shared nav / footer identical on every page.
 
     python3 site/tools/build_pages.py            # from anywhere inside the repo
 
-Inputs : docs/KEYBINDINGS.md, CHANGELOG.md, site/tools/partials/{nav,footer}.html
+Inputs : docs/KEYBINDINGS.md, CHANGELOG.md, site/tools/partials/{assets,nav,footer}.html
 Outputs: site/keybindings.html, site/changelog.html (overwritten), and the regions between
-         <!--@nav--> ... <!--/@nav--> and <!--@footer--> ... <!--/@footer--> in index.html,
-         404.html and the two generated pages.
+         <!--@assets--> (fonts, stylesheet, theme script; not in 404.html), <!--@nav--> and
+         <!--@footer--> markers in index.html, 404.html and the two generated pages. It also runs
+         mark.py, which re-derives the site's copies of the theta mark from packaging/icons.
 
 Only the Python standard library is used. The Markdown handled is the small subset these two
 files use: headings, paragraphs, bullet lists (nested), pipe tables, inline code, bold, italics
@@ -18,6 +19,8 @@ from __future__ import annotations
 import html
 import re
 from pathlib import Path
+
+import mark
 
 ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / "site"
@@ -190,12 +193,14 @@ def render_list(items: list[tuple[int, str]]) -> str:
 def partial(name: str, current: str) -> str:
     text = (PARTIALS / name).read_text()
     if "{{MARK}}" in text:
-        # One source for the mark: assets/theta-mark.svg. It is inlined into each page's hidden sprite so
-        # <use href="#theta"> needs no extra request and works from any URL depth (404.html).
-        mark = re.search(r'<g id="theta"\s[^>]*>.*?</g>', (SITE / "assets" / "theta-mark.svg").read_text(), flags=re.S).group(0)
-        text = text.replace("{{MARK}}", re.sub(r"\s*\n\s*", "", mark))
+        # One source for the mark: packaging/icons/theta-mark.svg, read by mark.py. It is inlined into each page's
+        # hidden sprite so <use href="#theta"> needs no extra request and works from any URL depth (404.html).
+        text = text.replace("{{MARK}}", mark.sprite())
     if name == "nav.html":
         text = text.replace(f'<a href="{current}"', f'<a aria-current="page" href="{current}"')
+    if "{{SERIF}}" in text:
+        # The hero's italic is the first serif face the home page paints; every other page opens with the roman Light.
+        text = text.replace("{{SERIF}}", "IBMPlexSerif-LightItalic" if current == "index.html" else "IBMPlexSerif-Light")
     return text.rstrip("\n")
 
 
@@ -208,7 +213,6 @@ def head(title: str, description: str, page: str) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{t}</title>
 <meta name="description" content="{d}">
-<meta name="theme-color" content="#181b1f">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Theta">
 <meta property="og:title" content="{t}">
@@ -220,20 +224,8 @@ def head(title: str, description: str, page: str) -> str:
 <meta name="twitter:title" content="{t}">
 <meta name="twitter:description" content="{d}">
 <meta name="twitter:image" content="{PAGES_URL}assets/og.png">
-<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-<link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
-<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<link rel="preload" href="assets/fonts/IBMPlexSans-Regular.woff" as="font" type="font/woff" crossorigin>
-<link rel="preload" href="assets/fonts/IBMPlexSans-SemiBold.woff" as="font" type="font/woff" crossorigin>
-<link rel="stylesheet" href="assets/css/site.css">
-<script>
-  // Runs before first paint so the saved theme never flashes. Storage can throw (private windows), hence try/catch.
-  (function () {{
-    var d = document.documentElement;
-    d.classList.add("js");
-    try {{ var t = localStorage.getItem("theta-theme"); if (t === "light" || t === "dark") d.setAttribute("data-theme", t); }} catch (e) {{}}
-  }})();
-</script>
+<!--@assets-->
+<!--/@assets-->
 </head>
 <body>
 <!--@nav-->
@@ -254,7 +246,9 @@ def page_end() -> str:
 def inject_partials(path: Path) -> None:
     """Replace the content between the nav / footer markers with the partials."""
     text = path.read_text()
-    for tag, name in (("nav", "nav.html"), ("footer", "footer.html")):
+    for tag, name in (("assets", "assets.html"), ("nav", "nav.html"), ("footer", "footer.html")):
+        if tag == "assets" and "<!--@assets-->" not in text:
+            continue  # 404.html loads its stylesheet by hand (see the comment there)
         body = partial(name, path.name)
         text, n = re.subn(rf"<!--@{tag}-->.*?<!--/@{tag}-->", lambda m: f"<!--@{tag}-->\n{body}\n<!--/@{tag}-->", text, flags=re.S)
         if n != 1:
@@ -374,7 +368,7 @@ def build_keybindings() -> str:
 <main id="main">
   <section class="page-head">
     <div class="wrap">
-      <p class="eyebrow"><svg class="m" viewBox="0 0 32 44" aria-hidden="true"><use href="#theta"/></svg> Docs</p>
+      <p class="eyebrow"><svg class="m" aria-hidden="true"><use href="#theta"/></svg> Docs</p>
       <h1>Key bindings</h1>
       <p>Three keymaps and the application shortcuts, {total} bindings in all. <kbd>mod</kbd> is <kbd>cmd</kbd> on macOS and <kbd>ctrl</kbd> on Linux and Windows. In the app, Settings &rsaquo; Keymap lists the same keys with their actions.</p>
     </div>
@@ -445,7 +439,7 @@ def build_changelog() -> str:
 <main id="main">
   <section class="page-head">
     <div class="wrap">
-      <p class="eyebrow"><svg class="m" viewBox="0 0 32 44" aria-hidden="true"><use href="#theta"/></svg> Docs</p>
+      <p class="eyebrow"><svg class="m" aria-hidden="true"><use href="#theta"/></svg> Docs</p>
       <h1>Changelog</h1>
       <p>Every release, newest first. Theta follows <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a> and intends to follow Semantic Versioning once releases begin.</p>
     </div>
@@ -463,6 +457,7 @@ def build_changelog() -> str:
 
 
 def main() -> None:
+    mark.main()  # derived mark files first, so the sprite below and the assets agree
     (SITE / "keybindings.html").write_text(build_keybindings())
     (SITE / "changelog.html").write_text(build_changelog())
     for name in ("index.html", "404.html", "keybindings.html", "changelog.html"):
