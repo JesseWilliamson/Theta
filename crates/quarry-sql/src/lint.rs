@@ -31,6 +31,28 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+/// Whether `d` only says "this statement is not finished": what an editor should hold back
+/// while the user is still typing it. Server errors and dangerous-statement warnings are not
+/// in this class.
+pub fn is_incomplete_while_typing(d: &Diagnostic) -> bool {
+    const PREFIXES: &[&str] = &[
+        "Expected ",
+        "Incomplete expression",
+        "Trailing comma",
+        "Unexpected comma",
+        "Double comma",
+        "Unclosed '('",
+        "Unterminated ",
+        "JOIN requires an ON",
+        "UPDATE statement has no SET",
+        "IN () needs",
+        "Unknown table",
+        "Unknown column",
+        "Column '",
+    ];
+    PREFIXES.iter().any(|p| d.message.starts_with(p))
+}
+
 fn diag(range: Range<usize>, severity: Severity, message: impl Into<String>) -> Diagnostic {
     Diagnostic { range, severity, message: message.into() }
 }

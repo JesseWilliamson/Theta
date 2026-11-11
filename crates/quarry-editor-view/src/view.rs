@@ -2,7 +2,7 @@
 //! calls and engine effects into view state. Painting lives in `element.rs`, popups and
 //! chrome in `render.rs`; this file is the controller.
 
-use crate::completion::{CompletionState, is_word_char};
+use crate::completion::{CompletionState, auto_trigger_after_space, is_noop_accept, is_word_char};
 use crate::display::byte_range_to_chars;
 use crate::geometry;
 use crate::keys::{KeyMods, translate_key};
@@ -31,6 +31,8 @@ pub const HINT_DELAY: Duration = Duration::from_millis(250);
 /// Hovering a diagnostic this long opens its popover.
 pub const HOVER_DELAY: Duration = Duration::from_millis(400);
 const DIAGNOSTICS_DEBOUNCE: Duration = Duration::from_millis(300);
+/// How long after the last keystroke "unfinished statement" diagnostics stay hidden.
+const TYPING_IDLE: Duration = Duration::from_millis(1500);
 /// Buffers longer than this (chars) get throttled whole-script lookups.
 const BIG_DOCUMENT_CHARS: usize = 150_000;
 const STATEMENT_THROTTLE: Duration = Duration::from_millis(120);
@@ -151,6 +153,10 @@ pub struct EditorView {
     pub(crate) diagnostics: Vec<Diag>,
     pub(crate) transient: Option<(u64, Diag)>,
     diag_task: Option<Task<()>>,
+    /// When the user last edited in an insert-like mode, and the char range of the statement
+    /// being typed: its "unfinished" diagnostics stay hidden until typing pauses.
+    typing: Option<(Instant, Range<usize>)>,
+    typing_task: Option<Task<()>>,
     pub(crate) pending_initial_diagnostics: bool,
     pub(crate) hover: Option<Hover>,
     // statements
@@ -239,6 +245,8 @@ impl EditorView {
             diagnostics: Vec::new(),
             transient: None,
             diag_task: None,
+            typing: None,
+            typing_task: None,
             pending_initial_diagnostics: false,
             hover: None,
             statement_status: None,
@@ -550,7 +558,20 @@ impl EditorView {
             Key::Char('p') if m.ctrl && !m.alt && !m.platform => self.move_completion(-1, cx),
             Key::Char('n') if m.ctrl && !m.alt && !m.platform => self.move_completion(1, cx),
             Key::Tab if plain => self.accept_completion(window, cx),
-            Key::Enter if plain => self.accept_completion(window, cx),
+            Key::Enter if plain => {
+                // Accepting an identical word would swallow the newline: dismiss and let the
+                // engine insert it. Tab still accepts.
+                let current = self.completion.as_ref().map(|c| self.editor.slice(c.replace.clone()));
+                let noop = self.completion.as_ref().and_then(|c| c.selected_item()).is_some_and(|i| {
+                    current.as_deref().is_some_and(|cur| is_noop_accept(&i.insert_text, cur))
+                });
+                if noop {
+                    self.completion = None;
+                    cx.notify();
+                    return false;
+                }
+                self.accept_completion(window, cx)
+            }
             Key::Escape if plain => {
                 self.completion = None;
                 cx.notify();
@@ -629,8 +650,64 @@ impl EditorView {
         if self.transient.as_ref().is_some_and(|(r, _)| *r != rev) {
             self.transient = None;
         }
+        self.shift_diagnostics();
+        self.note_typing(cx);
         self.schedule_diagnostics_in(DIAGNOSTICS_DEBOUNCE, Some(cx));
         cx.emit(EditorEvent::Edited { revision: rev });
+    }
+
+    /// Carry the current squiggles through the edit that just happened, so they do not sit on
+    /// the wrong text until the next lint result arrives; ranges the edit touched are dropped.
+    fn shift_diagnostics(&mut self) {
+        let old = self.text_snapshot.as_ref().map(|(_, t)| t.clone());
+        let new = self.text_snapshot();
+        let Some(old) = old else { return };
+        let Some((start, removed, inserted)) = crate::util::diff_edit(&old, &new) else { return };
+        self.diagnostics.retain_mut(|d| match crate::util::shift_range(d.range.clone(), start, removed, inserted)
+        {
+            Some(r) => {
+                d.range = r;
+                true
+            }
+            None => false,
+        });
+    }
+
+    /// Remember the statement being typed (insert-like modes only) and repaint once typing pauses.
+    fn note_typing(&mut self, cx: &mut Context<Self>) {
+        let insertish = matches!(self.editor.mode(), Mode::Insert | Mode::Standard);
+        if !insertish || self.diagnostics_provider.is_none() || self.editor.len_chars() > BIG_DOCUMENT_CHARS {
+            self.typing = None;
+            return;
+        }
+        let cursor = self.primary_cursor();
+        let text = self.text_snapshot();
+        let span = quarry_sql::statement_at(&text, self.editor.char_to_byte(cursor), self.db_kind);
+        self.typing = span.map(|s| (Instant::now(), self.byte_range_to_chars(s.range)));
+        self.typing_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(TYPING_IDLE).await;
+            this.update(cx, |v, cx| {
+                v.typing = None;
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// Whether `d` is an "unfinished statement" complaint about the statement still being typed.
+    fn held_back(&self, d: &Diag) -> bool {
+        let Some((_, stmt)) = &self.typing else { return false };
+        let cursor = self.primary_cursor();
+        matches!(self.editor.mode(), Mode::Insert | Mode::Standard)
+            && cursor >= stmt.start
+            && cursor <= stmt.end
+            && d.range.start >= stmt.start
+            && d.range.end <= stmt.end + 1
+            && quarry_sql::is_incomplete_while_typing(&quarry_sql::Diagnostic {
+                range: 0..0,
+                severity: d.severity,
+                message: d.message.clone(),
+            })
     }
 
     /// Text changed outside the key path (IME, menu commands): raise the usual events.
@@ -712,6 +789,11 @@ impl EditorView {
             }
         }
         let mut state = CompletionState::new(list, replace, prefix)?;
+        // The word is already complete and nothing else is on offer: the popup would only be in
+        // the way (and Enter would have nothing to do).
+        if !manual && state.items.len() == 1 && is_noop_accept(&state.items[0].insert_text, &state.prefix) {
+            return None;
+        }
         state.manual = manual;
         Some(state)
     }
@@ -740,6 +822,15 @@ impl EditorView {
         };
         let is_trigger_char = typed.is_some_and(|c| is_word_char(c) || c == '.');
         let dot = typed == Some('.');
+        if edited && typed == Some(' ') {
+            let cursor = self.primary_cursor();
+            let before = self.editor.slice(cursor.saturating_sub(200)..cursor);
+            if auto_trigger_after_space(&before) {
+                // Replaces a popup still open for the keyword itself (`from|` -> `from |`).
+                self.completion = self.query_completion(true);
+                return;
+            }
+        }
         match (&self.completion, edited) {
             (Some(open), true) => {
                 let start = open.replace.start;
@@ -900,7 +991,7 @@ impl EditorView {
 
     /// Diagnostics at a char index (transient first), as indexes into `all_diagnostics`.
     pub(crate) fn all_diagnostics(&self) -> Vec<&Diag> {
-        let mut v: Vec<&Diag> = self.diagnostics.iter().collect();
+        let mut v: Vec<&Diag> = self.diagnostics.iter().filter(|d| !self.held_back(d)).collect();
         if let Some((rev, d)) = &self.transient
             && *rev == self.editor.revision()
         {

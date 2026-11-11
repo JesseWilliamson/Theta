@@ -692,3 +692,93 @@ fn dragging_the_scrollbar_thumb_scrolls(cx: &mut TestAppContext) {
     // Clicking the track pages toward the pointer; the text cursor is untouched.
     assert_eq!(f.view.read_with(cx, |v, _| v.status().line), 1);
 }
+
+fn shop_completion(f: &Fixture, cx: &mut TestAppContext) {
+    f.view.update(cx, |v, _| {
+        v.set_completion_provider(Some(Rc::new(ShopProvider(quarry_sql::fixtures::shop()))));
+    });
+}
+
+#[gpui_kit::test]
+fn enter_on_an_exact_match_inserts_a_newline_instead_of_accepting(cx: &mut TestAppContext) {
+    let f = setup(cx, "", Keymap::Standard);
+    shop_completion(&f, cx);
+    f.keys(cx, "select * from orders o join customers c on o.customer_id = c.id");
+    f.keys(cx, "<ret>where 1 = 1");
+    assert_eq!(
+        f.text(cx),
+        "select * from orders o join customers c on o.customer_id = c.id\nwhere 1 = 1",
+        "the popup must not swallow the newline"
+    );
+}
+
+#[gpui_kit::test]
+fn space_after_from_and_join_opens_completion_but_not_after_other_words(cx: &mut TestAppContext) {
+    let f = setup(cx, "", Keymap::Standard);
+    shop_completion(&f, cx);
+    f.keys(cx, "select * from ");
+    assert!(f.view.read_with(cx, |v, _| v.completion.is_some()), "after FROM");
+    f.keys(cx, "<esc>orders o join ");
+    assert!(f.view.read_with(cx, |v, _| v.completion.is_some()), "after JOIN");
+    f.keys(cx, "<esc>on ");
+    assert!(f.view.read_with(cx, |v, _| v.completion.is_some()), "after ON");
+    f.keys(cx, "<esc>o.id = 1 ");
+    assert!(f.view.read_with(cx, |v, _| v.completion.is_none()), "an arbitrary space stays quiet");
+}
+
+fn incomplete_provider() -> crate::DiagnosticsProvider {
+    Arc::new(|sql: &str| quarry_sql::lint(sql, DatabaseKind::Postgres, None))
+}
+
+#[gpui_kit::test]
+fn unfinished_statement_squiggles_wait_for_typing_to_pause(cx: &mut TestAppContext) {
+    let f = setup(cx, "", Keymap::Standard);
+    f.view.update(cx, |v, _| v.set_diagnostics_provider(Some(incomplete_provider())));
+    f.render(cx);
+    f.keys(cx, "select * from stores s join");
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    assert!(f.view.read_with(cx, |v, _| !v.diagnostics.is_empty()), "the lint did run");
+    assert!(
+        f.view.read_with(cx, |v, _| v.all_diagnostics().is_empty()),
+        "but an unfinished statement is not underlined while typing"
+    );
+    cx.executor().advance_clock(Duration::from_millis(1500));
+    cx.run_until_parked();
+    assert!(f.view.read_with(cx, |v, _| !v.all_diagnostics().is_empty()), "shown after the pause");
+}
+
+#[gpui_kit::test]
+fn dangerous_statements_are_never_held_back(cx: &mut TestAppContext) {
+    let f = setup(cx, "", Keymap::Standard);
+    f.view.update(cx, |v, _| v.set_diagnostics_provider(Some(incomplete_provider())));
+    f.render(cx);
+    f.keys(cx, "delete from orders");
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    assert!(f.view.read_with(cx, |v, _| v.all_diagnostics().iter().any(|d| d.message.contains("without WHERE"))));
+}
+
+#[gpui_kit::test]
+fn squiggles_follow_the_text_through_edits(cx: &mut TestAppContext) {
+    let f = setup(cx, "select 1;\nselect nme from t", Keymap::Standard);
+    f.view.update(cx, |v, _| {
+        v.set_diagnostics_provider(Some(Arc::new(|sql: &str| {
+            let at = sql.find("nme").unwrap();
+            vec![quarry_sql::Diagnostic {
+                range: at..at + 3,
+                severity: quarry_sql::Severity::Warning,
+                message: "Unknown column".into(),
+            }]
+        })));
+    });
+    f.render(cx);
+    cx.executor().advance_clock(Duration::from_millis(500));
+    cx.run_until_parked();
+    let before = f.view.read_with(cx, |v, _| v.diagnostics[0].range.clone());
+    f.keys(cx, "<C-home>-- note<ret>");
+    let after = f.view.read_with(cx, |v, _| v.diagnostics.first().map(|d| d.range.clone()));
+    assert_eq!(after, Some(before.start + 8..before.end + 8), "shifted by the inserted text");
+    f.keys(cx, "<C-end><left><left><left><left><left><left><left><left>x");
+    assert!(f.view.read_with(cx, |v, _| v.diagnostics.is_empty()), "an edit inside the range drops it");
+}

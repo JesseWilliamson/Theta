@@ -109,6 +109,75 @@ pub fn highlight_segments(label: &str, prefix: &str) -> Vec<(String, bool)> {
     out
 }
 
+/// Whether the selected item would insert exactly what is already in the replace range.
+/// Accepting it would change nothing, so Enter should fall through to a newline instead.
+pub fn is_noop_accept(selected_insert: &str, current: &str) -> bool {
+    !current.is_empty() && selected_insert.eq_ignore_ascii_case(current)
+}
+
+/// Whether a space just typed after `before` (the text up to and including that space) should open
+/// completion by itself: right after `FROM`, any `JOIN`, `ON`, `INTO`, `UPDATE`, `TABLE`, and after
+/// a comma inside a FROM list. Never after arbitrary spaces, which would make the popup noise.
+pub fn auto_trigger_after_space(before: &str) -> bool {
+    let Some(head) = before.strip_suffix(' ') else { return false };
+    let head = head.trim_end_matches(' ');
+    if let Some(prefix) = head.strip_suffix(',') {
+        return in_from_list(prefix);
+    }
+    let word: String = head
+        .chars()
+        .rev()
+        .take_while(|c| is_word_char(*c))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    // The word must stand alone (`a.from` or `x_join` are identifiers, not keywords).
+    let preceding = head[..head.len() - word.len()].chars().next_back();
+    if preceding.is_some_and(|c| is_word_char(c) || c == '.' || c == '"' || c == '`') {
+        return false;
+    }
+    matches!(
+        word.to_ascii_lowercase().as_str(),
+        "from" | "join" | "on" | "into" | "update" | "table"
+    )
+}
+
+/// Whether the last clause keyword before the end of `text` (in the current statement, outside
+/// parentheses opened after it) is `FROM`.
+fn in_from_list(text: &str) -> bool {
+    let stmt = text.rsplit(';').next().unwrap_or(text);
+    let mut depth = 0i32;
+    let mut word = String::new();
+    let mut last_clause: Option<String> = None;
+    let flush = |word: &mut String, depth: i32, last: &mut Option<String>| {
+        if depth == 0 && !word.is_empty() {
+            let w = word.to_ascii_lowercase();
+            if matches!(
+                w.as_str(),
+                "select" | "from" | "where" | "group" | "order" | "having" | "set" | "limit" | "values"
+            ) {
+                *last = Some(w);
+            }
+        }
+        word.clear();
+    };
+    for c in stmt.chars() {
+        if is_word_char(c) {
+            word.push(c);
+            continue;
+        }
+        flush(&mut word, depth, &mut last_clause);
+        match c {
+            '(' => depth += 1,
+            ')' => depth = (depth - 1).max(0),
+            _ => {}
+        }
+    }
+    flush(&mut word, depth, &mut last_clause);
+    depth == 0 && last_clause.as_deref() == Some("from")
+}
+
 /// Whether `c` continues an identifier (what "typing a word" means for auto-completion).
 pub fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
@@ -219,6 +288,43 @@ mod tests {
         assert_eq!(segs.iter().filter(|(_, m)| *m).map(|(s, _)| s.as_str()).collect::<String>(), "oi");
         assert_eq!(highlight_segments("abc", ""), vec![("abc".to_string(), false)]);
         assert_eq!(highlight_segments("abc", "zzz"), vec![("abc".to_string(), false)]);
+    }
+
+    #[test]
+    fn noop_accept_is_case_insensitive() {
+        assert!(is_noop_accept("id", "id"));
+        assert!(is_noop_accept("SELECT", "select"));
+        assert!(!is_noop_accept("customers", "cu"));
+        assert!(!is_noop_accept("id", ""));
+    }
+
+    #[test]
+    fn auto_trigger_after_clause_keywords() {
+        for t in [
+            "select * from ",
+            "select * from a JOIN ",
+            "select * from a left join ",
+            "select * from a join b ON ",
+            "insert into ",
+            "UPDATE ",
+            "drop table ",
+            "select * from a, ",
+            "select * from a join b on a.x = b.x, ",
+        ] {
+            assert!(auto_trigger_after_space(t), "{t}");
+        }
+        for t in [
+            "select ",
+            "select a, ",
+            "select * from a where ",
+            "select * from a ",
+            "select * from (select 1, ",
+            "select a.from ",
+            "select 1; select 2, ",
+            "from",
+        ] {
+            assert!(!auto_trigger_after_space(t), "{t}");
+        }
     }
 
     #[test]
