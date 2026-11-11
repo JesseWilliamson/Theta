@@ -580,7 +580,7 @@ impl Render for SettingsView {
                 },
             )))
             .child(
-                div().id("settings-body").flex_1().min_w_0().h_full().overflow_y_scroll().pr_1().child(body),
+                div().id("settings-body").flex_1().min_w_0().h_full().overflow_y_scroll().px_1().pb_1().child(body),
             )
     }
 }

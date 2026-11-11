@@ -663,7 +663,7 @@ impl Render for ConnectionForm {
         let body = v_flex()
             .gap_3()
             .pt_3()
-            .pr_2()
+            .px_1p5().pb_1()
             .child(field(
                 "Database type",
                 Select::new(&self.kind_select).placeholder("Choose a database type"),
