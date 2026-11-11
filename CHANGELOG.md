@@ -6,6 +6,77 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+## [0.1.0-alpha.6] - 2026-11-11
+
+### Added
+
+- **Import Data (CSV / TSV).** *Import Data…* on a table, *Import as New Table…* on the Tables group, the palette
+  (*Import Data from CSV/TSV…*, *Import CSV/TSV as New Table…*), `:import [FILE]` in Helix and Vim, and
+  `theta --import FILE [--into [SCHEMA.]TABLE]`. The dialog has a typed path field (Browse… is optional), a
+  detected format (delimiter, quote, encoding, header row; each can be overridden), a live preview of the first
+  100 rows, a *Columns* tab that maps file columns onto an existing table (auto-mapped by normalised name, per
+  column skip, target type shown, mismatches flagged) or lays out a new table (editable names and types with the
+  generated `CREATE TABLE` shown), and options (empty fields are NULL, a NULL token, skip bad rows instead of
+  stopping, empty the table first, rows per INSERT). **Validate** parses the whole file off the UI thread and
+  lists every problem with its line and column without writing anything; **Import** shows a progress bar with
+  rows read / inserted / skipped and rows per second, and Cancel rolls everything back. An import is one
+  transaction (in a manual-commit session it joins the open transaction through a savepoint and leaves it open),
+  each batch runs in a savepoint so a rejected row is named exactly (or skipped and listed), statements are kept
+  under 1 MB and under half of MySQL's `max_allowed_packet`, and a table created by a failed import is gone again.
+  Emptying the table first shows the exact statement and asks twice.
+- **Export Data.** *Export Data…* on a table and *Export Table Data…* in the palette (`:export [TABLE]`) write a
+  whole table as CSV, TSV, JSON or SQL INSERTs, paged by primary key (constant memory, stable while the table
+  changes; `OFFSET` paging without one), with progress and Cancel. A cancelled or failed export leaves no file.
+- **Table actions.** *Rename…*, *Duplicate Structure…*, *Truncate…* and *Drop…* on a table (and in the palette).
+  Each shows the exact SQL and the engine's warnings in a confirmation dialog; Drop lists the foreign keys that
+  reference the table; read-only connections refuse; a manual-commit session runs the statement inside its open
+  transaction; MySQL's implicit commit is stated plainly.
+- **DDL engine** (`theta_sql::ddl`): `TableDraft` (columns, primary key, unique constraints, foreign keys, indexes,
+  checks, comments, identity and generated columns) built from the catalog, `create_table`, and an id-based `diff`
+  that produces the ordered, minimal `ALTER` script per dialect with each statement tagged (destructive, table
+  rewrite, implicit commit, lock, outside a transaction) and explained. Renames are renames, never drop-and-add.
+  SQLite changes that `ALTER TABLE` cannot do use the documented table rebuild. Includes validation (duplicate
+  names, missing types, primary key on a nullable column with an auto-fix, foreign-key type checks).
+- **Catalog**: identity / auto-increment and generated columns, check constraints, unique constraints (distinct from
+  unique indexes), partial and expression indexes, deferrable foreign keys, view definitions and MySQL table options,
+  for PostgreSQL, MySQL / MariaDB and SQLite.
+- New crate **`theta-import`**: streaming RFC 4180 parser (quoted newlines, configurable delimiter, quote and escape,
+  ragged rows, huge fields, BOM, UTF-8 / UTF-16 / Latin-1), format sniffing, type inference, typed conversion with
+  row / column / reason errors, and the import and export pipelines. Measured on 1M rows (77 MB, 5 columns,
+  dev profile): raw parse 4.5M rows/s, parse and convert 1.1M rows/s, end to end 69k rows/s into PostgreSQL,
+  104k into MariaDB and 232k into SQLite.
+
+### Changed
+
+- Table context menu: *Rename…*, *Duplicate Structure…*, *Truncate…*, *Drop…*, *Import Data…*, *Export Data…*.
+- `ExportEncoder` in `theta_sql::export` streams CSV, TSV, JSON and SQL INSERTs page by page.
+- Theta is now released under the MIT licence (`LICENSE`).
+- The repository moved to <https://github.com/JesseWilliamson/Theta>; links, the map-tile User-Agent and the
+  website point there.
+- Website at <https://jessewilliamson.github.io/Theta/>, deployed from `site/` by GitHub Pages.
+- Website redesign: it opens in the dark theme for every visitor (the system colour scheme is no longer consulted;
+  light is available from the toggle), headlines are set in IBM Plex Serif Light, the hero is centred under a faint
+  square grid with a three-column summary strip, and `D` jumps to the download section. Fonts are self-hosted WOFF2.
+  The editor illustration now uses only tables and keys that exist in the demo database, and the hero screenshot shows
+  a connection called "demo".
+- The θ mark has a shorter bar: 55% of the ring's inner width, centred a hair above the middle and a little lighter than
+  the ring, with a clear gap on both sides. The 16, 24 and 32 px drawings were redrawn on their pixel grids, and the
+  website now derives its copy of the mark from `packaging/icons/theta-mark.svg` so the two cannot drift apart.
+
+### Contract changes
+
+- `theta-core`: `ColumnInfo::{identity, generated}`, `Table::{checks, unique_constraints, view_definition, options}`,
+  `ForeignKey::{deferrable, initially_deferred}`, `Index::{predicate, has_expressions}`; new types `Identity`,
+  `GeneratedColumn`, `CheckConstraint`, `UniqueConstraint`, `TableOption`; `Default` for `ColumnInfo`, `Table`,
+  `ForeignKey`, `Index`, `TableKind` and `TypeKind`. All new fields are serde-default. No `Connection` / `Driver`
+  trait change.
+
+### Not in this release
+
+- The modify-table editor tab (column grid, DDL preview pane, Execute / Revert) and the *Modify…* / *New Table…* /
+  column and key menu entries: the engine and catalog they need are in, the tab is not.
+- PostgreSQL `COPY ... FROM STDIN` for faster imports, and unescaping of backslash-escaped TSV on import.
+
 ## [0.1.0-alpha.5] - 2026-11-11
 
 ### Added
@@ -54,20 +125,6 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 - CSV / TSV import, whole-table CSV export and the create / alter table editor were planned and are not started.
 
-### Changed
-
-- Theta is now released under the MIT licence (`LICENSE`).
-- The repository moved to <https://github.com/JesseWilliamson/Theta>; links, the map-tile User-Agent and the
-  website point there.
-- Website at <https://jessewilliamson.github.io/Theta/>, deployed from `site/` by GitHub Pages.
-- Website redesign: it opens in the dark theme for every visitor (the system colour scheme is no longer consulted;
-  light is available from the toggle), headlines are set in IBM Plex Serif Light, the hero is centred under a faint
-  square grid with a three-column summary strip, and `D` jumps to the download section. Fonts are self-hosted WOFF2.
-  The editor illustration now uses only tables and keys that exist in the demo database, and the hero screenshot shows
-  a connection called "demo".
-- The θ mark has a shorter bar: 55% of the ring's inner width, centred a hair above the middle and a little lighter than
-  the ring, with a clear gap on both sides. The 16, 24 and 32 px drawings were redrawn on their pixel grids, and the
-  website now derives its copy of the mark from `packaging/icons/theta-mark.svg` so the two cannot drift apart.
 
 ## [0.1.0-alpha.4] - 2026-11-11
 

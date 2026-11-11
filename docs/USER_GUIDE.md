@@ -137,6 +137,8 @@ declare but that column names imply (`orders.customer_id` → `customers.id`), e
   - *Generate* › `SELECT`, `INSERT`, `UPDATE`, `DELETE`, which open a console with the statement (the
     `UPDATE` and `DELETE` templates use `WHERE key = NULL`, so an unedited template changes nothing);
   - *Show DDL*;
+  - *Rename…*, *Duplicate Structure…*, *Truncate…*, *Drop…* (see [Change a table](#change-a-table));
+  - *Import Data…* and *Export Data…* (see [Import and export data](#import-and-export-data));
   - *Related Tables…*: a picker of the tables reachable through foreign keys, in two groups: *Foreign keys*
     (declared) and *Suggested* (inferred, with a confidence percentage). Choosing one opens a console with a
     `JOIN` query between the two tables.
@@ -501,6 +503,64 @@ cannot express.
 
 > `mod-0` is bound globally to *Reset Editor Font Size*, which wins over the grid's own `mod-0` (set cell to
 > NULL). Use the context menu's *Set NULL*.
+
+## Import and export data
+
+### Import a CSV or TSV file
+
+Open the dialog from any of: right-click a table › *Import Data…*; right-click *Tables* › *Import as New
+Table…*; the palette (*Import Data from CSV/TSV…*, *Import CSV/TSV as New Table…*); `:import FILE` in the Helix
+and Vim key maps; or start Theta with `theta --import FILE [--into schema.table]`.
+
+1. **File.** Type or paste the path and press `enter` (*Browse…* opens the system file dialog). Theta reads the
+   start of the file and fills in what it detected: delimiter (comma, semicolon, tab, pipe), quote character,
+   encoding (UTF-8, UTF-16, Latin-1; a byte-order mark is honoured) and whether the first row is a header.
+   Change any of them and the preview re-reads the file.
+2. **Preview** shows the first 100 rows as the importer will read them: an unquoted empty field is NULL, a quoted
+   `""` stays an empty string.
+3. **Columns.** *Existing table*: every file column is mapped to a table column (matched by name ignoring case
+   and punctuation, so `First Name` finds `first_name`); choose another column or *(skip)* in the dropdown. The
+   target type is shown and a yellow or red note says when the sample will not fit it (decimals into an
+   integer column, text into a date). The `Check` column and `Sample` column help to see this before you run.
+   *New table*: edit the column names and types (types are inferred from a sample: integer, bigint, numeric,
+   boolean, date, timestamp, text; a value such as `00501` stays text), switch columns off, and read the
+   `CREATE TABLE` Theta will run. A new table goes into the default schema; type `schema.name` to choose another.
+4. **Options.** *Empty fields are NULL*; a *NULL token* (such as `NULL` or `\N`, unquoted only); *Skip bad rows
+   instead of stopping* (default: the first bad row aborts and rolls everything back); *Empty the table first*
+   (existing table only; Theta shows the exact `TRUNCATE` / `DELETE` and you press *Import* a second time);
+   *Rows per INSERT*.
+5. **Validate** reads the whole file on a background thread and lists every problem with its line, row and column;
+   nothing is written. **Import** writes: the progress bar shows rows read, inserted and skipped and rows per
+   second. `esc` or *Cancel Run* stops it and **rolls everything back**. When it finishes, the table appears in
+   the explorer and *Open Table* shows it; *Messages* records the result.
+
+An import is a single transaction. In auto-commit mode Theta begins and commits it; in manual-commit mode it
+runs inside your open transaction (or starts one) through a savepoint and leaves it open for you to commit or
+roll back. If you import into a new table on MySQL, the `CREATE TABLE` commits implicitly, so Theta drops the
+table again when the import fails or is cancelled. Read-only connections cannot import.
+
+### Export a whole table
+
+Right-click a table › *Export Data…*, the palette (*Export Table Data…*), or `:export [table]`. Choose the file,
+the format (CSV, TSV, JSON, SQL INSERT statements) and the rows per page. The table is read page by page
+(by primary key when there is one, so memory stays constant however big the table is) and written to a
+temporary file that is renamed when the export succeeds: *Cancel* leaves no file. CSV writes NULL as an empty
+field and the empty string as `""`, so importing the file back gives the same data.
+
+## Change a table
+
+Right-click a table (or use the palette's *Table* commands):
+
+- *Rename…* asks for the name, then shows the exact `ALTER TABLE … RENAME TO …` and runs it when you confirm.
+- *Duplicate Structure…* opens a console with the `CREATE TABLE` of a copy (columns, keys, indexes; no rows).
+- *Truncate…* shows `TRUNCATE TABLE` (`DELETE FROM` on SQLite) and asks.
+- *Drop…* shows `DROP TABLE` and lists any foreign keys elsewhere that reference the table.
+
+Every confirmation shows the SQL and what is destructive. PostgreSQL and SQLite run the statements in one
+transaction; MySQL / MariaDB commit each DDL statement by itself (the dialog says so). In manual-commit mode the
+statement joins your open transaction. Read-only connections refuse. The full modify-table editor (add, change
+and drop columns and keys in a grid with a live DDL preview) is not part of this release; the engine behind it
+(`theta_sql::ddl`) is, with its tests.
 
 ## Explain and query plans
 

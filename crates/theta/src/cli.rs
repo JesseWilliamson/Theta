@@ -137,7 +137,7 @@ pub fn ssh_auth_note(args: &Args) -> Option<String> {
     })
 }
 
-/// `theta 0.1.0-alpha.5`.
+/// `theta 0.1.0-alpha.6`.
 pub fn version_line() -> String {
     format!("theta {}", env!("CARGO_PKG_VERSION"))
 }

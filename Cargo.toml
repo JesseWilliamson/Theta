@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 repository = "https://github.com/JesseWilliamson/Theta"
 edition = "2024"
 license = "MIT"

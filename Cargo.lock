@@ -8502,7 +8502,7 @@ dependencies = [
 
 [[package]]
 name = "theta"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8531,7 +8531,7 @@ dependencies = [
 
 [[package]]
 name = "theta-core"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "async-trait",
  "serde",
@@ -8541,7 +8541,7 @@ dependencies = [
 
 [[package]]
 name = "theta-drivers"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -8562,7 +8562,7 @@ dependencies = [
 
 [[package]]
 name = "theta-editor"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "regex",
  "ropey 1.6.1",
@@ -8571,7 +8571,7 @@ dependencies = [
 
 [[package]]
 name = "theta-editor-view"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "gpui-kit",
  "theta-core",
@@ -8583,14 +8583,14 @@ dependencies = [
 
 [[package]]
 name = "theta-geo"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "theta-grid"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "gpui-kit",
  "serde_json",
@@ -8601,7 +8601,7 @@ dependencies = [
 
 [[package]]
 name = "theta-import"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "encoding_rs",
  "serde_json",
@@ -8613,7 +8613,7 @@ dependencies = [
 
 [[package]]
 name = "theta-map-view"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "async-channel",
  "dirs 6.0.0",
@@ -8628,7 +8628,7 @@ dependencies = [
 
 [[package]]
 name = "theta-plan-view"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "gpui-kit",
  "serde_json",
@@ -8640,7 +8640,7 @@ dependencies = [
 
 [[package]]
 name = "theta-sql"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -8649,7 +8649,7 @@ dependencies = [
 
 [[package]]
 name = "theta-ui"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",

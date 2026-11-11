@@ -50,7 +50,8 @@ crates/
   theta-core         contracts: Value, ResultSet, Catalog, Plan, ConnectionConfig, Driver/Connection traits
   theta-drivers      PostgreSQL, MySQL/MariaDB, SQLite, SSH tunnels, demo-data seeder (Tokio)
   theta-sql          statement splitting and classification, formatter, completion, FK joins and
-                      inference, plan analysis, lint, SQL generation, export
+                      inference, plan analysis, lint, SQL generation, export, DDL engine
+  theta-import       CSV/TSV parsing, sniffing, type inference, import and whole-table export pipelines
   theta-geo          WKB/EWKB/WKT/GeoJSON, SRID and projections, tile maths, simplify, measure
   theta-editor       rope buffer, selections, undo, SQL lexer, Helix, Vim and Standard keymaps (no GPUI)
   theta-ui           settings, themes, fonts and icons, fuzzy matching, picker, shared widgets (GPUI)
@@ -323,12 +324,43 @@ one handler per action in `Workspace::render` (`crates/theta/src/workspace/mod.r
   `theta::templates` owns `templates.json`; the editor view asks the host to expand an abbreviation
   (`EditorEvent::ExpandSnippet`) because variables such as `${table}` need a picker.
 
+### Added in 0.1.0-alpha.6
+
+- **`theta-import`** (pure; depends on `theta-core` and `theta-sql`) is the bulk-data crate. The parser
+  (`CsvReader::read_record`, `crates/theta-import/src/parser.rs:212`) pulls decoded chunks
+  (`decode.rs`, UTF-8 / UTF-16 / Latin-1 with BOM detection) and keeps one record in memory; each `Field`
+  remembers whether it was quoted, because `,,` (NULL) and `,"",` (empty string) must stay apart. `sniff.rs`
+  guesses delimiter, quote, encoding and header from the first 128 KB, `scan.rs` produces the preview and the
+  inferred column types (`infer.rs`), `convert.rs:142` turns a field into a `Value` for the target column
+  with a row / column / reason error, and `setup.rs:126` (`build_job`) turns the dialog's choices into an
+  `ImportJob` after the checks in `setup::check`. `run_import` (`run.rs:274`) is the pipeline and shares
+  `RowReader` (`run.rs:30`) with `validate` (`run.rs:133`), so validation promises exactly what the import will
+  convert. An import is one transaction (`TxnPlan`: its own, or a savepoint inside the session's), every batch
+  is a savepoint, and a rejected batch is replayed row by row to name the offending line. Export is
+  `export_table` (`export.rs:90`): keyset paging by primary key (`page_query`, `export.rs:67`) into
+  `theta_sql::ExportEncoder` (`crates/theta-sql/src/export.rs:265`), written to a `.part` file that is renamed
+  on success. The UI is `dialogs/import.rs` (`ImportView`, `:97`) and `dialogs/export.rs`; the workspace side
+  (`workspace/bulk.rs:23`, `begin_bulk`) marks the connection busy so a console cannot interleave statements
+  into an import's transaction, and decides the transaction plan (`bulk_txn_plan`, `:53`).
+- **The DDL engine** is `theta_sql::ddl`. A `TableDraft` (`ddl.rs:90`, from the catalog with `from_table`,
+  `:107`) identifies every column and constraint by a stable `id`, so `diff` (`:606`) pairs the original and the
+  edited draft by id and a rename is a `RENAME COLUMN`, not a drop and an add. `create_table` (`:452`) and
+  `diff` return `Statement`s tagged with `Flag`s (destructive, table rewrite, implicit commit, lock, outside a
+  transaction) and an explanation. SQLite changes that `ALTER TABLE` cannot express go through
+  `diff_sqlite` / `sqlite_rebuild` (`:953`, `:1077`), the documented rebuild. `validate` (`:1208`) is the
+  inline-validation source for an editor. The live round trip (create, alter step by step, re-introspect) is
+  `crates/theta-drivers/tests/ddl_roundtrip.rs`. `workspace/ddl_actions.rs` (`run_ddl`, `:378`) is the only
+  place that executes engine output: Rename, Truncate, Drop and Duplicate Structure confirm the exact SQL first.
+- **Catalog extras** (`theta-core/src/schema.rs`): identity, generated columns, checks, unique constraints,
+  partial and expression indexes, deferrable foreign keys, view definitions, MySQL table options; filled by the
+  three introspection modules and covered by `crates/theta-drivers/tests/catalog_extras.rs`.
+
 ## Status
 
-0.1.0-alpha.5 is the fifth pre-release (0.1.0-alpha.1 to -alpha.4 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
+0.1.0-alpha.6 is the sixth pre-release (0.1.0-alpha.1 to -alpha.5 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
 that every crate in the workspace is wired into it and used:
 
-- All eleven crates exist and are used; the application runs against PostgreSQL, MySQL/MariaDB and SQLite.
+- All twelve crates exist and are used; the application runs against PostgreSQL, MySQL/MariaDB and SQLite.
 - Editor (Helix, Vim and Standard keymaps), completion, formatting, diagnostics, explorer, consoles, results grid with editing,
   export, query plans with insights, map, history, transactions, themes and settings are in.
 - Verified by hand on Linux (X11). The macOS and Windows builds compile and pass the unit tests in CI but

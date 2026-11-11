@@ -12,7 +12,7 @@ editor are plain Rust libraries with ordinary tests, and the UI crates are thin 
 
 ## What works today
 
-Theta 0.1.0-alpha.5 is an alpha. The application is fully wired together: every feature below is
+Theta 0.1.0-alpha.6 is an alpha. The application is fully wired together: every feature below is
 implemented and was run by hand on Linux (X11) against PostgreSQL 16 with PostGIS, MariaDB 10.11 and
 SQLite. SSH tunnelling is covered by the driver integration tests only. The macOS and Windows builds are
 compiled and unit-tested in CI but nobody has used them by hand yet. See
@@ -27,6 +27,7 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 | ![Light theme](docs/screenshots/07-theta-light.png) **Theta Light** | ![SSH](docs/screenshots/09-connection-ssh.png) **Connection dialog with SSH tunnel** |
 | ![Vim visual block](docs/screenshots/10-vim-visual-block.png) **Vim keymap: a `V-BLOCK` selection** | ![Keymap choice](docs/screenshots/11-keymap-choice-welcome.png) **Choose Helix, Vim or Standard on the welcome view** |
 | ![Record view](docs/screenshots/12-record-view.png) **Record view: one row as a list, JSON pretty-printed** | ![Query parameters](docs/screenshots/13-query-parameters.png) **Query parameters: values asked for before the run** |
+| ![Import](docs/screenshots/14-import-csv.png) **CSV import: detected format, column mapping, sample values and type checks** | |
 
 ## Features
 
@@ -54,7 +55,18 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 - Connection folders (one level deep) and manual ordering: *New Folder*, *Move to Folder…*, *Move Up / Down*;
   collapsed state and order are saved, and the connection picker shows `Folder / Name`.
 - Context menu on a table: *Open Table*, *Copy Name*, *Copy Qualified Name*, *Generate* (`SELECT`, `INSERT`,
-  `UPDATE`, `DELETE`), *Show DDL*, *Related Tables…*.
+  `UPDATE`, `DELETE`), *Show DDL*, *Related Tables…*, *Rename…*, *Duplicate Structure…*, *Truncate…*, *Drop…*,
+  *Import Data…*, *Export Data…*.
+
+**Data in and out**
+- *Import Data* from CSV / TSV into an existing table (columns mapped by name, per-column skip, type checks) or as
+  a new table (types inferred, `CREATE TABLE` shown): streaming parser (quoted newlines, any delimiter, UTF-8 /
+  UTF-16 / Latin-1), a live preview, **Validate** with line numbers, a progress bar, Cancel that rolls back, one
+  transaction (or a savepoint in your manual-commit transaction), skip-bad-rows or abort. About 70k rows/s into
+  PostgreSQL, 100k into MariaDB and 230k into SQLite on a developer machine (see the changelog).
+- *Export Data*: a whole table as CSV, TSV, JSON or SQL INSERTs, paged by primary key with constant memory.
+- *Rename*, *Duplicate Structure*, *Truncate* and *Drop* a table, each confirmed with the exact SQL; Drop lists the
+  foreign keys that point at the table.
 
 **Editor**
 - Three complete key maps: **Helix** (modal, selection-first, multiple selections, registers, macros, text
@@ -348,6 +360,17 @@ Editor
   [engine README](crates/theta-editor/README.md#deviations-from-vim).
 - Undo is linear (no undo tree).
 
+Import, export and DDL
+- The modify-table editor (a tab with a column grid, keys, foreign keys, indexes and a live DDL preview) is not
+  built yet. The engine it needs is: `theta_sql::ddl` builds `CREATE TABLE` and per-dialect `ALTER` scripts
+  (including SQLite's table rebuild) and is tested against live databases. Today the explorer offers Rename,
+  Duplicate Structure, Truncate and Drop.
+- Import does not use PostgreSQL `COPY`; it sends batched multi-row `INSERT`s (about 70k rows/s). TSV files whose
+  values use backslash escapes (`\t`, `\n`) are read literally. Browse… and Open use the system file dialog, which
+  has not been tried on macOS or Windows; the path field always works.
+- MySQL commits DDL implicitly, so *Rename / Truncate / Drop* there cannot be rolled back, and importing into a new
+  table commits the `CREATE TABLE` (a failed import drops it again).
+
 Databases
 - Read-only connections are enforced by Theta, which classifies each statement before it runs; it refuses
   data changes and schema changes. It is not a server-side guarantee: a `SELECT` that calls a function with
@@ -363,7 +386,8 @@ Results and map
 - The basemap needs network access to the tile server. Tiles that were fetched before are cached on disk;
   without network the geometry is still drawn, on a grey background.
 - Results are not saved across restarts (console text is).
-- Export covers the rows that were loaded into the grid, which the row limit caps.
+- Exporting a result grid covers the rows that were loaded into it, which the row limit caps; *Export Data…* on a
+  table is not limited.
 - The grid cannot reorder or hide columns.
 
 Added in 0.1.0-alpha.5
@@ -373,8 +397,8 @@ Added in 0.1.0-alpha.5
   menus, `alt-up` / `alt-down` and the palette.
 - In manual transaction mode a plain `SELECT` also starts a transaction (as JDBC does); an open transaction on
   a busy production database holds locks and a snapshot until you end it.
-- Not in this release: CSV / TSV import and whole-table export, and the create / alter table editor. Both were
-  planned for 0.1.0-alpha.5 and are not started.
+- CSV / TSV import and whole-table export arrived in 0.1.0-alpha.6; the create / alter table editor is still not
+  built (see Import, export and DDL above).
 
 Platform and packaging
 - Without a keychain (a bare Linux session) passwords are not persisted. Saved connections open without

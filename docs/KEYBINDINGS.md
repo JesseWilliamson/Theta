@@ -138,6 +138,21 @@ Context `Explorer` (the connection tree). `ctrl-n` / `ctrl-p` are literal `ctrl`
 In the filter box: `enter` or `down` moves into the tree, `esc` clears the filter and moves into the tree.
 Double-click activates a row.
 
+## Import, export and table dialogs
+
+None of these has a global chord (they are palette commands, explorer context-menu entries and, in the Helix and
+Vim key maps, `:import` / `:export`), so they cannot conflict with an editor key. Inside the dialogs:
+
+| Keys | Action |
+| --- | --- |
+| `tab` / `shift-tab` | next / previous control |
+| `enter` in the file field | read the file (Import); start the export (Export) |
+| `esc` | close the dialog; while an import, validation or export runs, cancel the run (the dialog stays so the result is seen) |
+| `enter` in a confirmation | confirm the primary action; destructive confirmations (Truncate, Drop) need a click or `tab` + `enter` on the button |
+
+Palette commands: *Import Data from CSV/TSV…*, *Import CSV/TSV as New Table…*, *Export Table Data…*,
+*Rename Table…*, *Duplicate Table Structure…*, *Truncate Table…*, *Drop Table…*.
+
 ## Pickers and the command palette
 
 The command palette, table picker, connection picker, theme picker and related-tables picker share these
@@ -382,6 +397,8 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `:format` `:fmt` | format the document |
 | `:theme` `:theme NAME` | theme picker / switch to the theme whose name matches `NAME` (`:theme tokyo`) |
 | `:connect` `:connect NAME` | connection picker / switch this console to the connection called `NAME` |
+| `:import` `:import FILE` | open Import Data (as a new table) on the active connection, optionally with `FILE` filled in |
+| `:export` `:export [SCHEMA.]TABLE` | open Export Data for the table (a picker without an argument) |
 | `:open` `:e` | open `.sql` files |
 | `:goto N` `:N` | go to line `N` |
 | `:sort` | sort the selections' contents, or the lines of a multi-line selection |
