@@ -28,6 +28,8 @@ fn commands() -> Vec<Command> {
     vec![
         cmd!("New Console", "Console", IconName::SquareTerminal, NewConsole),
         cmd!("New Connection…", "Connection", IconName::DatabasePlus, NewConnection),
+        cmd!("New Connection Folder…", "Connection", IconName::FolderPlus, NewConnectionFolder),
+        cmd!("Move Connection to Folder…", "Connection", IconName::Folder, MoveConnectionToFolder),
         cmd!("Connect…", "Connection", IconName::Plug, ConnectTo),
         cmd!("Disconnect", "Connection", IconName::Unplug, Disconnect),
         cmd!("Refresh Schema", "Connection", IconName::RefreshCw, RefreshSchema),
@@ -270,7 +272,7 @@ impl PickerDelegate for ConnectionPicker {
                 } else {
                     format!("{} · {state}", c.kind.label())
                 };
-                PickerItem::new(c.id.clone(), c.name.clone())
+                PickerItem::new(c.id.clone(), store.display_name(&c.id))
                     .icon(IconName::Database)
                     .detail(detail)
                     .checked(self.current.as_deref() == Some(c.id.as_str()))
@@ -386,5 +388,44 @@ impl PickerDelegate for RelatedPicker {
         window.defer(cx, move |window, cx| {
             workspace.update(cx, |ws, cx| ws.open_console(Some(conn), Some(sql), window, cx)).ok();
         });
+    }
+}
+
+/// Picks the folder a connection goes into; the first entry takes it out of its folder.
+pub struct FolderPicker {
+    store: Entity<ConnectionStore>,
+    connection_id: String,
+}
+
+impl FolderPicker {
+    pub fn new(store: Entity<ConnectionStore>, connection_id: String) -> Self {
+        Self { store, connection_id }
+    }
+}
+
+impl PickerDelegate for FolderPicker {
+    fn placeholder(&self) -> SharedString {
+        "Move to folder…".into()
+    }
+    fn items(&mut self, cx: &mut App) -> Vec<PickerItem> {
+        let store = self.store.read(cx);
+        let current = store.layout().folder_of.get(&self.connection_id);
+        let mut items = vec![
+            PickerItem::new("", "No folder (top level)").icon(IconName::Database).checked(current.is_none()),
+        ];
+        items.extend(store.layout().folders.iter().map(|f| {
+            PickerItem::new(f.id.clone(), f.name.clone())
+                .icon(IconName::Folder)
+                .checked(current == Some(&f.id))
+        }));
+        items
+    }
+    fn initial_selection(&self, items: &[PickerItem]) -> Option<usize> {
+        items.iter().position(|i| i.checked)
+    }
+    fn confirm(&mut self, item: &PickerItem, _: &mut Window, cx: &mut App) {
+        let folder = (!item.id.is_empty()).then(|| item.id.to_string());
+        let conn = self.connection_id.clone();
+        self.store.update(cx, |s, cx| s.move_to_folder(&conn, folder.as_deref(), cx));
     }
 }

@@ -16,6 +16,7 @@
 
 mod bottom;
 pub mod console;
+mod folders;
 mod params;
 pub mod persist;
 mod run;
@@ -562,6 +563,10 @@ impl Workspace {
                 self.open_console(Some(connection_id), sql, window, cx);
             }
             ExplorerEvent::AddConnection => self.open_connection_dialog(None, window, cx),
+            ExplorerEvent::NewFolder => self.new_connection_folder(window, cx),
+            ExplorerEvent::RenameFolder(id) => self.rename_connection_folder(id, window, cx),
+            ExplorerEvent::DeleteFolder(id) => self.confirm_delete_folder(id, window, cx),
+            ExplorerEvent::MoveToFolder(id) => self.move_to_folder_picker(id, window, cx),
             ExplorerEvent::EditConnection(id) => self.open_connection_dialog(Some(id), window, cx),
             ExplorerEvent::DeleteConnection(id) => self.confirm_delete_connection(id, window, cx),
             ExplorerEvent::ConnectionActivated(id) => self.set_active_connection(Some(id), cx),
@@ -983,6 +988,14 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ExplainAnalyze, window, cx| {
                 cx.emit(WorkspaceEvent::Explain { analyze: true });
                 this.explain_active(true, window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &NewConnectionFolder, window, cx| {
+                    this.new_connection_folder(window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &MoveConnectionToFolder, window, cx| {
+                this.move_active_connection_to_folder(window, cx)
             }))
             .on_action(cx.listener(|_, _: &ToggleParameters, _, cx| {
                 theta_ui::Settings::update(cx, |s| s.editor.parameters = !s.editor.parameters)

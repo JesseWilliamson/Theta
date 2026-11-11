@@ -10,6 +10,7 @@
 //!
 //! All database I/O goes through [`crate::runtime`]; nothing here blocks the UI.
 
+pub mod folders;
 pub mod secrets;
 pub mod url;
 
@@ -71,10 +72,23 @@ pub struct TestOutcome {
     pub latency: Duration,
 }
 
+/// One saved connection: its config plus the folder it is in. The folder id is flattened into the
+/// same JSON object, so a file written before folders existed reads as "no folder" and a file with
+/// folders still reads in an older version (which ignores the key).
+#[derive(Serialize, Deserialize)]
+struct StoredEntry {
+    #[serde(flatten)]
+    config: ConnectionConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    folder: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Default)]
 struct StoredConnections {
     #[serde(default)]
-    connections: Vec<ConnectionConfig>,
+    connections: Vec<StoredEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    folders: Vec<folders::Folder>,
 }
 
 pub struct ConnectionStore {
@@ -84,11 +98,20 @@ pub struct ConnectionStore {
     catalog_errors: HashMap<String, Error>,
     /// Ids that are not written to disk (`--connect`).
     temporary: HashSet<String>,
+    layout: folders::Layout,
     secrets: Arc<SecretStore>,
     path: Option<PathBuf>,
 }
 
 impl EventEmitter<StoreEvent> for ConnectionStore {}
+
+fn folder_name_problem(name: &str) -> String {
+    if name.trim().is_empty() {
+        "A folder needs a name".into()
+    } else {
+        format!("A folder named “{}” already exists", name.trim())
+    }
+}
 
 pub fn new_connection_id() -> String {
     uuid::Uuid::new_v4().to_string()
@@ -100,11 +123,21 @@ impl ConnectionStore {
     pub fn load(path: Option<PathBuf>, secrets: Arc<SecretStore>) -> (Self, Option<String>) {
         let mut warning = None;
         let mut configs = Vec::new();
+        let mut layout = folders::Layout::default();
         if let Some(p) = &path {
             match std::fs::read_to_string(p) {
                 Ok(text) if text.trim().is_empty() => {}
                 Ok(text) => match serde_json::from_str::<StoredConnections>(&text) {
-                    Ok(stored) => configs = stored.connections.iter().map(strip_secrets).collect(),
+                    Ok(stored) => {
+                        layout.folders = stored.folders;
+                        for e in stored.connections {
+                            if let Some(f) = e.folder {
+                                layout.folder_of.insert(e.config.id.clone(), f);
+                            }
+                            configs.push(strip_secrets(&e.config));
+                        }
+                        layout.sanitize();
+                    }
                     Err(e) => {
                         let backup = p.with_extension("json.broken");
                         let moved = std::fs::rename(p, &backup).is_ok();
@@ -127,6 +160,7 @@ impl ConnectionStore {
             states: HashMap::new(),
             catalog_errors: HashMap::new(),
             temporary: HashSet::new(),
+            layout,
             secrets,
             path,
         };
@@ -189,8 +223,12 @@ impl ConnectionStore {
                 .configs
                 .iter()
                 .filter(|c| !self.temporary.contains(&c.id))
-                .map(strip_secrets)
+                .map(|c| StoredEntry {
+                    config: strip_secrets(c),
+                    folder: self.layout.folder_of.get(&c.id).cloned(),
+                })
                 .collect(),
+            folders: self.layout.folders.clone(),
         };
         let json = serde_json::to_string_pretty(&stored).unwrap_or_default() + "\n";
         if let Err(e) = theta_ui::settings::write_atomic(path, json.as_bytes()) {
@@ -198,6 +236,78 @@ impl ConnectionStore {
                 kind: NoticeKind::Error,
                 message: format!("Could not save connections: {e}"),
             });
+        }
+    }
+
+    // ---- folders and order ----
+
+    pub fn layout(&self) -> &folders::Layout {
+        &self.layout
+    }
+
+    /// `Folder / Name` for pickers.
+    pub fn display_name(&self, id: &str) -> String {
+        match self.config(id) {
+            Some(c) => self.layout.display_name(id, &c.name),
+            None => String::new(),
+        }
+    }
+
+    fn layout_changed(&mut self, cx: &mut Context<Self>) {
+        self.persist(cx);
+        cx.emit(StoreEvent::ListChanged);
+        cx.notify();
+    }
+
+    /// Create a folder. `Err` carries the reason (empty or duplicate name).
+    pub fn add_folder(&mut self, name: &str, cx: &mut Context<Self>) -> Result<String, String> {
+        match self.layout.add_folder(name) {
+            Some(id) => {
+                self.layout_changed(cx);
+                Ok(id)
+            }
+            None => Err(folder_name_problem(name)),
+        }
+    }
+
+    pub fn rename_folder(&mut self, id: &str, name: &str, cx: &mut Context<Self>) -> Result<(), String> {
+        if self.layout.rename_folder(id, name) {
+            self.layout_changed(cx);
+            Ok(())
+        } else {
+            Err(folder_name_problem(name))
+        }
+    }
+
+    pub fn delete_folder(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.layout.delete_folder(id);
+        self.layout_changed(cx);
+    }
+
+    pub fn set_folder_collapsed(&mut self, id: &str, collapsed: bool, cx: &mut Context<Self>) {
+        if self.layout.folder(id).is_some_and(|f| f.collapsed != collapsed) {
+            self.layout.set_collapsed(id, collapsed);
+            self.layout_changed(cx);
+        }
+    }
+
+    pub fn move_to_folder(&mut self, conn: &str, folder: Option<&str>, cx: &mut Context<Self>) {
+        self.layout.move_to(conn, folder);
+        self.layout_changed(cx);
+    }
+
+    pub fn move_folder(&mut self, id: &str, delta: i32, cx: &mut Context<Self>) {
+        if self.layout.move_folder(id, delta) {
+            self.layout_changed(cx);
+        }
+    }
+
+    /// Move a connection up (`-1`) or down (`1`) within its folder (or the top level).
+    pub fn move_connection(&mut self, id: &str, delta: i32, cx: &mut Context<Self>) {
+        let mut order: Vec<String> = self.configs.iter().map(|c| c.id.clone()).collect();
+        if self.layout.move_connection(&mut order, id, delta) {
+            self.configs.sort_by_key(|c| order.iter().position(|o| *o == c.id));
+            self.layout_changed(cx);
         }
     }
 
@@ -248,6 +358,7 @@ impl ConnectionStore {
         self.configs.retain(|c| c.id != id);
         self.states.remove(id);
         self.temporary.remove(id);
+        self.layout.folder_of.remove(id);
         self.secrets.remove(id);
         self.persist(cx);
         cx.emit(StoreEvent::ListChanged);
@@ -259,6 +370,11 @@ impl ConnectionStore {
         copy.id = new_connection_id();
         copy.name = format!("{} copy", copy.name);
         let new_id = self.add(copy, cx);
+        // The copy lands next to the original's group, not at the top level.
+        if let Some(f) = self.layout.folder_of.get(id).cloned() {
+            self.layout.folder_of.insert(new_id.clone(), f);
+            self.layout_changed(cx);
+        }
         Some(new_id)
     }
 
@@ -582,5 +698,69 @@ mod tests {
         let (s, warning) =
             ConnectionStore::load(Some(dir.path().join("none.json")), Arc::new(SecretStore::memory_only()));
         assert!(s.configs().is_empty() && warning.is_none());
+    }
+
+    #[test]
+    fn a_file_from_before_folders_loads_and_gains_them_on_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("connections.json");
+        std::fs::write(
+            &path,
+            r#"{"connections":[{"id":"a","name":"A","kind":"postgres"},{"id":"b","name":"B","kind":"sqlite"}]}"#,
+        )
+        .unwrap();
+        let (s, w) = ConnectionStore::load(Some(path), Arc::new(SecretStore::memory_only()));
+        assert!(w.is_none());
+        assert_eq!(s.configs().len(), 2);
+        assert!(s.layout().folders.is_empty() && s.layout().folder_of.is_empty());
+    }
+
+    #[gpui_kit::test]
+    fn folders_order_and_collapsed_state_survive_a_restart(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("connections.json");
+        {
+            let (store, _) = store_at(path.clone());
+            let store = cx.new(|_| store);
+            store.update(cx, |s, cx| {
+                for id in ["a", "b", "c"] {
+                    s.add(sample(id), cx);
+                }
+                let f = s.add_folder("Prod", cx).unwrap();
+                assert!(s.add_folder("prod", cx).is_err());
+                s.move_to_folder("b", Some(&f), cx);
+                s.move_to_folder("c", Some(&f), cx);
+                s.move_connection("c", -1, cx);
+                s.set_folder_collapsed(&f, true, cx);
+            });
+        }
+        let (r, _) = store_at(path.clone());
+        let ids: Vec<_> = r.configs().iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["a", "c", "b"], "c moved above b within Prod");
+        let f = &r.layout().folders[0];
+        assert!(f.collapsed && f.name == "Prod");
+        assert_eq!(r.display_name("c"), "Prod / conn c");
+        assert_eq!(r.display_name("a"), "conn a");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("s3cret"));
+    }
+
+    #[gpui_kit::test]
+    fn deleting_things_cleans_up_the_layout(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store_at(dir.path().join("c.json"));
+        let store = cx.new(|_| store);
+        store.update(cx, |s, cx| {
+            s.add(sample("a"), cx);
+            let f = s.add_folder("F", cx).unwrap();
+            s.move_to_folder("a", Some(&f), cx);
+            let copy = s.duplicate("a", cx).unwrap();
+            assert_eq!(s.layout().folder_of.get(&copy), Some(&f), "a duplicate stays in the folder");
+            s.remove("a", cx);
+            assert!(!s.layout().folder_of.contains_key("a"));
+            s.delete_folder(&f, cx);
+            assert!(s.layout().folder_of.is_empty(), "the copy went back to the top level");
+            assert!(s.config(&copy).is_some(), "deleting a folder never deletes connections");
+        });
     }
 }

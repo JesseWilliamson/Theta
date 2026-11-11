@@ -51,6 +51,12 @@ pub enum ExplorerEvent {
         table: String,
     },
     AddConnection,
+    /// Ask for a name and create a connection folder.
+    NewFolder,
+    RenameFolder(String),
+    DeleteFolder(String),
+    /// Choose the folder of this connection (a picker).
+    MoveToFolder(String),
     EditConnection(String),
     DeleteConnection(String),
     /// The user selected/used a connection: make it the active one.
@@ -211,6 +217,7 @@ impl Explorer {
             .iter()
             .zip(&catalogs)
             .map(|(c, catalog)| ConnView {
+                folder: store.layout().folder_of.get(&c.id).map(String::as_str),
                 id: &c.id,
                 name: &c.name,
                 kind: c.kind,
@@ -228,7 +235,13 @@ impl Explorer {
                 },
             })
             .collect();
-        self.rows = flatten_wrapped(&views, &self.expanded, &self.filter_text, self.wrap_cols());
+        let folders: Vec<FolderView> = store
+            .layout()
+            .folders
+            .iter()
+            .map(|f| FolderView { id: &f.id, name: &f.name, collapsed: f.collapsed })
+            .collect();
+        self.rows = flatten_grouped(&folders, &views, &self.expanded, &self.filter_text, self.wrap_cols());
         if self.selected.as_ref().is_none_or(|k| !self.rows.iter().any(|r| &r.key == k)) {
             self.selected = self.rows.first().map(|r| r.key.clone());
         }
@@ -270,6 +283,11 @@ impl Explorer {
     }
 
     fn set_expanded(&mut self, key: &NodeKey, open: bool, cx: &mut Context<Self>) {
+        // A folder's state is part of the saved connection layout, not of this view.
+        if let NodeKey::Folder(id) = key {
+            self.store.update(cx, |s, cx| s.set_folder_collapsed(id, !open, cx));
+            return;
+        }
         if open {
             self.expanded.insert(key.clone());
         } else {
@@ -301,6 +319,29 @@ impl Explorer {
             self.set_expanded(&row.key, false, cx);
         } else if let Some(parent) = parent_index(&self.rows, ix) {
             self.select_index(parent, cx);
+        }
+    }
+
+    /// `alt-up` / `alt-down`: move the selected connection (within its folder) or folder.
+    pub fn move_selected(&mut self, delta: i32, cx: &mut Context<Self>) {
+        match self.selected.clone() {
+            Some(NodeKey::Connection(id)) => self.store.update(cx, |s, cx| s.move_connection(&id, delta, cx)),
+            Some(NodeKey::Folder(id)) => self.store.update(cx, |s, cx| s.move_folder(&id, delta, cx)),
+            _ => {}
+        }
+    }
+
+    /// `f2`: rename the selected folder.
+    pub fn rename_selected(&mut self, cx: &mut Context<Self>) {
+        if let Some(NodeKey::Folder(id)) = self.selected.clone() {
+            cx.emit(ExplorerEvent::RenameFolder(id));
+        }
+    }
+
+    /// `delete`: delete the selected folder (after a confirmation).
+    pub fn delete_selected(&mut self, cx: &mut Context<Self>) {
+        if let Some(NodeKey::Folder(id)) = self.selected.clone() {
+            cx.emit(ExplorerEvent::DeleteFolder(id));
         }
     }
 
@@ -456,7 +497,18 @@ impl Explorer {
                     }));
                 }
                 let (id1, id2, id3) = (id.clone(), id.clone(), id.clone());
+                let (m1, m2, m3) = (id.clone(), id.clone(), id.clone());
                 menu.separator()
+                    .item(item(&explorer, "Move to Folder…", IconName::Folder, move |_, cx| {
+                        cx.emit(ExplorerEvent::MoveToFolder(m1.clone()));
+                    }))
+                    .item(item(&explorer, "Move Up", IconName::ArrowUp, move |this, cx| {
+                        this.store.update(cx, |s, cx| s.move_connection(&m2, -1, cx));
+                    }))
+                    .item(item(&explorer, "Move Down", IconName::ArrowDown, move |this, cx| {
+                        this.store.update(cx, |s, cx| s.move_connection(&m3, 1, cx));
+                    }))
+                    .separator()
                     .item(item(&explorer, "Edit…", IconName::Settings2, move |_, cx| {
                         cx.emit(ExplorerEvent::EditConnection(id1.clone()));
                     }))
@@ -468,6 +520,31 @@ impl Explorer {
                     .item(item(&explorer, "Delete…", IconName::Trash, move |_, cx| {
                         cx.emit(ExplorerEvent::DeleteConnection(id3.clone()));
                     }))
+            }
+            NodeKey::Folder(id) => {
+                let (r, d, u, dn) = (id.clone(), id.clone(), id.clone(), id.clone());
+                menu.item(item(&explorer, "New Folder…", IconName::FolderPlus, |_, cx| {
+                    cx.emit(ExplorerEvent::NewFolder);
+                }))
+                .item(item(&explorer, "Rename…", IconName::Pencil, move |_, cx| {
+                    cx.emit(ExplorerEvent::RenameFolder(r.clone()));
+                }))
+                .separator()
+                .item(item(&explorer, "Move Up", IconName::ArrowUp, move |this, cx| {
+                    this.store.update(cx, |s, cx| s.move_folder(&u, -1, cx));
+                }))
+                .item(item(&explorer, "Move Down", IconName::ArrowDown, move |this, cx| {
+                    this.store.update(cx, |s, cx| s.move_folder(&dn, 1, cx));
+                }))
+                .separator()
+                .item(item(
+                    &explorer,
+                    "Delete Folder…",
+                    IconName::Trash,
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::DeleteFolder(d.clone()));
+                    },
+                ))
             }
             NodeKey::Table(c, s, t) => {
                 let (c1, s1, t1) = (c.clone(), s.clone(), t.clone());
@@ -693,6 +770,8 @@ impl Explorer {
             RowIcon::Spinner => Spinner::new().xsmall().color(theme.muted_foreground).into_any_element(),
             other => {
                 let (name, color) = match other {
+                    RowIcon::Folder => (IconName::Folder, theme.muted_foreground),
+                    RowIcon::FolderOpen => (IconName::FolderOpen, theme.muted_foreground),
                     RowIcon::Schema => (IconName::FolderTree, theme.muted_foreground),
                     RowIcon::Group(tree::GroupKind::Tables) => (IconName::Table, theme.muted_foreground),
                     RowIcon::Group(tree::GroupKind::Views) => (IconName::Eye, theme.muted_foreground),
@@ -953,6 +1032,10 @@ impl Render for Explorer {
                 .on_action(cx.listener(|this, _: &ExplorerCollapse, _, cx| this.collapse_or_ascend(cx)))
                 .on_action(cx.listener(|this, _: &ExplorerActivate, _, cx| this.activate(cx)))
                 .on_action(cx.listener(|this, _: &ExplorerFilter, window, cx| this.focus_filter(window, cx)))
+                .on_action(cx.listener(|this, _: &ExplorerMoveUp, _, cx| this.move_selected(-1, cx)))
+                .on_action(cx.listener(|this, _: &ExplorerMoveDown, _, cx| this.move_selected(1, cx)))
+                .on_action(cx.listener(|this, _: &ExplorerRename, _, cx| this.rename_selected(cx)))
+                .on_action(cx.listener(|this, _: &ExplorerDelete, _, cx| this.delete_selected(cx)))
                 .on_action(cx.listener(|_, _: &ExplorerBack, _, cx| cx.emit(ExplorerEvent::ReturnFocus)))
                 .child(
                     uniform_list(
@@ -974,6 +1057,10 @@ impl Render for Explorer {
             .bg(theme.sidebar)
             .child(
                 PanelHeader::new("Explorer")
+                    .action(
+                        tool_button("explorer-add-folder", IconName::FolderPlus, "New Folder")
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ExplorerEvent::NewFolder))),
+                    )
                     .action(
                         tool_button("explorer-add", IconName::Plus, "Add Connection")
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(ExplorerEvent::AddConnection))),

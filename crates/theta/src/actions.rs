@@ -60,5 +60,12 @@ actions!(
         ExplorerActivate,
         ExplorerFilter,
         ExplorerBack,
+        ExplorerMoveUp,
+        ExplorerMoveDown,
+        ExplorerRename,
+        ExplorerDelete,
+        // Connection folders
+        NewConnectionFolder,
+        MoveConnectionToFolder,
     ]
 );

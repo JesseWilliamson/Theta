@@ -53,6 +53,8 @@ impl Section {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum NodeKey {
+    /// A connection folder (its id).
+    Folder(String),
     Connection(String),
     /// Status line under a connection (connecting, failed, loading, empty).
     Status(String),
@@ -71,7 +73,9 @@ pub enum NodeKey {
 impl NodeKey {
     pub fn connection_id(&self) -> &str {
         match self {
-            NodeKey::Connection(c)
+            // Not a connection id: callers that read this for a folder row mean the folder.
+            NodeKey::Folder(c)
+            | NodeKey::Connection(c)
             | NodeKey::Status(c)
             | NodeKey::Detail(c, _)
             | NodeKey::Schema(c, _)
@@ -88,6 +92,8 @@ impl NodeKey {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowIcon {
+    Folder,
+    FolderOpen,
     Connection(DatabaseKind),
     Schema,
     Group(GroupKind),
@@ -178,7 +184,16 @@ pub enum Phase<'a> {
     Connected { catalog: Option<&'a Catalog>, loading: bool, catalog_error: Option<String> },
 }
 
+/// A connection folder, as the tree sees it.
+pub struct FolderView<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub collapsed: bool,
+}
+
 pub struct ConnView<'a> {
+    /// Id of the folder this connection is in; `None` is the top level.
+    pub folder: Option<&'a str>,
     pub id: &'a str,
     pub name: &'a str,
     pub kind: DatabaseKind,
@@ -276,9 +291,51 @@ pub fn flatten_wrapped(
     filter: &str,
     wrap_cols: usize,
 ) -> Vec<Row> {
+    flatten_grouped(&[], conns, expanded, filter, wrap_cols)
+}
+
+/// [`flatten_wrapped`] with connection folders: each folder row is followed by its connections one
+/// level deeper (unless collapsed), then come the connections that are in no folder. A filter keeps
+/// a folder when its name or one of its connections matches, and opens it.
+pub fn flatten_grouped(
+    folders: &[FolderView],
+    conns: &[ConnView],
+    expanded: &HashSet<NodeKey>,
+    filter: &str,
+    wrap_cols: usize,
+) -> Vec<Row> {
     let filter = Filter { query: filter.to_string(), inferred: &[] };
     let mut rows = Vec::new();
-    for c in conns {
+    for f in folders {
+        let mut inner = Vec::new();
+        for c in conns.iter().filter(|c| c.folder == Some(f.id)) {
+            flatten_connection(c, expanded, &filter, wrap_cols, &mut inner);
+        }
+        let name_match = filter.active().then(|| filter.matches(f.name)).flatten();
+        if filter.active() && inner.is_empty() && name_match.is_none() {
+            continue;
+        }
+        let open = if filter.active() { !inner.is_empty() } else { !f.collapsed };
+        let count = conns.iter().filter(|c| c.folder == Some(f.id)).count();
+        let mut row = Row::new(
+            NodeKey::Folder(f.id.to_string()),
+            0,
+            if open { RowIcon::FolderOpen } else { RowIcon::Folder },
+            f.name,
+        );
+        row.expandable = true;
+        row.expanded = open;
+        row.highlights = name_match.unwrap_or_default();
+        row.detail = Some(count.to_string());
+        rows.push(row);
+        if open {
+            for mut r in inner {
+                r.depth += 1;
+                rows.push(r);
+            }
+        }
+    }
+    for c in conns.iter().filter(|c| c.folder.is_none_or(|f| !folders.iter().any(|x| x.id == f))) {
         flatten_connection(c, expanded, &filter, wrap_cols, &mut rows);
     }
     rows
@@ -755,6 +812,7 @@ mod tests {
 
     fn view<'a>(c: &'a Catalog) -> Vec<ConnView<'a>> {
         vec![ConnView {
+            folder: None,
             id: "c1",
             name: "Demo",
             kind: DatabaseKind::Postgres,
@@ -947,6 +1005,7 @@ mod tests {
     fn status_rows_for_connection_phases() {
         let key = |p: Phase<'static>| {
             let v = vec![ConnView {
+                folder: None,
                 id: "c",
                 name: "X",
                 kind: DatabaseKind::Sqlite,
@@ -991,5 +1050,69 @@ mod tests {
         let filtered = flatten(&view(&catalog), &exp, "tbl4999");
         assert!(filtered.iter().any(|r| r.label == "table_04999"), "{:?}", filtered.len());
         assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+    }
+
+    fn conn<'a>(id: &'a str, name: &'a str, folder: Option<&'a str>) -> ConnView<'a> {
+        ConnView {
+            folder,
+            id,
+            name,
+            kind: DatabaseKind::Sqlite,
+            color: None,
+            phase: Phase::Disconnected,
+            inferred: &[],
+        }
+    }
+
+    fn labels(rows: &[Row]) -> Vec<(u8, &str)> {
+        rows.iter().map(|r| (r.depth, r.label.as_str())).collect()
+    }
+
+    #[test]
+    fn folders_nest_their_connections_and_top_level_comes_last() {
+        let folders = [
+            FolderView { id: "f1", name: "Prod", collapsed: false },
+            FolderView { id: "f2", name: "Dev", collapsed: true },
+        ];
+        let conns =
+            [conn("a", "alpha", None), conn("b", "bravo", Some("f1")), conn("c", "charlie", Some("f2"))];
+        let rows = flatten_grouped(&folders, &conns, &HashSet::new(), "", 36);
+        assert_eq!(labels(&rows), [(0, "Prod"), (1, "bravo"), (0, "Dev"), (0, "alpha")]);
+        assert!(rows[0].expanded && !rows[2].expanded, "collapsed state comes from the folder");
+        assert_eq!(rows[0].detail.as_deref(), Some("1"));
+        assert_eq!(rows[2].icon, RowIcon::Folder);
+        assert_eq!(rows[0].icon, RowIcon::FolderOpen);
+    }
+
+    #[test]
+    fn a_connection_in_an_unknown_folder_shows_at_the_top_level() {
+        let conns = [conn("a", "alpha", Some("gone"))];
+        let rows = flatten_grouped(&[], &conns, &HashSet::new(), "", 36);
+        assert_eq!(labels(&rows), [(0, "alpha")]);
+    }
+
+    #[test]
+    fn filter_opens_matching_folders_and_hides_the_rest() {
+        let folders = [
+            FolderView { id: "f1", name: "Prod", collapsed: true },
+            FolderView { id: "f2", name: "Dev", collapsed: false },
+        ];
+        let conns = [conn("b", "bravo", Some("f1")), conn("c", "charlie", Some("f2"))];
+        let rows = flatten_grouped(&folders, &conns, &HashSet::new(), "brav", 36);
+        assert_eq!(
+            labels(&rows),
+            [(0, "Prod"), (1, "bravo")],
+            "the collapsed folder opens for a match; Dev drops out"
+        );
+        let rows = flatten_grouped(&folders, &conns, &HashSet::new(), "dev", 36);
+        assert_eq!(labels(&rows), [(0, "Dev")], "a folder whose own name matches is kept");
+    }
+
+    #[test]
+    fn an_empty_folder_is_still_listed() {
+        let folders = [FolderView { id: "f1", name: "Empty", collapsed: false }];
+        let rows = flatten_grouped(&folders, &[], &HashSet::new(), "", 36);
+        assert_eq!(labels(&rows), [(0, "Empty")]);
+        assert_eq!(rows[0].detail.as_deref(), Some("0"));
     }
 }

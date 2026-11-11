@@ -141,6 +141,15 @@ declare but that column names imply (`orders.customer_id` → `customers.id`), e
     (declared) and *Suggested* (inferred, with a confidence percentage). Choosing one opens a console with a
     `JOIN` query between the two tables.
 - **Right-click a suggested key**: *Copy ALTER TABLE … ADD FOREIGN KEY* or *Generate JOIN Query*.
+- **Folders.** Group connections with *New Folder* (the folder button in the explorer header, or *New
+  Connection Folder…* in the palette). A folder holds connections one level deep. Right-click a connection and
+  choose *Move to Folder…* (or run *Move Connection to Folder…* from the palette) to file it; choose *No folder* to
+  take it out again. Right-click a folder for *Rename…* (`f2`), *Move Up / Down* and *Delete Folder…* (`delete`;
+  its connections go back to the top level, nothing is deleted). *Move Up* and *Move Down* on a connection
+  (`alt-up` / `alt-down`) reorder it within its folder. Which folders are collapsed, their order and the order of
+  the connections are saved in `connections.json`; an older file simply has no folders. The connection picker
+  shows `Folder / Name` and matches either part. There is no drag and drop: GPUI's list does not give the tree a
+  drop target, so the menus and keys above do the job.
 - A connection that failed to connect, or whose schema could not be read, shows the error under it.
   *Retry*, *Edit Connection…* and *Copy Error* are in its context menu.
 

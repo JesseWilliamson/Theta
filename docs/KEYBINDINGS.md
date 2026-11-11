@@ -54,7 +54,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-shift-f` | format document |
 | `mod-q` | quit |
 
-These actions have no key: *Connect…*, *Disconnect*, *Save Console As…*, *Begin Transaction*, *Commit
+These actions have no key: *New Connection Folder…*, *Move Connection to Folder…*, *Toggle Query Parameters*, *Connect…*, *Disconnect*, *Save Console As…*, *Begin Transaction*, *Commit
 Transaction*, *Roll Back Transaction*, *Import Zed Theme…*, *Select Keymap…* and *Use Helix / Vim / Standard
 Keymap*, *Open Settings File*. Use the
 command palette. *Refresh Schema* and *Reopen Closed Tab* are also in the palette and menus; `:reopen` does the
@@ -131,6 +131,9 @@ Context `Explorer` (the connection tree). `ctrl-n` / `ctrl-p` are literal `ctrl`
 | `/` | focus the filter box |
 | `esc` | return to the editor |
 | `h j k l` | collapse, next, previous, expand (Helix and Vim key maps) |
+| `alt-up` / `alt-down` | move the selected connection (within its folder) or folder up / down |
+| `f2` | rename the selected folder |
+| `delete` | delete the selected folder (asks first; its connections move to the top level) |
 
 In the filter box: `enter` or `down` moves into the tree, `esc` clears the filter and moves into the tree.
 Double-click activates a row.
