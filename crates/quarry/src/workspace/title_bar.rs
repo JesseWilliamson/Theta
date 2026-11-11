@@ -139,7 +139,7 @@ impl Workspace {
                                             .outline()
                                             .icon(Icon::new(IconName::Check))
                                             .label("Commit")
-                                            .tooltip("Commit the open transaction")
+                                            .tooltip("Commit Transaction")
                                             .on_click(|_, window, cx| {
                                                 window.dispatch_action(Box::new(CommitTransaction), cx)
                                             }),
@@ -150,8 +150,8 @@ impl Workspace {
                                             .danger()
                                             .outline()
                                             .icon(Icon::new(IconName::Undo2))
-                                            .label("Rollback")
-                                            .tooltip("Roll back the open transaction")
+                                            .label("Roll Back")
+                                            .tooltip("Roll Back Transaction")
                                             .on_click(|_, window, cx| {
                                                 window.dispatch_action(Box::new(RollbackTransaction), cx)
                                             }),

@@ -143,6 +143,12 @@ impl Connection for SqliteConnection {
     }
 }
 
+/// SQLite's result-code name, or none for the generic `Unknown` that syntax errors carry
+/// (showing "Code: Unknown" tells the user nothing).
+fn code_name(code: rusqlite::ErrorCode) -> Option<String> {
+    (code != rusqlite::ErrorCode::Unknown).then(|| format!("{code:?}"))
+}
+
 fn map_err(e: rusqlite::Error) -> Error {
     use rusqlite::ErrorCode;
     match &e {
@@ -152,7 +158,7 @@ fn map_err(e: rusqlite::Error) -> Error {
             }
             Error::Query {
                 message: msg.clone().unwrap_or_else(|| e.to_string()),
-                code: Some(format!("{:?}", f.code)),
+                code: code_name(f.code),
                 detail: Some(format!("extended result code {}", f.extended_code)),
                 hint: None,
                 position: None,
@@ -164,7 +170,7 @@ fn map_err(e: rusqlite::Error) -> Error {
             }
             Error::Query {
                 message: msg.clone(),
-                code: Some(format!("{:?}", error.code)),
+                code: code_name(error.code),
                 detail: None,
                 hint: None,
                 // SQLite reports a byte offset already; negative means "unknown".

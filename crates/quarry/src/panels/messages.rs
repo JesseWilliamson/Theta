@@ -148,7 +148,7 @@ impl Render for MessagesPanel {
                         div().text_size(px(13.)).text_color(color).child(SharedString::from(l.clone()))
                     }),
                 )
-                .children(m.code.iter().map(|c| {
+                .children(m.code.iter().filter(|c| shows_code(c)).map(|c| {
                     div()
                         .text_size(CHROME_TEXT_SIZE)
                         .text_color(theme.muted_foreground)
@@ -194,5 +194,24 @@ impl Render for MessagesPanel {
                     .child(v_flex().children(rows)),
             )
             .into_any_element()
+    }
+}
+
+/// Drivers without a meaningful error code leave it out or say "Unknown".
+fn shows_code(code: &str) -> bool {
+    let c = code.trim();
+    !c.is_empty() && !c.eq_ignore_ascii_case("unknown")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shows_code;
+
+    #[test]
+    fn meaningless_codes_are_hidden() {
+        assert!(!shows_code("Unknown"));
+        assert!(!shows_code(" "));
+        assert!(shows_code("42601"));
+        assert!(shows_code("ConstraintViolation"));
     }
 }

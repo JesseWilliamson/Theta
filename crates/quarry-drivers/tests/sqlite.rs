@@ -88,7 +88,7 @@ async fn limits_rows_affected_and_errors() {
     else {
         panic!()
     };
-    assert_eq!(code.as_deref(), Some("Unknown"));
+    assert_eq!(code.as_deref(), None, "the generic Unknown code is left out");
     assert!(matches!(c.execute("SELECT 1; SELECT 2", &all()).await, Err(Error::Query { .. })));
     // Constraint violations surface the SQLite message.
     run(c.as_ref(), "CREATE TABLE u (a UNIQUE)").await;
