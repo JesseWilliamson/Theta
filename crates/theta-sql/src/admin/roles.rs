@@ -450,19 +450,36 @@ fn unquote(s: &str) -> String {
 // ---------------------------------------------------------------------------- changing
 
 /// A statement to run, and the same statement as it may be shown. See the module comment.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Change {
     pub sql: String,
     pub shown: String,
+    /// The password the statement carries, kept only so error text can be cleaned with [`Change::scrub`].
+    secret: Option<String>,
     /// One line for the confirmation's header.
     pub summary: String,
     /// Dropping or revoking: the confirmation says so.
     pub destructive: bool,
 }
 
+// Never derive `Debug` here: a `{:?}` in a log line or a panic message would print the password.
+impl std::fmt::Debug for Change {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Change").field("shown", &self.shown).field("summary", &self.summary).finish_non_exhaustive()
+    }
+}
+
 impl Change {
+    /// `text` with the password (if any) replaced by `'***'`: what to log of a server's reply.
+    pub fn scrub(&self, text: &str) -> String {
+        match &self.secret {
+            Some(s) => mask_secret(text, s),
+            None => text.to_string(),
+        }
+    }
+
     fn plain(sql: String, summary: impl Into<String>, destructive: bool) -> Change {
-        Change { shown: sql.clone(), sql, summary: summary.into(), destructive }
+        Change { shown: sql.clone(), sql, secret: None, summary: summary.into(), destructive }
     }
 
     /// `build` is given the text to use where the password goes: the real literal, then `'***'`.
@@ -473,7 +490,13 @@ impl Change {
         build: impl Fn(&str) -> String,
     ) -> Change {
         let real = string_literal(password, kind.family() == Family::MySql);
-        Change { sql: build(&real), shown: build("'***'"), summary: summary.into(), destructive: false }
+        Change {
+            sql: build(&real),
+            shown: build("'***'"),
+            secret: Some(password.to_string()),
+            summary: summary.into(),
+            destructive: false,
+        }
     }
 }
 
@@ -1146,6 +1169,15 @@ mod tests {
         assert_eq!(drop_role(PG, &r).unwrap().sql, "DROP ROLE \"a\"\"; DROP ROLE x; --\"");
         let u = my_user("a'; DROP USER x; --", "h'");
         assert_eq!(drop_role(MY, &u).unwrap().sql, "DROP USER 'a''; DROP USER x; --'@'h'''");
+    }
+
+    #[test]
+    fn a_change_never_prints_its_password() {
+        let c = set_password(PG, &pg_role("app"), "hunter2-xyz").unwrap();
+        assert!(!format!("{c:?}").contains("hunter2"), "Debug must not show the password");
+        let echoed = "ERROR: syntax error at or near \"hunter2-xyz\" in ALTER ROLE app PASSWORD 'hunter2-xyz'";
+        assert!(!c.scrub(echoed).contains("hunter2"));
+        assert_eq!(c.scrub("nothing to hide"), "nothing to hide");
     }
 
     #[test]

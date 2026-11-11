@@ -290,6 +290,13 @@ pub fn kill_statement(kind: DatabaseKind, action: Action, id: &str) -> Result<St
     }
 }
 
+/// Why `action` cannot be offered on this product at all, `None` when it can (a particular session id may
+/// still be refused by [`kill_statement`]).
+pub fn action_unavailable(kind: DatabaseKind, action: Action) -> Option<String> {
+    let sample = if kind.family() == theta_core::Family::ClickHouse { "x" } else { "1" };
+    kill_statement(kind, action, sample).err()
+}
+
 /// What the confirmation says about the effect, per product and action.
 pub fn effect_note(kind: DatabaseKind, action: Action) -> &'static str {
     use theta_core::Family::*;
@@ -592,6 +599,15 @@ mod tests {
         );
         assert!(k(DatabaseKind::ClickHouse, Terminate, "x").is_err());
         assert!(k(DatabaseKind::Sqlite, Cancel, "1").is_err());
+    }
+
+    #[test]
+    fn unavailable_actions_name_their_reason_without_an_id() {
+        assert!(action_unavailable(DatabaseKind::ClickHouse, Action::Terminate).unwrap().contains("only Cancel"));
+        assert!(action_unavailable(DatabaseKind::SqlServer, Action::Cancel).is_some());
+        assert!(action_unavailable(DatabaseKind::Postgres, Action::Cancel).is_none());
+        assert!(action_unavailable(DatabaseKind::MySql, Action::Terminate).is_none());
+        assert!(action_unavailable(DatabaseKind::DuckDb, Action::Cancel).is_some());
     }
 
     #[test]

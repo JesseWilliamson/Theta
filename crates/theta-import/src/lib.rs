@@ -10,6 +10,7 @@ pub mod dump;
 pub mod export;
 pub mod infer;
 pub mod job;
+pub mod native;
 pub mod parser;
 pub mod plan;
 pub mod run;
