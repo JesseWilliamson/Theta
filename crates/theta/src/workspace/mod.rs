@@ -23,6 +23,7 @@ mod params;
 pub mod persist;
 mod run;
 mod status_bar;
+mod table_tabs;
 mod tabs;
 mod templates;
 mod title_bar;
@@ -57,6 +58,8 @@ use gpui_kit::{
 use persist::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use table_tabs::DropWhat;
+pub use table_tabs::{EditorTarget, StartupTable};
 use theta_editor_view::EditorStatus;
 use theta_map_view::{MapEvent, MapPanel};
 use theta_plan_view::{PlanEvent, PlanPanel};
@@ -96,6 +99,8 @@ pub struct ConsoleTab {
     pub connection_id: Option<String>,
     pub modified: bool,
     pub initial_sql: Option<String>,
+    /// Set for a table editor tab: the editor that fills the tab instead of a console.
+    pub table: Option<Entity<crate::table_editor::TableEditor>>,
 }
 
 /// Values shown in the status bar's right-hand slots. `None` hides a slot.
@@ -182,6 +187,8 @@ pub struct Workspace {
     map_badge: Option<usize>,
     pub(crate) runs: HashMap<String, run::RunInfo>,
     txn: HashSet<String>,
+    /// Subscriptions to the table editors of the open table tabs, by tab id.
+    table_subs: HashMap<u64, Subscription>,
     /// Session-level transaction mode per connection id (see `txn.rs`); absent means the saved setting.
     txn_prefs: std::collections::HashMap<String, theta_core::txn::TransactionConfig>,
     /// Consoles whose Run / Explain is waiting for their connection to come up.
@@ -195,6 +202,8 @@ pub struct Workspace {
     startup: Option<run::Startup>,
     /// `--import FILE [--into TABLE]`, opened once the first connection and its catalog are ready.
     startup_import: Option<(String, Option<String>)>,
+    /// `--modify` / `--new-table`, opened once the first connection and its catalog are ready.
+    startup_table: Option<StartupTable>,
     /// Tests run in windows without a `Root`, where toasts cannot be shown.
     pub(crate) quiet: bool,
     /// Test windows have no `Root` to host dialogs: when set, the Parameters dialog is answered with
@@ -279,6 +288,7 @@ impl Workspace {
             map_badge: None,
             runs: HashMap::new(),
             txn: HashSet::new(),
+            table_subs: HashMap::new(),
             txn_prefs: Default::default(),
             awaiting_connection: HashSet::new(),
             startup_warnings: Vec::new(),
@@ -287,6 +297,7 @@ impl Workspace {
             plan_owner: None,
             startup: None,
             startup_import: None,
+            startup_table: None,
             quiet: false,
             #[cfg(test)]
             param_answer: None,
@@ -408,6 +419,7 @@ impl Workspace {
         let saved = self.snapshot_console(id, cx);
         self.cancel_run_of(id, cx);
         self.tabs.remove(pos);
+        self.table_subs.remove(&id);
         self.console_views.remove(&id);
         if let Some(c) = self.consoles.remove(&id) {
             if let Some(saved) = saved {
@@ -597,6 +609,69 @@ impl Workspace {
             ExplorerEvent::DuplicateStructure { connection_id, schema, table } => {
                 self.duplicate_structure_dialog(connection_id, schema, table, window, cx)
             }
+            ExplorerEvent::ModifyTable { connection_id, schema, table, column } => {
+                self.open_table_editor(
+                    connection_id,
+                    EditorTarget::Modify { schema, table, column },
+                    window,
+                    cx,
+                );
+            }
+            ExplorerEvent::NewTable { connection_id, schema } => {
+                self.open_table_editor(connection_id, EditorTarget::New { schema: Some(schema) }, window, cx);
+            }
+            ExplorerEvent::RenameColumn { connection_id, schema, table, column } => {
+                self.rename_column_dialog(connection_id, schema, table, column, window, cx)
+            }
+            ExplorerEvent::DropColumn { connection_id, schema, table, column } => {
+                self.drop_column_dialog(connection_id, schema, table, column, window, cx)
+            }
+            ExplorerEvent::NewIndex { connection_id, schema, table } => self.new_constraint_row(
+                connection_id,
+                schema,
+                table,
+                crate::table_editor::model::Section::Indexes,
+                window,
+                cx,
+            ),
+            ExplorerEvent::NewForeignKey { connection_id, schema, table } => self.new_constraint_row(
+                connection_id,
+                schema,
+                table,
+                crate::table_editor::model::Section::ForeignKeys,
+                window,
+                cx,
+            ),
+            ExplorerEvent::DropIndex { connection_id, schema, table, index } => {
+                self.drop_constraint_dialog(connection_id, schema, table, DropWhat::Index(index), window, cx)
+            }
+            ExplorerEvent::DropForeignKey { connection_id, schema, table, name } => self
+                .drop_constraint_dialog(connection_id, schema, table, DropWhat::ForeignKey(name), window, cx),
+            ExplorerEvent::AddSuggestedForeignKey {
+                connection_id,
+                schema,
+                table,
+                column,
+                referenced_schema,
+                referenced_table,
+                referenced_column,
+            } => self.add_suggested_foreign_key(
+                connection_id,
+                schema,
+                table,
+                theta_sql::VirtualForeignKey {
+                    schema: String::new(),
+                    table: String::new(),
+                    column,
+                    referenced_schema,
+                    referenced_table,
+                    referenced_column,
+                    confidence: 1.0,
+                    reason: String::new(),
+                },
+                window,
+                cx,
+            ),
             ExplorerEvent::ExportData { connection_id, schema, table } => {
                 self.open_export_dialog(connection_id, schema, table, window, cx)
             }
@@ -908,7 +983,9 @@ impl Render for Workspace {
         let title_bar = self.render_title_bar(window, cx);
         let tab_bar = self.render_tab_bar(window, cx);
         let console = self.render_console_area(window, cx);
-        let bottom = bottom_open.then(|| self.render_bottom_panel(window, cx));
+        // A table editor has its own preview and log line; the results panel would only take its room.
+        let on_table = self.active_tab.is_some_and(|id| self.is_table_tab(id));
+        let bottom = (bottom_open && !on_table).then(|| self.render_bottom_panel(window, cx));
         let status = self.render_status_bar(window, cx);
 
         div()
@@ -933,6 +1010,15 @@ impl Render for Workspace {
             )
             .on_action(cx.listener(|this, _: &ImportAsNewTable, window, cx| {
                 this.import_from_palette(true, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &NewTable, window, cx| match this.bulk_connection(cx) {
+                Some(conn) => {
+                    this.open_table_editor(conn, EditorTarget::New { schema: None }, window, cx);
+                }
+                None => this.notify(NoticeKind::Info, "Connect to a database first", window, cx),
+            }))
+            .on_action(cx.listener(|this, _: &ModifyTable, window, cx| {
+                this.pick_table_for(palette::TablePurpose::Modify, window, cx)
             }))
             .on_action(cx.listener(|this, _: &RenameTable, window, cx| {
                 this.pick_table_for(palette::TablePurpose::Rename, window, cx)
@@ -1032,6 +1118,11 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &SaveConsole, window, cx| this.save_console_as(window, cx)))
             .on_action(cx.listener(|this, _: &WelcomeDemo, window, cx| this.start_demo(window, cx)))
             .on_action(cx.listener(|this, _: &RunStatement, window, cx| {
+                // On a table editor tab "run" means Execute: the same chord, the same meaning.
+                if let Some(editor) = this.active_tab.and_then(|id| this.table_editor(id)) {
+                    editor.update(cx, |e, cx| e.request_execute(cx));
+                    return;
+                }
                 cx.emit(WorkspaceEvent::Run(RunKind::Statement));
                 this.run_active(run::RunReq::Statement, window, cx)
             }))

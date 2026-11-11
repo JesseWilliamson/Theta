@@ -88,7 +88,8 @@ impl Workspace {
         let theme = cx.theme().clone();
         let surface = data_surface(cx);
         let active = self.active_tab;
-        let tabs: Vec<_> = self.tabs.iter().map(|t| (t.id, t.title.clone(), t.modified)).collect();
+        let tabs: Vec<_> =
+            self.tabs.iter().map(|t| (t.id, t.title.clone(), t.modified, t.table.is_some())).collect();
         let order: std::rc::Rc<Vec<u64>> = std::rc::Rc::new(tabs.iter().map(|t| t.0).collect());
 
         // Bring a newly activated tab into view (the strip scrolls, it does not wrap).
@@ -154,7 +155,7 @@ impl Workspace {
                                     cx.notify();
                                 }
                             }))
-                            .children(tabs.into_iter().map(|(id, title, modified)| {
+                            .children(tabs.into_iter().map(|(id, title, modified, is_table)| {
                                 let is_active = active == Some(id);
                                 let group: SharedString = format!("tab-{id}").into();
                                 let ghost_title = title.clone();
@@ -221,9 +222,13 @@ impl Workspace {
                                         }),
                                     )
                                     .child(
-                                        Icon::new(IconName::SquareTerminal)
-                                            .size(px(13.))
-                                            .text_color(theme.muted_foreground),
+                                        Icon::new(if is_table {
+                                            IconName::Table2
+                                        } else {
+                                            IconName::SquareTerminal
+                                        })
+                                        .size(px(13.))
+                                        .text_color(theme.muted_foreground),
                                     )
                                     .child(
                                         div()

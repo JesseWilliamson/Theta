@@ -197,6 +197,7 @@ pub fn bindings() -> Vec<KeyBinding> {
 
 pub fn bind(cx: &mut App) {
     cx.bind_keys(bindings());
+    crate::table_editor::bind_keys(cx);
 }
 
 /// macOS application menu (a no-op on platforms without a global menu bar).

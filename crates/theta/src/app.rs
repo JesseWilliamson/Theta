@@ -117,6 +117,14 @@ pub fn run(args: Args) {
         if let Some(file) = args.import.clone() {
             workspace.update(cx, |ws, _| ws.import_at_startup(file, args.into.clone()));
         }
+        let startup_table = match (&args.modify, &args.new_table) {
+            (Some(name), _) => Some(crate::workspace::StartupTable::Modify(name.clone())),
+            (None, Some(schema)) => Some(crate::workspace::StartupTable::New(schema.clone())),
+            _ => None,
+        };
+        if let Some(target) = startup_table {
+            workspace.update(cx, |ws, _| ws.table_editor_at_startup(target));
+        }
         startup_connections(&args, &store, cx);
     });
 }

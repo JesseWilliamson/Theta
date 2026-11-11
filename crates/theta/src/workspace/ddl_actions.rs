@@ -20,16 +20,22 @@ use theta_sql::ddl::{self, Flag, Statement, TableDraft};
 use theta_sql::keywords::qualified_name;
 
 /// Everything an action needs to know about its table.
-struct Target {
-    kind: DatabaseKind,
-    schema: String,
-    table: Table,
-    catalog: Arc<Catalog>,
-    read_only: bool,
+pub(super) struct Target {
+    pub(super) kind: DatabaseKind,
+    pub(super) schema: String,
+    pub(super) table: Table,
+    pub(super) catalog: Arc<Catalog>,
+    pub(super) read_only: bool,
 }
 
 impl Workspace {
-    fn ddl_target(&self, conn_id: &str, schema: &str, table: &str, cx: &gpui_kit::App) -> Option<Target> {
+    pub(super) fn ddl_target(
+        &self,
+        conn_id: &str,
+        schema: &str,
+        table: &str,
+        cx: &gpui_kit::App,
+    ) -> Option<Target> {
         let store = self.store.read(cx);
         let config = store.config(conn_id)?;
         let catalog = store.catalog(conn_id)?;
@@ -43,7 +49,7 @@ impl Workspace {
         })
     }
 
-    fn refuse_read_only(&self, t: &Target, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    pub(super) fn refuse_read_only(&self, t: &Target, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if t.read_only {
             self.notify(
                 NoticeKind::Info,
@@ -57,7 +63,7 @@ impl Workspace {
 
     /// Lines that go above the SQL in the confirmation: what the engine warns about and where the
     /// transaction stands.
-    fn ddl_notes(
+    pub(super) fn ddl_notes(
         &self,
         conn_id: &str,
         kind: DatabaseKind,
@@ -318,7 +324,7 @@ impl Workspace {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn confirm_ddl(
+    pub(super) fn confirm_ddl(
         &mut self,
         conn_id: &str,
         title: String,

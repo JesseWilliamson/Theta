@@ -32,9 +32,26 @@ impl Choice {
     }
 }
 
+/// One statement of the SQL shown in the dialog, with the small labels that say what it does to the
+/// database (`destructive`, `table rewrite`...).
+#[derive(Clone, Default)]
+pub struct Item {
+    pub sql: String,
+    /// `(text, is_danger)`: danger labels are drawn in the danger colour, the others as warnings.
+    pub badges: Vec<(String, bool)>,
+    /// A line of explanation under the badges.
+    pub note: Option<String>,
+}
+
+impl Item {
+    pub fn plain(sql: impl Into<String>) -> Self {
+        Self { sql: sql.into(), ..Default::default() }
+    }
+}
+
 struct ConfirmView {
     intro: SharedString,
-    statements: Vec<String>,
+    statements: Vec<Item>,
     choices: Vec<Choice>,
 }
 
@@ -58,9 +75,35 @@ impl Render for ConfirmView {
                         .border_color(theme.border)
                         .font_family(mono)
                         .text_size(px(12.))
-                        .child(v_flex().gap_1().children(
-                            self.statements.iter().map(|s| div().child(SharedString::from(format!("{s};")))),
-                        )),
+                        .child(v_flex().gap_1p5().children(self.statements.iter().map(|s| {
+                            v_flex()
+                                .gap_0p5()
+                                .when(!s.badges.is_empty(), |d| {
+                                    d.child(h_flex().gap_1().children(s.badges.iter().map(
+                                        |(text, danger)| {
+                                            let color = if *danger { theme.danger } else { theme.warning };
+                                            div()
+                                                .px_1p5()
+                                                .rounded(px(3.))
+                                                .border_1()
+                                                .border_color(color.opacity(0.6))
+                                                .bg(color.opacity(0.12))
+                                                .text_size(px(10.))
+                                                .text_color(color)
+                                                .child(SharedString::from(text.clone()))
+                                        },
+                                    )))
+                                })
+                                .when_some(s.note.clone(), |d, note| {
+                                    d.child(
+                                        div()
+                                            .text_size(px(11.))
+                                            .text_color(theme.muted_foreground)
+                                            .child(SharedString::from(format!("-- {note}"))),
+                                    )
+                                })
+                                .child(div().child(SharedString::from(format!("{};", s.sql))))
+                        }))),
                 )
             })
             .child(
@@ -95,6 +138,18 @@ pub fn open(
     title: impl Into<SharedString>,
     intro: impl Into<SharedString>,
     statements: Vec<String>,
+    choices: Vec<Choice>,
+) {
+    open_items(window, cx, title, intro, statements.into_iter().map(Item::plain).collect(), choices)
+}
+
+/// Like [`open`], with a label row and a note per statement.
+pub fn open_items(
+    window: &mut Window,
+    cx: &mut App,
+    title: impl Into<SharedString>,
+    intro: impl Into<SharedString>,
+    statements: Vec<Item>,
     choices: Vec<Choice>,
 ) {
     // Enter confirms the Primary choice. Without this the dialog's own Enter handler just closed

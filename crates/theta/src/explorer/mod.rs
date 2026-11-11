@@ -76,6 +76,63 @@ pub enum ExplorerEvent {
         schema: String,
         table: String,
     },
+    /// Open the editor on an existing table; `column` puts the cursor on it.
+    ModifyTable {
+        connection_id: String,
+        schema: String,
+        table: String,
+        column: Option<String>,
+    },
+    /// Open the editor on a table that does not exist yet.
+    NewTable {
+        connection_id: String,
+        schema: String,
+    },
+    RenameColumn {
+        connection_id: String,
+        schema: String,
+        table: String,
+        column: String,
+    },
+    DropColumn {
+        connection_id: String,
+        schema: String,
+        table: String,
+        column: String,
+    },
+    /// Open the editor on the table's Indexes or Foreign Keys with a new row.
+    NewIndex {
+        connection_id: String,
+        schema: String,
+        table: String,
+    },
+    NewForeignKey {
+        connection_id: String,
+        schema: String,
+        table: String,
+    },
+    DropIndex {
+        connection_id: String,
+        schema: String,
+        table: String,
+        index: String,
+    },
+    DropForeignKey {
+        connection_id: String,
+        schema: String,
+        table: String,
+        name: String,
+    },
+    /// Declare a suggested (inferred) foreign key for real.
+    AddSuggestedForeignKey {
+        connection_id: String,
+        schema: String,
+        table: String,
+        column: String,
+        referenced_schema: String,
+        referenced_table: String,
+        referenced_column: String,
+    },
     /// Import a file as a new table.
     ImportNewTable {
         connection_id: String,
@@ -292,6 +349,22 @@ impl Explorer {
         self.selected.as_ref()
     }
 
+    /// Expand the path to a table and select it (after a table was created or changed).
+    pub fn reveal_table(&mut self, conn: &str, schema: &str, table: &str, cx: &mut Context<Self>) {
+        for key in [
+            NodeKey::Connection(conn.to_string()),
+            NodeKey::Schema(conn.to_string(), schema.to_string()),
+            NodeKey::Group(conn.to_string(), schema.to_string(), GroupKind::Tables),
+        ] {
+            self.expanded.insert(key);
+        }
+        self.selected = Some(NodeKey::Table(conn.to_string(), schema.to_string(), table.to_string()));
+        self.rebuild(cx);
+        if let Some(ix) = self.selected_index() {
+            self.scroll.scroll_to_item(ix, ScrollStrategy::Center);
+        }
+    }
+
     fn selected_index(&self) -> Option<usize> {
         let key = self.selected.as_ref()?;
         self.rows.iter().position(|r| &r.key == key)
@@ -471,6 +544,23 @@ impl Explorer {
         })
     }
 
+    /// The event that accepts the suggested foreign key a leaf stands for.
+    fn suggested_event(&self, key: &NodeKey) -> Option<ExplorerEvent> {
+        let NodeKey::Leaf(c, s, t, Section::Suggested, name) = key else { return None };
+        let (_, list) = self.inferred.get(c)?;
+        let v =
+            list.iter().find(|v| &v.schema == s && &v.table == t && &tree::suggested_leaf_name(v) == name)?;
+        Some(ExplorerEvent::AddSuggestedForeignKey {
+            connection_id: c.clone(),
+            schema: s.clone(),
+            table: t.clone(),
+            column: v.column.clone(),
+            referenced_schema: v.referenced_schema.clone(),
+            referenced_table: v.referenced_table.clone(),
+            referenced_column: v.referenced_column.clone(),
+        })
+    }
+
     /// The inferred foreign keys of a connection (empty until its catalog loads).
     pub fn inferred_for(&self, conn: &str) -> Arc<Vec<VirtualForeignKey>> {
         self.inferred.get(conn).map(|(_, v)| v.clone()).unwrap_or_default()
@@ -639,6 +729,17 @@ impl Explorer {
                     }
                 }))
                 .separator()
+                .item(item(&explorer, "Modify Table…", IconName::Settings2, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::ModifyTable {
+                            connection_id: c.clone(),
+                            schema: s.clone(),
+                            table: t.clone(),
+                            column: None,
+                        })
+                    }
+                }))
                 .item(item(&explorer, "Rename…", IconName::Pencil, {
                     let (c, s, t) = (c.clone(), s.clone(), t.clone());
                     move |_, cx| {
@@ -701,15 +802,99 @@ impl Explorer {
                     }
                 }))
             }
-            NodeKey::Group(c, _, GroupKind::Tables) => {
-                menu.item(item(&explorer, "Import as New Table…", IconName::FileDown, move |_, cx| {
-                    cx.emit(ExplorerEvent::ImportNewTable { connection_id: c.clone() });
+            NodeKey::Group(c, schema, GroupKind::Tables) => {
+                let c2 = c.clone();
+                menu.item(item(&explorer, "New Table…", IconName::Plus, move |_, cx| {
+                    cx.emit(ExplorerEvent::NewTable { connection_id: c2.clone(), schema: schema.clone() });
+                }))
+                .item(item(
+                    &explorer,
+                    "Import as New Table…",
+                    IconName::FileDown,
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::ImportNewTable { connection_id: c.clone() });
+                    },
+                ))
+            }
+            NodeKey::Section(c, s, t, Section::Indexes) => {
+                menu.item(item(&explorer, "New Index…", IconName::Plus, move |_, cx| {
+                    cx.emit(ExplorerEvent::NewIndex {
+                        connection_id: c.clone(),
+                        schema: s.clone(),
+                        table: t.clone(),
+                    });
                 }))
             }
+            NodeKey::Section(c, s, t, Section::ForeignKeys) => {
+                menu.item(item(&explorer, "New Foreign Key…", IconName::Plus, move |_, cx| {
+                    cx.emit(ExplorerEvent::NewForeignKey {
+                        connection_id: c.clone(),
+                        schema: s.clone(),
+                        table: t.clone(),
+                    });
+                }))
+            }
+            NodeKey::Leaf(c, s, t, Section::Indexes, name) => {
+                menu.item(item(&explorer, "Drop Index…", IconName::Trash, move |_, cx| {
+                    cx.emit(ExplorerEvent::DropIndex {
+                        connection_id: c.clone(),
+                        schema: s.clone(),
+                        table: t.clone(),
+                        index: name.clone(),
+                    });
+                }))
+            }
+            NodeKey::Leaf(c, s, t, Section::ForeignKeys, name) => {
+                menu.item(item(&explorer, "Drop Foreign Key…", IconName::Trash, move |_, cx| {
+                    cx.emit(ExplorerEvent::DropForeignKey {
+                        connection_id: c.clone(),
+                        schema: s.clone(),
+                        table: t.clone(),
+                        name: name.clone(),
+                    });
+                }))
+            }
+            NodeKey::Column(c, s, t, name) => {
+                let (c1, s1, t1, n1) = (c.clone(), s.clone(), t.clone(), name.clone());
+                let (c2, s2, t2, n2) = (c.clone(), s.clone(), t.clone(), name.clone());
+                let n3 = name.clone();
+                menu.item(item(&explorer, "Modify Column…", IconName::Settings2, move |_, cx| {
+                    cx.emit(ExplorerEvent::ModifyTable {
+                        connection_id: c1.clone(),
+                        schema: s1.clone(),
+                        table: t1.clone(),
+                        column: Some(n1.clone()),
+                    });
+                }))
+                .item(item(&explorer, "Rename Column…", IconName::Pencil, move |_, cx| {
+                    cx.emit(ExplorerEvent::RenameColumn {
+                        connection_id: c2.clone(),
+                        schema: s2.clone(),
+                        table: t2.clone(),
+                        column: n2.clone(),
+                    });
+                }))
+                .item(item(&explorer, "Drop Column…", IconName::Trash, move |_, cx| {
+                    cx.emit(ExplorerEvent::DropColumn {
+                        connection_id: c.clone(),
+                        schema: s.clone(),
+                        table: t.clone(),
+                        column: name.clone(),
+                    });
+                }))
+                .separator()
+                .item(item(&explorer, "Copy Name", IconName::Copy, move |this, cx| this.copy(n3.clone(), cx)))
+            }
             NodeKey::Leaf(c, s, t, Section::Suggested, name) => {
-                let (k1, k2) = (key.clone(), key.clone());
+                let (k1, k2, k3) = (key.clone(), key.clone(), key.clone());
                 let _ = (c, s, t, name);
-                menu.item(item(
+                menu.item(item(&explorer, "Add as Foreign Key…", IconName::Link, move |this, cx| {
+                    if let Some(ev) = this.suggested_event(&k3) {
+                        cx.emit(ev);
+                    }
+                }))
+                .separator()
+                .item(item(
                     &explorer,
                     "Copy ALTER TABLE … ADD FOREIGN KEY",
                     IconName::Copy,
@@ -731,14 +916,10 @@ impl Explorer {
                     },
                 ))
             }
-            NodeKey::Column(_, _, _, name)
-            | NodeKey::Schema(_, name)
-            | NodeKey::Sequence(_, _, name)
-            | NodeKey::Routine(_, _, name) => {
-                menu.item(item(&explorer, "Copy Name", IconName::Copy, move |this, cx| {
+            NodeKey::Schema(_, name) | NodeKey::Sequence(_, _, name) | NodeKey::Routine(_, _, name) => menu
+                .item(item(&explorer, "Copy Name", IconName::Copy, move |this, cx| {
                     this.copy(name.clone(), cx)
-                }))
-            }
+                })),
             NodeKey::Status(id) | NodeKey::Detail(id, _) => {
                 let (i1, i2, i3) = (id.clone(), id.clone(), id.clone());
                 menu.item(item(&explorer, "Retry", IconName::RefreshCw, move |this, cx| this.retry(&i1, cx)))

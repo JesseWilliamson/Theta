@@ -96,6 +96,7 @@ impl Workspace {
             connection_id: connection_id.clone(),
             modified: false,
             initial_sql: None,
+            table: None,
         });
         if let Some(c) = &connection_id {
             self.active_connection = Some(c.clone());
@@ -257,6 +258,9 @@ impl Workspace {
         if let Some(c) = self.consoles.get(&id) {
             let handle = c.editor.read(cx).focus_handle(cx);
             window.focus(&handle, cx);
+        } else if let Some(e) = self.table_editor(id) {
+            let handle = e.read(cx).focus_handle_ref();
+            window.focus(&handle, cx);
         }
         self.save_all_consoles(cx);
     }
@@ -334,7 +338,7 @@ impl Workspace {
     /// Where keyboard focus belongs when the window opens: the active editor if there is one
     /// (restored consoles included), else the workspace itself.
     pub fn focus_default(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.active_tab.is_some_and(|id| self.consoles.contains_key(&id)) {
+        if self.active_tab.is_some_and(|id| self.consoles.contains_key(&id) || self.is_table_tab(id)) {
             self.focus_editor(window, cx);
         } else {
             self.focus.focus(window, cx);
@@ -345,6 +349,9 @@ impl Workspace {
     pub(super) fn focus_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(c) = self.active_tab.and_then(|id| self.consoles.get(&id)) {
             let handle = c.editor.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        } else if let Some(e) = self.active_tab.and_then(|id| self.table_editor(id)) {
+            let handle = e.read(cx).focus_handle_ref();
             window.focus(&handle, cx);
         }
     }
@@ -414,6 +421,7 @@ impl Workspace {
             "format" | "fmt" => self.format_console(self.active_tab.unwrap_or(0), false, window, cx),
             "open" | "e" => self.open_sql_file(window, cx),
             "import" | "export" => self.bulk_host_command(cmd, arg, window, cx),
+            "table" | "tbl" => self.table_host_command(arg, window, cx),
             // Vim `:help`: the key reference of the active keymap is the nearest thing to it.
             "help" | "h" => crate::dialogs::settings::open_at(crate::dialogs::settings::Section::Keymap, window, cx),
             // The Vim engine handles its own options (ignorecase, smartcase, hlsearch) and passes
@@ -1838,6 +1846,11 @@ impl Workspace {
     }
 
     pub(super) fn request_close_tab(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        // Unapplied table edits are never dropped silently.
+        if self.table_tab_dirty(id, cx) {
+            self.confirm_discard_table_tab(id, window, cx);
+            return;
+        }
         let conn = self.tabs.iter().find(|t| t.id == id).and_then(|t| t.connection_id.clone());
         let shared = conn.as_ref().is_some_and(|c| {
             self.tabs.iter().any(|t| t.id != id && t.connection_id.as_deref() == Some(c.as_str()))
@@ -1880,7 +1893,7 @@ impl Workspace {
         self.close_tab_now(id, window, cx);
     }
 
-    fn close_tab_now(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn close_tab_now(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
         self.close_tab(id, cx);
         match self.active_tab {
             Some(a) => self.on_console_activated(a, window, cx),
@@ -1894,6 +1907,21 @@ impl Workspace {
 
     pub(super) fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.save_all_consoles(cx);
+        let dirty = self.dirty_table_tabs(cx);
+        if !dirty.is_empty() {
+            confirm::open(
+                window,
+                cx,
+                "Quit with unapplied table changes?",
+                format!(
+                    "These tabs have changes that were not applied and are not saved: {}.",
+                    dirty.join(", ")
+                ),
+                vec![],
+                vec![Choice::new("Discard and Quit", Tone::Danger, |_, cx| cx.quit())],
+            );
+            return;
+        }
         if self.txn.is_empty() {
             cx.quit();
             return;
@@ -2052,6 +2080,8 @@ impl Workspace {
                 self.on_catalog_changed(id, cx);
                 self.maybe_run_startup(id, window, cx);
                 self.maybe_open_startup_import(id, window, cx);
+                self.sync_table_editors(id, window, cx);
+                self.maybe_open_startup_table(id, window, cx);
             }
             StoreEvent::StateChanged(id) => {
                 self.on_catalog_changed(id, cx);

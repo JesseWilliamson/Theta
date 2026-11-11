@@ -53,6 +53,8 @@ fn commands() -> Vec<Command> {
         cmd!("Import Data from CSV/TSV…", "Data", IconName::FileDown, ImportData),
         cmd!("Import CSV/TSV as New Table…", "Data", IconName::FileDown, ImportAsNewTable),
         cmd!("Export Table Data…", "Data", IconName::FileDown, ExportTableData),
+        cmd!("New Table…", "Table", IconName::Plus, NewTable),
+        cmd!("Modify Table…", "Table", IconName::Settings2, ModifyTable),
         cmd!("Rename Table…", "Table", IconName::Pencil, RenameTable),
         cmd!("Duplicate Table Structure…", "Table", IconName::Copy, DuplicateTableStructure),
         cmd!("Truncate Table…", "Table", IconName::Eraser, TruncateTable),
@@ -306,6 +308,7 @@ pub enum TablePurpose {
     Open,
     Import,
     Export,
+    Modify,
     Rename,
     Truncate,
     Drop,
@@ -340,6 +343,7 @@ impl PickerDelegate for TablePicker {
             TablePurpose::Open => "Go to table…",
             TablePurpose::Import => "Import into which table…",
             TablePurpose::Export => "Export which table…",
+            TablePurpose::Modify => "Modify which table…",
             TablePurpose::Rename => "Rename which table…",
             TablePurpose::Truncate => "Truncate which table…",
             TablePurpose::Drop => "Drop which table…",
@@ -393,6 +397,14 @@ impl PickerDelegate for TablePicker {
                         cx,
                     ),
                     TablePurpose::Export => ws.open_export_dialog(conn, schema, table, window, cx),
+                    TablePurpose::Modify => {
+                        ws.open_table_editor(
+                            conn,
+                            crate::workspace::EditorTarget::Modify { schema, table, column: None },
+                            window,
+                            cx,
+                        );
+                    }
                     TablePurpose::Rename => ws.rename_table_dialog(conn, schema, table, window, cx),
                     TablePurpose::Truncate => ws.truncate_table_dialog(conn, schema, table, window, cx),
                     TablePurpose::Drop => ws.drop_table_dialog(conn, schema, table, window, cx),

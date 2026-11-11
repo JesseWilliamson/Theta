@@ -20,6 +20,9 @@ Options:
   --import FILE          Open the Import Data dialog on FILE once the first start-up
                          connection is ready (a path to a .csv/.tsv file).
   --into [SCHEMA.]TABLE  With --import: import into this existing table instead of a new one.
+  --modify [SCHEMA.]TABLE  Open the Modify Table editor on TABLE once the first start-up
+                         connection is ready.
+  --new-table [SCHEMA]   Open the New Table editor once the first start-up connection is ready.
   --demo                 Create (or reuse) and connect the \"Demo (SQLite)\" sample database.
                          Also enabled by THETA_DEMO=1.
   --theme NAME           Start with this theme (for example \"Tokyo Night\").
@@ -34,7 +37,7 @@ Environment:
 ";
 
 /// Every flag the parser accepts (for the usage test).
-pub const FLAGS: [&str; 13] = [
+pub const FLAGS: [&str; 15] = [
     "--connect",
     "--ssh",
     "--ssh-key",
@@ -42,6 +45,8 @@ pub const FLAGS: [&str; 13] = [
     "--script",
     "--import",
     "--into",
+    "--modify",
+    "--new-table",
     "--demo",
     "--theme",
     "--stress-catalog",
@@ -66,6 +71,10 @@ pub struct Args {
     pub import: Option<String>,
     /// Existing table (`[schema.]table`) for `--import`.
     pub into: Option<String>,
+    /// `--modify [schema.]table`: open the table editor on it once connected.
+    pub modify: Option<String>,
+    /// `--new-table [schema]`: open the editor on a new table once connected (inner `None`: default schema).
+    pub new_table: Option<Option<String>>,
     /// SSH tunnel for `--connect`: `user@host:port`.
     pub ssh: Option<String>,
     /// Private key for the tunnel; without it the ssh-agent authenticates.
@@ -78,7 +87,7 @@ pub struct Args {
 
 pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<Args, String> {
     let mut out = Args { demo: env_demo, ..Default::default() };
-    let mut it = args.into_iter();
+    let mut it = args.into_iter().peekable();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--help" | "-h" => out.help = true,
@@ -89,6 +98,9 @@ pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<A
             "--script" => out.script = Some(it.next().ok_or("--script needs a file")?),
             "--import" => out.import = Some(it.next().ok_or("--import needs a file")?),
             "--into" => out.into = Some(it.next().ok_or("--into needs a table name")?),
+            "--modify" => out.modify = Some(it.next().ok_or("--modify needs a table name")?),
+            // The schema is optional: it is taken only when the next word is not another flag.
+            "--new-table" => out.new_table = Some(it.next_if(|a| !a.starts_with('-'))),
             "--ssh" => out.ssh = Some(it.next().ok_or("--ssh needs user@host:port")?),
             "--ssh-key" => out.ssh_key = Some(it.next().ok_or("--ssh-key needs a path")?),
             "--theme" => out.theme = Some(it.next().ok_or("--theme needs a theme name")?),
@@ -104,6 +116,10 @@ pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<A
             a if a.starts_with("--script=") => out.script = Some(a["--script=".len()..].to_string()),
             a if a.starts_with("--import=") => out.import = Some(a["--import=".len()..].to_string()),
             a if a.starts_with("--into=") => out.into = Some(a["--into=".len()..].to_string()),
+            a if a.starts_with("--modify=") => out.modify = Some(a["--modify=".len()..].to_string()),
+            a if a.starts_with("--new-table=") => {
+                out.new_table = Some(Some(a["--new-table=".len()..].to_string()))
+            }
             a if a.starts_with("--ssh=") => out.ssh = Some(a["--ssh=".len()..].to_string()),
             a if a.starts_with("--ssh-key=") => out.ssh_key = Some(a["--ssh-key=".len()..].to_string()),
             a if a.starts_with("--theme=") => out.theme = Some(a["--theme=".len()..].to_string()),
@@ -121,6 +137,14 @@ pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<A
     }
     if out.import.is_some() && (out.run.is_some() || out.script.is_some()) {
         return Err("use --import on its own, without --run or --script".into());
+    }
+    if out.modify.is_some() && out.new_table.is_some() {
+        return Err("use either --modify or --new-table, not both".into());
+    }
+    if (out.modify.is_some() || out.new_table.is_some())
+        && (out.import.is_some() || out.run.is_some() || out.script.is_some())
+    {
+        return Err("use --modify / --new-table on their own, without --import, --run or --script".into());
     }
     if out.run.is_some() && out.script.is_some() {
         return Err("use either --run or --script, not both".into());
@@ -160,6 +184,21 @@ mod tests {
         assert!(a.demo);
         assert_eq!(a.connect, vec!["sqlite:///x.db", "mysql://h/d"]);
         assert_eq!(a.theme.as_deref(), Some("Tokyo Night"));
+    }
+
+    #[test]
+    fn table_editor_flags() {
+        let a = p(&["--connect", "x", "--modify", "public.customers"], false).unwrap();
+        assert_eq!(a.modify.as_deref(), Some("public.customers"));
+        assert_eq!(p(&["--new-table"], false).unwrap().new_table, Some(None));
+        assert_eq!(p(&["--new-table", "sales"], false).unwrap().new_table, Some(Some("sales".into())));
+        // A following flag is not taken for the schema.
+        let a = p(&["--new-table", "--demo"], false).unwrap();
+        assert_eq!(a.new_table, Some(None));
+        assert!(a.demo);
+        assert!(p(&["--modify"], false).is_err());
+        assert!(p(&["--modify", "t", "--new-table"], false).is_err());
+        assert!(p(&["--modify", "t", "--run", "select 1"], false).is_err());
     }
 
     #[test]

@@ -57,6 +57,8 @@ actions!(
         ImportData,
         ImportAsNewTable,
         ExportTableData,
+        NewTable,
+        ModifyTable,
         RenameTable,
         DuplicateTableStructure,
         TruncateTable,

@@ -286,11 +286,13 @@ impl DraftModel {
 
     /// An editor for an existing table.
     pub fn modify(kind: DatabaseKind, schema: &str, table: &Table, catalog: Option<Arc<Catalog>>) -> Self {
-        let original = TableDraft::from_table(schema, table);
+        let mut original = TableDraft::from_table(schema, table);
+        // SQLite's own database is always `main`; naming it only clutters the generated SQL.
+        if kind == DatabaseKind::Sqlite && schema.eq_ignore_ascii_case("main") {
+            original.schema = None;
+        }
         let info = table.options.iter().map(|o| (o.name.clone(), o.value.clone())).collect();
-        let mut m = Self::build(kind, Some(original.clone()), original, catalog, info);
-        m.draft.schema = m.baseline.schema.clone();
-        m
+        Self::build(kind, Some(original.clone()), original, catalog, info)
     }
 
     fn build(
@@ -435,6 +437,16 @@ impl DraftModel {
             *d = base;
             Ok(())
         });
+    }
+
+    /// What was just applied becomes the original: the diff is empty again and undo starts afresh. Used when
+    /// the database cannot be asked what the table looks like now (the change sits in an open transaction).
+    pub fn accept(&mut self) {
+        self.original = Some(self.draft.clone());
+        self.baseline = self.draft.clone();
+        self.undo.clear();
+        self.redo.clear();
+        self.reanalyze();
     }
 
     pub fn apply_fix(&mut self, fix: &Fix) {
@@ -1023,12 +1035,12 @@ impl DraftModel {
     fn columns_spec(&self) -> Spec {
         let kind = self.kind;
         let mut cols = vec![
-            ColSpec { field: Field::Name, title: "Name", width: 190.0 },
-            ColSpec { field: Field::Type, title: "Type", width: 160.0 },
+            ColSpec { field: Field::Name, title: "Name", width: 150.0 },
+            ColSpec { field: Field::Type, title: "Type", width: 210.0 },
             ColSpec { field: Field::Nullable, title: "Null", width: 48.0 },
-            ColSpec { field: Field::Default, title: "Default", width: 170.0 },
+            ColSpec { field: Field::Default, title: "Default", width: 150.0 },
             ColSpec { field: Field::Pk, title: "PK", width: 44.0 },
-            ColSpec { field: Field::Identity, title: "Identity", width: 118.0 },
+            ColSpec { field: Field::Identity, title: "Identity", width: 104.0 },
         ];
         if ddl::supports_column_comments(kind) {
             cols.push(ColSpec { field: Field::Comment, title: "Comment", width: 0.0 });
@@ -1697,7 +1709,7 @@ mod tests {
     fn fixes_resolve_warnings_and_validation_marks_sections() {
         let mut m = modify();
         m.set_columns(RowId::Pk, vec![3]);
-        assert!(m.draft().columns[2].nullable == false, "setting key columns makes them NOT NULL");
+        assert!(!m.draft().columns[2].nullable, "setting key columns makes them NOT NULL");
         let mut n = DraftModel::new_table(DatabaseKind::Postgres, None, None);
         n.set_cell(RowId::Column(1), Field::Nullable, CellValue::Flip).unwrap();
         let warning = n.analysis().issues.iter().find(|i| i.fix.is_some()).cloned().unwrap();
@@ -1705,6 +1717,20 @@ mod tests {
         n.apply_fix(warning.fix.as_ref().unwrap());
         assert!(!n.draft().columns[0].nullable);
         assert_eq!(n.analysis().worst(Section::Keys), None);
+    }
+
+    #[test]
+    fn accepting_makes_the_applied_edit_the_new_original() {
+        let mut n = DraftModel::new_table(DatabaseKind::Postgres, Some("public".into()), None);
+        n.set_table_name("things");
+        assert!(n.is_new() && n.dirty());
+        n.accept();
+        assert!(!n.is_new() && !n.dirty());
+        assert!(n.analysis().statements.is_empty());
+        assert!(!n.can_undo());
+        // Further edits are alterations of the table that now exists.
+        n.set_cell(RowId::Column(1), Field::Name, CellValue::Text("key".into())).unwrap();
+        assert_eq!(sql(&n), vec!["ALTER TABLE public.things RENAME COLUMN id TO key"]);
     }
 
     #[test]
