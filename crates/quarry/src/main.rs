@@ -4,6 +4,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    quarry::panic::install(quarry_ui::config_dir());
     let demo_env = std::env::var("QUARRY_DEMO").is_ok_and(|v| v == "1");
     let args = match quarry::cli::parse(std::env::args().skip(1), demo_env) {
         Ok(a) => a,

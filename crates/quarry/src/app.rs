@@ -11,6 +11,7 @@ use gpui_kit::component::TitleBar;
 use gpui_kit::{AppContext as _, Bounds, Entity, WindowBounds, WindowOptions, px, size};
 use quarry_core::{Catalog, ConnectionConfig, DatabaseKind, Schema, Table, TableKind};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// The 128 px application icon, decoded once at start-up.
 fn window_icon() -> Option<Arc<image::RgbaImage>> {
@@ -72,6 +73,23 @@ pub fn run(args: Args) {
             })
             .ok();
         cx.activate(true);
+        // Panics on background tasks do not end the app; tell the user and name the log.
+        let reporter = workspace.clone();
+        cx.spawn(async move |cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_millis(500)).await;
+                for report in crate::panic::take_reports() {
+                    let text = crate::panic::notice_text(&report);
+                    let reporter = reporter.clone();
+                    let _ = handle.update(cx, move |_, window, cx| {
+                        reporter.update(cx, |ws, cx| {
+                            ws.notify(crate::connections::NoticeKind::Error, text, window, cx)
+                        })
+                    });
+                }
+            }
+        })
+        .detach();
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
                 cx.quit();
