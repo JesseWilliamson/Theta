@@ -97,7 +97,20 @@ pub fn open(
     statements: Vec<String>,
     choices: Vec<Choice>,
 ) {
+    // Enter confirms the Primary choice. Without this the dialog's own Enter handler just closed
+    // it, so "ctrl-Enter, Enter" silently discarded the action it was asked to confirm. A dialog
+    // whose only choices are Danger ones has no default: those need a deliberate click.
+    let default = choices.iter().find(|c| c.tone == Tone::Primary).map(|c| c.run.clone());
     let view = cx.new(|_| ConfirmView { intro: intro.into(), statements, choices });
     let title: SharedString = title.into();
-    window.open_dialog(cx, move |dialog, _, _| dialog.title(title.clone()).w(px(640.)).child(view.clone()));
+    window.open_dialog(cx, move |dialog, _, _| {
+        let default = default.clone();
+        dialog.title(title.clone()).w(px(640.)).child(view.clone()).on_ok(move |_, window, cx| match &default {
+            Some(run) => {
+                run(window, cx);
+                true
+            }
+            None => false,
+        })
+    });
 }
