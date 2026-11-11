@@ -1,13 +1,13 @@
 # Quarry user guide
 
-Task-oriented notes for using Quarry 0.1.0-alpha.1. Key bindings are summarised where they matter and
+Task-oriented notes for using Quarry 0.1.0-alpha.2. Key bindings are summarised where they matter and
 listed in full in [KEYBINDINGS.md](KEYBINDINGS.md). `mod` means `cmd` on macOS and `ctrl` elsewhere.
 Names of menu items, buttons and dialog fields are written the way the application shows them. The
 examples use the demo database (`quarry --demo`).
 
 Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH tunnel](#connect-through-an-ssh-tunnel) ·
 [Explorer](#the-explorer) · [Write and run SQL](#write-and-run-sql) · [Transactions](#transactions) ·
-[Editor keys](#editor-keys) · [Results grid](#the-results-grid) · [Edit data](#edit-data-safely) ·
+[Editor keys](#editor-keys) · [Vim keymap](#vim-keymap) · [Results grid](#the-results-grid) · [Edit data](#edit-data-safely) ·
 [Explain](#explain-and-query-plans) · [Map](#the-map) · [Messages and history](#messages-and-history) ·
 [Themes](#themes) · [Settings](#settings) · [Command palette](#the-command-palette) ·
 [Troubleshooting](#troubleshooting)
@@ -28,7 +28,7 @@ Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH
   connected, amber: connecting, red: failed) and opens the connection picker. **Run** runs the statement
   under the cursor; the square button cancels the running query. **TXN open**, *Commit* and *Roll Back*
   appear only while a transaction is open. The gear opens a menu with *Settings…*, *Select Theme…*,
-  *Toggle Keymap (Helix / Standard)*, *Import Zed Theme…*, the font-size items and *Open Settings File*.
+  *Select Keymap…*, *Import Zed Theme…*, the font-size items and *Open Settings File*.
   On macOS the same actions are also in the menu bar.
 - **Explorer** (left): `mod-b` shows or hides it. Drag its right edge to resize.
 - **Console tabs**: one SQL editor per tab. A dot on a tab marks text that changed since the console was
@@ -37,13 +37,13 @@ Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH
   *Plan*, *Map* (with a count of features when a result has geometry) and *History*.
 - **Status bar**: the two buttons toggle the explorer and the bottom panel. On the right: the running time
   of the current query, the outcome of the last one ("200 rows · 0.2 ms" or the error text), the cursor
-  position (`Ln`, `Col`), the editor mode (`NOR`, `INS`, `SEL` in the Helix key map), the number of
+  position (`Ln`, `Col`), the editor mode as a coloured chip (`NOR`, `INS`, `SEL` in the Helix key map; `NORMAL`, `INSERT`, `VISUAL`, `V-LINE`, `V-BLOCK`, `REPLACE` in the Vim key map; none in Standard), the keys typed so far toward a multi-key command, `recording @a` while a Vim macro is being recorded, the number of
   selections or selected characters, and the active connection with the server version.
 
 Panel sizes and visibility, and the selected bottom tab, are remembered in `workspace.json`.
 
 When there is no connection the console area shows a welcome screen with **Add Connection** and **Try the
-Demo Database** (the same as `quarry --demo`) and a short list of key bindings for the current key map.
+Demo Database** (the same as `quarry --demo`), three buttons to choose the key map (*Helix*, *Vim*, *Standard*; the first thing a new user has to decide, and the choice can be changed any time) and a short list of key bindings for the selected one.
 
 ## Connect to a database
 
@@ -225,8 +225,9 @@ Close* / *Commit and Close* (or *Roll Back and Quit* / *Commit and Quit*).
 
 ## Editor keys
 
-The default key map is [Helix](https://helix-editor.com/)'s: *select first, then act*. `mod-enter` runs
-from any mode. Everything below works in the SQL editor.
+The editor has three key maps: [Helix](https://helix-editor.com/)'s (the default: *select first, then act*), a
+[Vim](#vim-keymap) map (*verb, then motion*) and a Standard one. `mod-enter` runs from any mode. This section
+describes Helix; Vim has [its own section](#vim-keymap).
 
 | Do this | Keys |
 | --- | --- |
@@ -245,8 +246,8 @@ Three recipes: delete a line with `x` `d`; change a word with `w` `c`, type the 
 every occurrence of `name` in the statement by selecting the statement (`%` for everything), `s`, typing
 `name`, `enter` (one cursor per match), then `c`, the new name, `esc`.
 
-Prefer the **Standard** key map if modal editing is unfamiliar: *Toggle Keymap (Helix / Standard)* in the
-command palette, Settings › Editor › *Keymap*, or `"keymap": "standard"` in `settings.json`. It follows
+Prefer the **Standard** key map if modal editing is unfamiliar: *Select Keymap…* (or *Use Standard Keymap*) in the
+command palette, Settings › Editor › *Keymap*, the welcome view, or `"keymap": "standard"` in `settings.json`. It follows
 Zed's defaults: `ctrl-z`, `ctrl-d` (next occurrence), `ctrl-/` (comment), `alt-up/down` (move line),
 `ctrl-f` find, `ctrl-g` go to line, `ctrl-s` save.
 
@@ -258,7 +259,79 @@ through the space menu, `:` commands and the command palette (`F1`, `space ?`, `
 and the exact table are in [KEYBINDINGS.md](KEYBINDINGS.md#who-wins-a-key).
 
 Closing a tab never loses the console: *Reopen Closed Tab* (`mod-shift-t`, the palette, or `:reopen` in
-Helix) brings back the text, connection and cursor of the last 20 closed consoles, also after a restart.
+Helix and Vim) brings back the text, connection and cursor of the last 20 closed consoles, also after a restart.
+
+## Vim keymap
+
+A Vim keymap that follows Neovim where Vim and Neovim differ, tested against real Vim (about 3,900 tests, most of
+them generated from it). Switch to it with *Select Keymap…* (or *Use Vim Keymap*) in the command palette,
+Settings › Editor › *Keymap*, the **Vim** button on the welcome view, or `"keymap": "vim"` in `settings.json`. It
+applies at once to every open console; text and undo history stay. Helix remains the default.
+
+**Modes.** The status bar shows the mode as a chip: `NORMAL` (blue), `INSERT` (green), `VISUAL` (yellow),
+`V-LINE` (magenta), `V-BLOCK` (cyan) and `REPLACE` (red). The cursor is a block in Normal and Visual modes, a
+bar in Insert mode and an underline in Replace mode. Half-typed commands (`"a2d`, `g`, `z`) show next to the
+chip, and a macro being recorded shows as `recording @a`. After a quarter of a second a half-typed command pops up
+the keys that can follow, like the Helix space menu.
+
+**What is there.** The grammar `["x][count]{operator}[count]{motion | text object}`; the motions, operators
+(`d c y < > = g~ gu gU g? gc`), text objects (`iw aw i( a" ip` and the rest of Vim's set), registers (`"a`-`"z`, numbered
+and small-delete registers, `"+` and `"*`, `".` `":` `"/`), marks, the jumplist, `.` repeat, macros (`q{a-z}`,
+`@a`, `@@`), `v` `V` `ctrl-v` with block insert and append (`I`, `A`), `R` Replace mode, `/` and `?` search with
+Vim regex and highlights (`:noh`), and ex commands (`:s`, `:g`, `:normal`, `:sort`, ranges, `:m` `:t` `:d` `:y`
+...). The whole table is in [KEYBINDINGS.md](KEYBINDINGS.md#vim-key-map) and in Settings › Keymap while Vim is the
+active key map.
+
+**Space is the leader.** In Normal and Visual mode `space` opens the same menu as in Helix, which is how the
+application's actions are reached without leaving the keyboard:
+
+| Keys | Action |
+| --- | --- |
+| `space r` / `space R` | run the statement (the selection in Visual mode) / run all |
+| `space e` / `space E` | explain / explain analyze |
+| `space f` / `space b` | go to table / switch connection |
+| `space ?` or `space space` | command palette |
+| `space k` | completion |
+| `space t` | theme picker |
+| `space c` | toggle `--` comments on the line or the Visual lines |
+| `space y` / `space Y` / `space p` / `space P` | yank / paste through the system clipboard explicitly |
+| `space x` | cancel the running query |
+| `space g` / `space d` / `space T` / `space j` | focus results / focus explorer / toggle explorer / toggle bottom panel |
+
+**Ex commands that act on the application.** Besides Vim's own (`:s`, `:g`, `:d`, ...): `:w` save the console to
+a file, `:q` close the tab, `:wq`, `:qa` quit, `:run` run the statement, `:run-all`, `:explain`, `:analyze`,
+`:format` / `:fmt` format the document, `:theme [name]`, `:connect [name]`, `:goto N`, `:new` new console, `:cancel`,
+`:reopen`, `:open`, and `:help`, which opens Settings › Keymap. `=` formats the lines of its motion (`==`, `=ip`,
+`V=`) or the whole document when the motion covers all of it. An option the engine does not know
+(`:set number`) answers "Unknown option" in a toast; only `ignorecase`, `smartcase` and `hlsearch` exist.
+
+**Completion works as in Helix Insert mode.** The popup opens while you type a word or after a dot, `tab` accepts,
+`enter` accepts only a useful suggestion (otherwise it is a newline), `ctrl-n` / `ctrl-p` open it by hand and then
+move, and the first `esc` closes the popup while the second leaves Insert mode. In Normal mode nothing opens it.
+
+**Clipboard.** Real Vim keeps yanks to itself unless told otherwise. Quarry's setting `vim.clipboard_unnamed`
+(Settings › Editor › *Vim: share the clipboard*, default **on**, like `set clipboard=unnamedplus`) makes yanks and
+deletes land on the system clipboard, and `p` paste what you copied in another application (a multi-line copy from
+another console pastes line by line). Turn it off and only `"+y` and `"+p` (and `space y` / `space p`) use the
+clipboard. Whatever the setting, `"_` is the black hole.
+
+**The mouse** works as in a GUI Vim: a click moves the cursor, a drag or double-click starts Visual mode, a
+triple-click selects the line (V-LINE).
+
+**Deviations worth knowing.** The full list is in [the engine README](../crates/quarry-editor/README.md#deviations-from-vim).
+
+- `space` is the leader, so it no longer moves right (`d<space>` is `dl`).
+- The options are fixed: `shiftwidth=4`, `expandtab`, `autoindent`, `ignorecase smartcase wrapscan hlsearch`,
+  numbers without octal. There is no `:set` for anything else, and there is no `:map`, no `.vimrc` and no
+  Vimscript.
+- Typing `(` inserts `()`: auto-pairs and auto-indent are the editor's, the same in all three key maps.
+- Not implemented: windows and tabs (`ctrl-w`, `:split`), folds, digraphs and `ctrl-v` literal insert,
+  `gq` / `gw`, `g;` (change list), `gn`, the `it` / `at` tag objects, `:!` shell commands, `:s` back-references.
+- `ctrl-w`, `ctrl-b`, `ctrl-f`, `ctrl-d`, `ctrl-u`, `ctrl-e`, `ctrl-y`, `ctrl-r`, `ctrl-o`, `ctrl-i`, `ctrl-a`, `ctrl-x`,
+  `ctrl-v`, `ctrl-n` and `ctrl-p` belong to the editor while it has focus, so on Linux and Windows the application
+  chords on the same keys (`mod-w`, `mod-b`, `mod-e`, `mod-n`, `mod-o`, `mod-p`) do not reach it there; the space
+  menu and the palette have every action. See [KEYBINDINGS.md](KEYBINDINGS.md#who-wins-a-key).
+
 
 ## The results grid
 
@@ -368,8 +441,13 @@ WKT/EWKT or GeoJSON text (the demo database stores WKT in `location_wkt`, `area_
 *Map* tab shows a count badge when the last result has geometry. Open it, or use **Show on Map** in the
 grid.
 
-- Pan by dragging or with the arrow keys (`h j k l` in Helix), zoom with the wheel or `+` / `-`, `0` fits
+- Pan by dragging or with the arrow keys (`h j k l` in the Helix and Vim key maps), zoom with the wheel or `+` / `-`, `0` fits
   everything, double-click zooms in.
+- **Zooming out and *Fit*** show the whole data extent, also world-wide data in a short, wide panel: you can
+  zoom out until the world is 80% as tall as the map (or, in a tall narrow panel, as wide as it). When the world
+  is then narrower than the panel the basemap repeats sideways, the repeats are dimmed, and every feature is
+  drawn exactly once, on the copy of the world centred on the map. Hover, click, selection and the measure
+  tool all use that copy.
 - Coordinates in WGS 84, Web-Mercator and UTM SRIDs are placed on a basemap (OpenStreetMap by default).
   Data with an unknown coordinate system is drawn on a plain planar grid, without tiles.
 - Click a feature to see the other columns of its row; this also selects the row in the grid. In the grid,
@@ -440,7 +518,7 @@ immediately and are written to `settings.json`.
 | Section | What it has |
 | --- | --- |
 | Appearance | *Theme* (opens the picker), *Follow system appearance*, *Interface font*, *Editor font*, *Editor font size*, *Editor line height* |
-| Editor | *Keymap* (*Helix* or *Standard*), *Format: indent width*, *Format: uppercase keywords* |
+| Editor | *Keymap* (*Helix*, *Vim* or *Standard*), *Vim: share the clipboard* (shown while Vim is selected), *Format: indent width*, *Format: uppercase keywords* |
 | Data | *Row limit*: 100, 500, 1,000, 5,000, 10,000, 50,000, 100,000 or No limit |
 | Map | *Basemap* and the list of *Custom basemaps* |
 | Keymap | a searchable list of every action with its key, plus the editor keys for the current key map |
@@ -454,7 +532,8 @@ with a wrong type is ignored with a warning, so one typo never resets the rest.
 | `theme` | `"Quarry Dark"` | current theme |
 | `follow_system_appearance` | `false` | switch between `light_theme` and `dark_theme` with the OS |
 | `light_theme`, `dark_theme` | `"Quarry Light"`, `"Quarry Dark"` | used when following the system |
-| `keymap` | `"helix"` | `"helix"` or `"standard"` |
+| `keymap` | `"helix"` | `"helix"`, `"vim"` or `"standard"` |
+| `vim.clipboard_unnamed` | `true` | Vim key map: yanks and deletes also go to the system clipboard and `p` pastes from it |
 | `ui_font_family`, `ui_font_size` | `"IBM Plex Sans"`, `14` | interface font (size 8 to 40; file only) |
 | `buffer_font_family`, `buffer_font_size` | `"Lilex"`, `14` | editor and grid font (size 8 to 40) |
 | `buffer_line_height` | `1.5` | multiplier of the buffer font size (1 to 3) |
@@ -471,7 +550,7 @@ dialog or `ui_font_size` in the file for that.
 
 ## The command palette
 
-`mod-shift-p` or `F1` (Helix `space ?`) opens it; type to filter, `enter` runs the command, `esc` closes.
+`mod-shift-p` or `F1` (Helix and Vim `space ?`) opens it; type to filter, `enter` runs the command, `esc` closes.
 The palette lists, with the key each has:
 
 | Group | Commands |
@@ -480,7 +559,7 @@ The palette lists, with the key each has:
 | Connection | *New Connection…* `mod-shift-n`; *Connect…*; *Disconnect*; *Refresh Schema* `F5`; *Go to Table…* `mod-p` |
 | Query | *Run Statement* `mod-enter`; *Run All* `mod-shift-enter`; *Cancel Query* `mod-.`; *Explain* `mod-e`; *Explain Analyze* `mod-shift-alt-e`; *Format Document* `mod-shift-f`; *Begin Transaction*; *Commit Transaction*; *Roll Back Transaction* |
 | View | *Toggle Explorer* `mod-b`; *Toggle Bottom Panel* `mod-j`; *Focus Explorer* `mod-shift-e`; *Focus Editor* `mod-1`; *Focus Results* `mod-2`; *Close Tab* `mod-w`; *Reopen Closed Tab* `mod-shift-t` |
-| Appearance | *Select Theme…* `mod-k mod-t`; *Import Zed Theme…*; *Toggle Keymap (Helix / Standard)*; *Increase Editor Font Size* `mod-=`; *Decrease Editor Font Size* `mod--`; *Reset Editor Font Size* `mod-0` |
+| Appearance | *Select Theme…* `mod-k mod-t`; *Import Zed Theme…*; *Select Keymap…* (a picker); *Use Helix Keymap*; *Use Vim Keymap*; *Use Standard Keymap*; *Increase Editor Font Size* `mod-=`; *Decrease Editor Font Size* `mod--`; *Reset Editor Font Size* `mod-0` |
 | App | *Settings…* `mod-,`; *Open Settings File*; *Quit* `mod-q` |
 
 *Connect…* opens the connection picker (the same as `mod-alt-c`). *Disconnect* closes the active

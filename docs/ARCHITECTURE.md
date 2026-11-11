@@ -1,9 +1,10 @@
 # Quarry architecture
 
-Quarry is a database IDE: connect to databases, explore their structure, write SQL in a modal (Helix) or
+Quarry is a database IDE: connect to databases, explore their structure, write SQL in a modal (Helix or Vim) or
 standard editor, run it, and inspect results, plans and geometry. This document explains how the code is
 split and why. Each idea points at the file where you can see it (`path:line`; paths are relative to the
-repository root, and line numbers are those of the 0.1.0-alpha.1 sources). Read it before changing
+repository root; the line numbers of the editor engine are those of the 0.1.0-alpha.2 sources and the others were
+written against 0.1.0-alpha.1, so grep for the name if one has drifted). Read it before changing
 anything, then see [DEVELOPMENT.md](DEVELOPMENT.md) for commands and workflows.
 
 ## Why it is shaped this way
@@ -12,7 +13,7 @@ Four ideas drive every boundary in the codebase.
 
 **1. Everything that can be tested without a window lives outside the GPUI crates.**
 GPUI needs a GPU surface, so UI code is slow to compile and awkward to test. SQL formatting, completion,
-the Helix state machine, geometry decoding and the database drivers are plain Rust libraries with ordinary
+the editor's key maps (Helix, Vim, Standard), geometry decoding and the database drivers are plain Rust libraries with ordinary
 unit and integration tests. The GPUI crates turn their outputs into pixels and their inputs into events.
 The workspace has five pure crates (`quarry-core`, `quarry-sql`, `quarry-geo`, `quarry-editor`,
 `quarry-drivers`) that build and test without a single GUI package. CI proves it: the `libraries` job in
@@ -26,10 +27,10 @@ in [DEVELOPMENT.md](DEVELOPMENT.md)). The contract is deliberately free of clien
 (`crates/quarry-core/src/lib.rs:1`), which is also why changing it is a decision for the repository owner.
 
 **3. The editor engine asks; the host does.** `quarry-editor` is a pure state machine:
-`Editor::handle_key(&KeyInput)` (`crates/quarry-editor/src/editor.rs:559`) changes text and selections and
-returns *effects* (`Effect`, `crates/quarry-editor/src/editor.rs:43`) such as `RunStatementAtCursor`,
+`Editor::handle_key(&KeyInput)` (`crates/quarry-editor/src/editor.rs:685`) changes text and selections and
+returns *effects* (`Effect`, `crates/quarry-editor/src/editor.rs:63`) such as `RunStatementAtCursor`,
 `ExplainStatement`, `OpenCommandPalette` or `SetClipboard`. It cannot open a picker or talk to a database,
-and it knows no clock or I/O, so the whole Helix keymap is tested as "text + selections + keys in → text +
+and it knows no clock or I/O, so every keymap is tested as "text + selections + keys in → text +
 selections out". The application turns effects into actions in one `match`
 (`crates/quarry/src/workspace/run.rs:252`).
 
@@ -51,7 +52,7 @@ crates/
   quarry-sql          statement splitting and classification, formatter, completion, FK joins and
                       inference, plan analysis, lint, SQL generation, export
   quarry-geo          WKB/EWKB/WKT/GeoJSON, SRID and projections, tile maths, simplify, measure
-  quarry-editor       rope buffer, selections, undo, SQL lexer, Helix and Standard keymaps (no GPUI)
+  quarry-editor       rope buffer, selections, undo, SQL lexer, Helix, Vim and Standard keymaps (no GPUI)
   quarry-ui           settings, themes, fonts and icons, fuzzy matching, picker, shared widgets (GPUI)
   quarry-editor-view  GPUI widget that paints quarry-editor and runs the completion popup
   quarry-grid         results grid: selection, sorting, filtering, staged edits, inspector, export requests
@@ -93,17 +94,61 @@ GPUI Kit ships a code editor, but it is not modal and has a single cursor. Helix
 *selection-first with multiple selections*: every motion produces a selection, and every operator acts on
 all selections. That cannot be bolted on, so Quarry has its own editor, split in two:
 
-- **`quarry-editor` (pure).** A rope buffer, selections, undo history, a mode (`Normal`, `Insert`, `Select`, `crates/quarry-editor/src/editor.rs:25`; the keymap is `Helix` or
-  `Standard`, `:19`), and `handle_key`. Everything
-  is indexed by **char**, not byte. `Editor::apply_with` (`crates/quarry-editor/src/editor.rs:345`) is the
+- **`quarry-editor` (pure).** A rope buffer, selections, undo history, a mode (`Normal`, `Insert`, `Select`,
+  the Vim `Visual`, `VisualLine`, `VisualBlock` and `Replace`, and `Standard`; `crates/quarry-editor/src/editor.rs:26`;
+  the keymap is `Helix`, `Vim` or `Standard`, `:19`), and `handle_key`. Everything
+  is indexed by **char**, not byte. `Editor::apply_with` (`crates/quarry-editor/src/editor.rs:413`) is the
   one choke point for text changes: it maps selections, records undo information and bumps the revision,
   so no command can forget one of those steps. The crate's README has the module map.
-- **`quarry-editor-view` (GPUI).** `EditorView` (`crates/quarry-editor-view/src/view.rs:116`) paints lines,
+- **`quarry-editor-view` (GPUI).** `EditorView` (`crates/quarry-editor-view/src/view.rs`) paints lines,
   selections, the gutter, diagnostics and the completion popup, forwards keyboard, mouse and IME input to
-  the engine, and re-emits what the engine asks for as `EditorEvent::Effect`. It does not know SQL: it is
+  the engine, and re-emits what the engine asks for as `EditorEvent::Effect`. How the cursor is drawn is the
+  engine's call (`Editor::cursor_style`, `crates/quarry-editor/src/editor.rs:238`: block, bar or underline), so the
+  view holds no per-keymap painting. It does not know SQL: it is
   given a `CompletionProvider` (`crates/quarry-editor-view/src/view.rs:59`) and a `DiagnosticsProvider`
   (`:64`) by its host. The popup's pure state lives in `crates/quarry-editor-view/src/completion.rs`
   (auto-trigger rules, when Enter means "newline").
+
+### Three keymaps on one machine
+
+Helix, Vim and Standard are three *front ends* to the same back end, which is why adding Vim (about 8,000 lines
+in `crates/quarry-editor/src/vim/`) touched the rest of the engine very little. `Editor::dispatch`
+(`crates/quarry-editor/src/editor.rs:759`) routes a key: the open prompt first, then the bindings shared by every
+mode (`ctrl-enter`, `F5`), then the keymap. What the keymaps share:
+
+- **Transactions.** Every Vim edit is built as `Change`s and applied through `Editor::vapply`
+  (`crates/quarry-editor/src/vim/ops.rs:317`), which ends in `apply_with`, so selections, undo, the syntax
+  cache and the revision stay consistent without Vim code knowing about them. Undo groups are cut by
+  `begin_key` / `end_key` in `editor.rs`: a whole Insert session or one Normal-mode command is one step.
+- **Registers and the clipboard.** `reg_get` / `reg_store_named` (`vim/ops.rs:170`, `:202`) are Vim's register
+  file over the engine's `Effect::SetClipboard` / `Editor::set_clipboard` pair; `mirror_unnamed` (`:233`) is the
+  `clipboard=unnamedplus` option.
+- **Motions and regions.** A Vim motion is a value (`Motion`, `vim/mod.rs:83`) that `eval_motion`
+  (`vim/nav.rs:47`) turns into a destination and a kind (characterwise inclusive or exclusive, linewise); an
+  operator (`Op`, `vim/mod.rs:49`) receives a `Region` built from it (`vim/ops.rs:36`) and `operate`
+  (`vim/ops.rs:445`) acts on it. `d3w`, `v3wd`, `dvj` and `` d`a `` differ only in how the region is formed, and
+  every text object is just another way to produce one. The word, sentence and paragraph code are ports of Vim's
+  (`vim/motion.rs`, `vim/object.rs`) so edge cases agree.
+- **Key replay.** `.`, macros (`q`, `@`) and `:normal` do not interpret anything twice: they record the *keys* and
+  feed them back through `vim_feed` (`vim/mod.rs:521`), the same pipeline a typed key takes, with a fuel counter that
+  bounds runaway recursion. The Helix keymap replays the same way.
+- **Prompts and search.** `:` and `/` use the one prompt (`prompt.rs`) that the other keymaps use; Vim adds its
+  regex translation (`vim/vregex.rs`) and the ex line (`vim/ex.rs`), and anything it does not know leaves as
+  `Effect::HostCommand`.
+- **Where Vim differs structurally.** The cursor is a *point* (`Editor::cursor_of` per keymap) rather than a
+  one-grapheme selection; `vim_finish_command` (`vim/mod.rs:1058`) re-clamps it after each command, as Normal mode
+  may not rest on the line break. The Visual modes are selections plus an anchor and cursor kept in `Visual`
+  (`vim/visual.rs:27`); block-wise Visual is one selection per line, and block insert replays what was typed on the
+  other lines when Insert mode ends (`vim/insert.rs:130`). Everything else about a command that is half typed lives
+  in `Pend` (`vim/mod.rs:201`), which is also what the status bar shows.
+
+**How it is tested.** The behaviour comes from *real Vim*. `crates/quarry-editor/tests/vim_oracle/` holds a script
+that drives `vim -u NONE -es` with a fixed profile (the options the engine implements), records the resulting
+text, cursor and registers for 8,287 cases into `golden.tsv`, and a differential fuzzer. `cargo test` never runs
+Vim: `src/tests/vim_oracle.rs` replays the recorded answers, and `gen_dsl_tests.py` writes about 3,500 more cases
+as Rust tables (`src/tests/vim_*_cases.rs`, one test per case, named after the keys). The 137 cases where the
+engine knowingly differs are listed with a reason in `deviations.tsv`, and a test fails when one of them stops
+differing, so the list cannot rot. See the README in that directory for the workflow.
 
 Where the application plugs SQL in: `Workspace::configure_console`
 (`crates/quarry/src/workspace/run.rs:116`) gives each console the connection's catalog and dialect.
@@ -119,7 +164,11 @@ its keymap, mode, prompt and popup state as key context, and `crates/quarry/src/
 by probing the engine, which states use which keystroke; `keymap::bind` appends the matching
 `!(QuarryEditor && ...)` predicate to every global binding. The editing engine wins inside the editor, the
 application's chord applies elsewhere; see [KEYBINDINGS.md](KEYBINDINGS.md#who-wins-a-key) and the
-crate README of `quarry-editor-view`.
+crate README of `quarry-editor-view`. The probe covers every state of all three keymaps, including Vim's Visual
+modes, half-typed commands (the `pending` context) and the prompt and popup; two rules sit on top of what the
+engine reports (`VIM_RESERVED` in `ownership.rs`: Vim's plain `ctrl` letters are the editor's even where the
+engine has nothing bound, so a habitual `ctrl-w` cannot close the tab), and the engine itself ignores `ctrl-shift`
+letters so `ctrl-shift-f` (Format Document) is never taken for `ctrl-f`.
 
 ## The application
 
@@ -255,11 +304,11 @@ one handler per action in `Workspace::render` (`crates/quarry/src/workspace/mod.
 
 ## Status
 
-0.1.0-alpha.1 is the first release. The application is complete in the sense that every crate in the
-workspace is wired into it and used:
+0.1.0-alpha.2 is the second pre-release (0.1.0-alpha.1 was the first). The application is complete in the sense
+that every crate in the workspace is wired into it and used:
 
 - All eleven crates exist and are used; the application runs against PostgreSQL, MySQL/MariaDB and SQLite.
-- Editor (both keymaps), completion, formatting, diagnostics, explorer, consoles, results grid with editing,
+- Editor (Helix, Vim and Standard keymaps), completion, formatting, diagnostics, explorer, consoles, results grid with editing,
   export, query plans with insights, map, history, transactions, themes and settings are in.
 - Verified by hand on Linux (X11). The macOS and Windows builds compile and pass the unit tests in CI but
   have not been exercised by hand.

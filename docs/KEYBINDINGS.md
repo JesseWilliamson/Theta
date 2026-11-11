@@ -4,9 +4,11 @@
 (`crates/quarry/src/keymap/`, `crates/quarry/src/actions.rs`, the editor and view crates) and against the
 running application. Platform differences are marked where they exist.
 
-- **Key maps.** The editor has two key maps, Helix (default) and Standard. Choose in Settings › Editor ›
-  *Keymap*, with *Toggle Keymap (Helix / Standard)* in the command palette, or `"keymap"` in
-  `settings.json`. The grid, map, plan panel and explorer also take `h j k l` in Helix mode.
+- **Key maps.** The editor has three key maps: Helix (default), Vim and Standard. Choose in Settings › Editor ›
+  *Keymap*, with *Select Keymap…* (a small picker) or *Use Helix / Vim / Standard Keymap* in the command palette,
+  in the buttons on the welcome view, or with `"keymap": "helix" | "vim" | "standard"` in `settings.json`. The
+  grid, map, plan panel and explorer also take `h j k l` (and the other Helix keys of the grid) in either
+  modal key map, Helix or Vim.
 - **Where a key is handled.** The application binds the chords in [Application](#application-global),
   but a focused view that uses the same keystroke itself always wins inside that view: in the SQL editor
   the editing engine's keys for the active key map win, in the results grid the grid's keys win. See
@@ -53,9 +55,10 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-q` | quit |
 
 These actions have no key: *Connect…*, *Disconnect*, *Save Console As…*, *Begin Transaction*, *Commit
-Transaction*, *Roll Back Transaction*, *Import Zed Theme…*, *Toggle Keymap*, *Open Settings File*. Use the
+Transaction*, *Roll Back Transaction*, *Import Zed Theme…*, *Select Keymap…* and *Use Helix / Vim / Standard
+Keymap*, *Open Settings File*. Use the
 command palette. *Refresh Schema* and *Reopen Closed Tab* are also in the palette and menus; `:reopen` does the
-latter from the Helix command line.
+latter from the Helix and Vim command lines.
 
 ### Who wins a key
 
@@ -69,17 +72,19 @@ word. So there is one rule:
 > same action itself (`ctrl-w` is *close tab* there), so every keystroke has exactly one path.
 
 The same holds for the other focused views: the results grid keeps its `mod-0` (set NULL), `mod-enter`
-(submit), `mod-a`, `mod-c`, `mod-f`, `mod-z`, `mod-home` / `mod-end` and (Helix) `mod-d` / `mod-u`; the explorer
+(submit), `mod-a`, `mod-c`, `mod-f`, `mod-z`, `mod-home` / `mod-end` and (Helix, Vim) `mod-d` / `mod-u`; the explorer
 and the pickers keep `ctrl-n` / `ctrl-p`. The map and the plan panel use no chords, so the application's apply
 there.
 
-How it is enforced: the editor publishes its state as key context (`QuarryEditor`, `keymap=helix|standard`,
-`mode=normal|insert|select|standard`, `prompt` while the `:` or `/` bar is open, `completion` while the popup
-is open). The application asks the engine which keystrokes it uses in which state and adds
+How it is enforced: the editor publishes its state as key context (`QuarryEditor`,
+`keymap=helix|vim|standard`, `mode=normal|insert|select|visual|visual-line|visual-block|replace|standard`,
+`prompt` while the `:` or `/` bar is open, `completion` while the popup is open, and in Vim `pending` while an
+operator, `g`, `z`, a register or a count waits for the rest of its command). The application asks the engine which keystrokes it uses in which state and adds
 `!(QuarryEditor && <those states>)` to every global binding on such a keystroke
 (`crates/quarry/src/keymap/ownership.rs`). Nothing is a hand-written list, and a headless test
 (`every_global_binding_is_handled_by_exactly_one_side`, `focused_views_win_their_own_keys…`) presses every
-application binding in every state of both key maps and checks that exactly one side handled it.
+application binding in every state of all three key maps (Vim: Normal, Insert, Visual, V-LINE, V-BLOCK, Replace,
+operator-pending, prompt open, popup open) and checks that exactly one side handled it.
 
 What that means on Linux and Windows (on macOS the application uses `cmd`, so Helix's `ctrl-` keys never
 collide):
@@ -95,8 +100,22 @@ collide):
 | `F5` | run all | run all | explorer focused: refresh schema |
 | `ctrl-pageup` / `ctrl-pagedown` | previous / next tab | previous / next tab (engine) | previous / next tab |
 
+**Vim.** The editor owns every plain `ctrl` letter that Vim gives a meaning in some mode, in every Vim state: `ctrl-w`
+(Vim's window prefix; the engine has no windows, so it does nothing in Normal and Visual mode and deletes a word in
+Insert mode), `ctrl-b` `ctrl-f` `ctrl-d` `ctrl-u` `ctrl-e` `ctrl-y` (scrolling), `ctrl-r` (redo), `ctrl-o` `ctrl-i` (jumplist),
+`ctrl-a` `ctrl-x` (numbers), `ctrl-v` (block mode) and `ctrl-n` `ctrl-p` (down / up, completion in Insert mode). On
+Linux and Windows that means `mod-w`, `mod-b`, `mod-e`, `mod-n`, `mod-o` and `mod-p` do not reach the application while a Vim
+editor has focus: use the palette, the space menu (`space e` explain, `space f` tables, `space b` connections) or the
+chords the engine does not use (`mod-shift-e`, `mod-shift-n`, `mod-shift-t`, `mod-shift-f`, `mod-alt-c`, `mod-alt-r`). The
+engine takes `ctrl-shift-<letter>` for no Vim key (Vim cannot tell `ctrl-shift-f` from `ctrl-f`; the engine used to
+and swallowed *Format Document*), so those chords always reach the application. In Visual
+mode a half-typed `g` command takes whatever key comes next, an application chord included, and cancels itself
+(as Vim does with an unknown key); a Normal-mode operator such as `d` does not swallow chords. On macOS the
+application uses `cmd`, which Vim never uses. `ctrl-enter` runs the statement (the selection in Visual modes) in
+every Vim mode.
+
 With the completion popup open, `ctrl-n` / `ctrl-p` / `up` / `down` / `tab` / `enter` / `esc` belong to the
-popup in both key maps. In Helix the application actions that lost a key remain reachable through the space
+popup in all three key maps. In Helix the application actions that lost a key remain reachable through the space
 menu, `:` commands, the palette (`space ?`, `F1`, `ctrl-shift-p`) and the chords nothing else uses
 (`mod-alt-r` for *Refresh Schema*, `mod-shift-t` for *Reopen Closed Tab*, `mod-shift-n`, `mod-alt-c`).
 
@@ -111,7 +130,7 @@ Context `Explorer` (the connection tree). `ctrl-n` / `ctrl-p` are literal `ctrl`
 | `enter` | activate (connect, open table, expand) |
 | `/` | focus the filter box |
 | `esc` | return to the editor |
-| `h j k l` | collapse, next, previous, expand (Helix key map only) |
+| `h j k l` | collapse, next, previous, expand (Helix and Vim key maps) |
 
 In the filter box: `enter` or `down` moves into the tree, `esc` clears the filter and moves into the tree.
 Double-click activates a row.
@@ -133,12 +152,12 @@ keys. `ctrl-n` / `ctrl-p` are literal `ctrl` on every platform.
 
 | Keys | Action |
 | --- | --- |
-| `ctrl-space` (Helix: `ctrl-x` in Insert mode, `space k` in Normal mode) | open completion by hand |
+| `ctrl-space` (Helix: `ctrl-x` in Insert mode, `space k` in Normal mode; Vim: `ctrl-n` / `ctrl-p` in Insert mode, `space k` in Normal mode) | open completion by hand |
 | `up` / `down` | move the selection |
 | `pageup` / `pagedown` | move by 8 |
 | `tab` | accept |
 | `enter` | accept after you moved the selection, when the popup was opened by hand, or when the top suggestion is not a keyword; otherwise insert a newline |
-| `esc` | close the popup (in Helix Insert mode a second `esc` leaves Insert mode) |
+| `esc` | close the popup (in Helix and Vim Insert mode a second `esc` leaves Insert mode) |
 
 The popup opens by itself while typing a word or `.`, and after a space that follows `FROM`, `JOIN`, `ON`,
 `INTO`, `UPDATE`, `TABLE` or a comma in a `FROM` list. (`ctrl-p` / `ctrl-n` move the selection like `up` / `down`:
@@ -170,7 +189,7 @@ Handled in `crates/quarry-grid/src/input.rs` when the grid has focus. `mod` is `
 Inside the cell editor: `enter` keeps the value, `tab` / `shift-tab` keep it and move to the next / previous
 cell, `esc` cancels.
 
-Helix key map extras: `h j k l` move, `gg` / `G` first / last row, `v` toggles visual (extend) mode, `x`
+Helix and Vim key map extras: `h j k l` move, `gg` / `G` first / last row, `v` toggles visual (extend) mode, `x`
 selects the row, `y` copies, `u` undoes, `i` edits, `%` selects all, `mod-d` / `mod-u` half page down / up.
 
 Mouse: click, shift-click, drag; row numbers and headers select rows and columns; drag a header edge to
@@ -184,7 +203,7 @@ are ignored).
 
 | Keys | Action |
 | --- | --- |
-| arrows (`h j k l` in Helix) | pan |
+| arrows (`h j k l` in Helix and Vim) | pan |
 | `+` / `=`, `-` | zoom in / out |
 | `0` | fit to data |
 | `m` | toggle the measure tool |
@@ -199,10 +218,10 @@ Handled in `crates/quarry-plan-view/src/panel.rs` in the tree and flame views (n
 
 | Keys | Action |
 | --- | --- |
-| `up` / `down` (`k` / `j` in Helix) | previous / next node |
+| `up` / `down` (`k` / `j` in Helix and Vim) | previous / next node |
 | `pageup` / `pagedown` | move by 8 |
 | `home` / `end` | first / last node |
-| `left` / `right` (`h` / `l` in Helix) | collapse or go to parent / expand or go to child |
+| `left` / `right` (`h` / `l` in Helix and Vim) | collapse or go to parent / expand or go to child |
 | `enter` | toggle the node details |
 | `esc` | close the details |
 
@@ -366,6 +385,187 @@ including `ctrl-e`, `ctrl-b`, `ctrl-w`, `ctrl-k`, `ctrl-p` and `ctrl-n`.
 The engine itself handles `ctrl-enter` / `cmd-enter` (run statement; run selection when there is a
 selection), `ctrl-shift-enter` (run all), `ctrl-space` (completion) and `F5` (run all). Inside the editor these
 are the engine's, in both key maps. See [Who wins a key](#who-wins-a-key).
+
+### Vim key map
+
+A Vim keymap on the shared engine (rope, transactions, undo, registers, prompts,
+`Effect`s), implemented in `src/vim/`. Where Vim and Neovim differ, Neovim wins; every
+deviation is listed under "Deviations from Vim" below. `Editor::mode_label()` gives
+`NORMAL`, `INSERT`, `VISUAL`, `V-LINE`, `V-BLOCK` or `REPLACE`, and
+`Editor::cursor_style()` is `Block` in Normal/Visual, `Bar` in Insert and `Underline`
+in Replace. `space` is the leader in Normal and Visual mode.
+
+Grammar: `["x][count]{operator}[count]{motion | text object}`; the counts multiply.
+`.` repeats the last change (a new count replaces the old one), `q{a-z}` records a
+macro, `@{a-z}` / `@@` / `@:` replay one.
+
+#### Motions (Normal / Visual / after an operator)
+
+| keys | action |
+| --- | --- |
+| `h` `j` `k` `l`, arrows, `backspace`, `ctrl-h` `ctrl-j` `ctrl-n` `ctrl-p` | character / line motions (`j` `k` keep the wanted display column) |
+| `0` `^` `$` `g_` `g0` `g^` `g$` `home` `end` | line start / first non-blank / end / last non-blank |
+| `\|` | go to display column N |
+| `+` `-` `_` `enter` `ctrl-m` | first non-blank of the next / previous / count-1th line |
+| `gj` `gk` | as `j` `k` (the view owns soft wrapping) |
+| `w` `W` `b` `B` `e` `E` `ge` `gE` | word motions (`cw` behaves as `ce`) |
+| `f` `F` `t` `T` `;` `,` | find a character on the line; repeat / reverse |
+| `(` `)` `{` `}` | sentences, paragraphs |
+| `%` `[(` `[{` `])` `]}` | matching bracket, unmatched bracket |
+| `gg` `G` `{count}G` `H` `M` `L` | document / window motions |
+| `/` `?` `n` `N` `*` `#` `g*` `g#` | search |
+| `'x` `` `x `` `''` ``` `` ``` `'<` `'>` `'[` `']` | marks (`a`-`z`, `A`-`Z`, and the automatic `'` `<` `>` `[` `]` `.` `^` `"`) |
+| `ctrl-o` `ctrl-i` `tab` | jumplist |
+| `ctrl-d` `ctrl-u` `ctrl-f` `ctrl-b` `ctrl-e` `ctrl-y` `pageup` `pagedown` `zt` `zz` `zb` `z.` `z-` | scrolling: the cursor moves like Vim's and `Effect::Scroll` asks the host to scroll |
+
+#### Operators
+
+| keys | action |
+| --- | --- |
+| `d` `c` `y` | delete / change / yank |
+| `<lt>` `>` | shift left / right (`shiftwidth` 4) |
+| `=` | format the lines (`Effect::FormatSelection`; the host formats the selected lines) |
+| `g~` `gu` `gU` `g?` | toggle case / lower / upper / rot13 |
+| `gc` | toggle line comments (also `space c`) |
+| `dd` `cc` `yy` `<lt><lt>` `>>` `==` `g~~` `guu` `gUU` `g??` `gcc` | doubled operator acts on lines (`g~g~`, `gugu`, ... too) |
+| `D` `C` `Y` `S` `s` `x` `X` `delete` | `d$` `c$` `y$` `cc` `cl` `dl` `dh` `dl` (`Y` is `y$`, as in Neovim) |
+| `v` `V` `ctrl-v` after an operator | force the motion characterwise / linewise / blockwise |
+| `U` | Normal mode: no-op (line undo is not implemented); in Visual mode it upper-cases |
+
+#### Text objects (after an operator or in Visual mode)
+
+| keys | action |
+| --- | --- |
+| `iw` `aw` `iW` `aW` | word, WORD |
+| `is` `as` `ip` `ap` | sentence, paragraph |
+| `i(` `a(` `i)` `a)` `ib` `ab` | parentheses |
+| `i{` `a{` `i}` `a}` `iB` `aB` | braces |
+| `i[` `a[` `i]` `a]` `i<lt>` `a<lt>` `i>` `a>` | brackets, angle brackets |
+| `i"` `a"` `i'` `a'` `` i` `` `` a` `` | quotes (on the line; the next pair is used when the cursor is before one) |
+| counts, and repeating `iw` `ap` `i(` ... in Visual mode | grow the selection |
+
+#### Changes
+
+| keys | action |
+| --- | --- |
+| `x` `X` `~` `r{c}` `R` | delete / toggle case / replace char (`r<ret>` splits the line) / Replace mode |
+| `J` `gJ` | join lines (with / without space handling) |
+| `p` `P` `gp` `gP` | put (characterwise, linewise and block registers) |
+| `u` `ctrl-r` | undo / redo (one step per command; an insert session is one step) |
+| `ctrl-a` `ctrl-x` | increment / decrement the number at or after the cursor (decimal, `0x`, `0b`) |
+| `.` | repeat the last change |
+| `ZZ` `ZQ` | `Save` + `CloseTab` / `CloseTab` |
+| `ctrl-g` `ctrl-l` | no-ops |
+
+#### Insert and Replace mode
+
+| keys | action |
+| --- | --- |
+| `i` `a` `I` `A` `o` `O` `gi` `gI` | enter Insert (counts repeat the insertion) |
+| `esc` `ctrl-c` `ctrl-[` | back to Normal, cursor one left |
+| `ctrl-w` `ctrl-u` `ctrl-h` `backspace` `del` | delete word / to the start of the insert / char |
+| `ctrl-t` `ctrl-d` | indent / outdent the line |
+| `ctrl-r {reg}` | insert a register |
+| `ctrl-o` | run one Normal-mode command |
+| `ctrl-j` `ctrl-m` `enter` | new line (with auto-indent) |
+| `ctrl-n` `ctrl-p` `ctrl-space` | `Effect::RequestCompletion` |
+| `tab` | spaces up to the next multiple of four |
+| arrows, `home`, `end`, `pageup`, `pagedown` | move (Vim starts a new undo step; here they do not) |
+
+Auto-pairs and auto-indent are the shared insert behaviour of the other keymaps. In
+Replace mode `backspace` restores the original text. `ctrl-k` (digraphs), `ctrl-v`
+(literal) and `ctrl-a` / `ctrl-@` (insert last text) are not implemented.
+
+#### Visual mode (`v`, `V`, `ctrl-v`)
+
+| keys | action |
+| --- | --- |
+| `v` `V` `ctrl-v` | switch to / leave the kind; `gv` reselects the last Visual area |
+| `o` `O` | swap the cursor with the other end (`O`: the other corner in Visual-block) |
+| `d` `x` `c` `s` `y` `r{c}` `~` `u` `U` `J` `gJ` `>` `<lt>` `=` `p` `P` | operate on the selection |
+| `gu` `gU` `g~` `g?` `gc` | case / comment operators on the selection |
+| `D` `X` `Y` `C` `S` `R` | operate on whole lines (in Visual-block `D` and `C` go to the end of the lines) |
+| `I` `A` | Visual-block: insert / append on every line; characterwise: insert at the start / append at the end |
+| `$` in Visual-block | the block follows each line end |
+| `:` | command line with `'<,'>` |
+| `aw` `ip` `i(` ... | text objects extend the selection |
+| `ctrl-a` `ctrl-x` | increment / decrement numbers on the selected lines |
+| `esc` `ctrl-c` | back to Normal |
+
+#### Registers
+
+`"{name}` before a command. `a`-`z` set, `A`-`Z` append, `0` last yank, `1`-`9`
+numbered deletes (shifted like Vim: multi-line deletes and small deletes with `%` `(`
+`)` `` ` `` `/` `?` `n` `N` `{` `}`), `-` small deletes, `_` black hole, `"` unnamed, `+`
+and `*` the system clipboard (`Effect::SetClipboard` to write; `p` reads the
+clipboard the host last reported), `/` last search, `.` last inserted text, `:` last
+command line. `:registers` / `:display` list them in the status line.
+
+#### Search
+
+`/` and `?` open the prompt (`enter` accepts, `esc` cancels, a live preview moves the
+view). Patterns are Vim regex (`\v` `\m` `\M` `\V`, `\<` `\>`, `\{n,m}`, `\(` `\)`,
+`\|`, `\+` `\?` `\=`, classes `\s \d \w \a \l \u \x`, `[]`, `\c` `\C`) translated to the
+`regex` crate; unsupported constructs are reported as errors, never silently
+reinterpreted. `ignorecase` and `smartcase` are on, `wrapscan` is on, `hlsearch` is on
+(`:noh` hides the highlights until the next search). Offsets (`/pat/e`, `/pat/+1`)
+work. `n` / `N` keep the direction; `*` `#` search the word under the cursor.
+
+#### Space menu (`key_hints()` shows it)
+
+| keys | action |
+| --- | --- |
+| `space f` | `OpenTablePicker` ("go to table") |
+| `space b` | `OpenConnectionPicker` |
+| `space ?` `space space` | `OpenCommandPalette` |
+| `space r` | `RunStatementAtCursor`, or `RunSelection` in Visual mode |
+| `space R` | `RunAll` |
+| `space e` `space E` | `ExplainStatement { analyze: false / true }` |
+| `space k` | `RequestCompletion` |
+| `space t` | `OpenThemePicker` |
+| `space c` | toggle line comments (current line, or the Visual lines) |
+| `space y` `space Y` | yank to the system clipboard (operator / whole line) |
+| `space p` `space P` | paste the system clipboard after / before |
+| `space x` | `CancelQuery` |
+| `space /` | `OpenTablePicker` |
+| `space g` `space d` | `FocusResults` / `FocusExplorer` |
+| `space T` `space j` | `ToggleExplorer` / `ToggleBottomPanel` |
+
+#### Command line (`:`)
+
+Ranges: `N`, `.`, `$`, `%`, `'x`, `/pat/`, `?pat?`, `+N` `-N`, `,` pairs, `'<,'>`
+(inserted by `:` in Visual mode); `|` separates commands. A bare `:N` goes to line N.
+
+| keys | action |
+| --- | --- |
+| `:s/pat/rep/[flags]` `:&` `:&&` | substitute (`g` `i` `I` `n` `e` flags; `&` `\0`-`\9` `\u` `\U` `\l` `\L` `\e` `\E` `\r` `\n` in the replacement; any delimiter) |
+| `:g/pat/cmd` `:g!/pat/cmd` `:v/pat/cmd` | run an Ex command on the matching / other lines |
+| `:d [x]` `:y [x]` `:pu [x]` `:pu! [x]` | delete / yank / put lines (with a register) |
+| `:m {addr}` `:t {addr}` `:co {addr}` | move / copy lines |
+| `:>` `:<lt>` | shift lines (repeat the character to shift more) |
+| `:j` `:j!` | join lines |
+| `:norm[al][!] keys` | run plain keys on every line of the range |
+| `:sort[!] [n] [u] [i] [/pat/]` | sort the lines |
+| `:k{x}` `:mark {x}` `:marks` | set a mark / list marks |
+| `:reg[isters]` `:di[splay]` | list registers (status line) |
+| `:noh[lsearch]` | hide search highlights |
+| `:se[t] [no]ic` `scs` `hls` | the supported options (`[opt]?` queries, `[opt]!` / `inv[opt]` toggle); anything else is `HostCommand("set ...")` |
+| `:u[ndo]` `:red[o]` | undo / redo |
+| `:h[elp]` | `HostCommand("help ...")` (the host opens the keymap reference) |
+| `:wa` `:wqa` `:xa` `:qa` `:up` `:tabnew` `:tabn` `:tabp` `:tabc` | Vim's spellings of the host commands |
+| `:w` `:wq` `:q` `:run` `:run-all` `:explain` `:analyze` `:format` `:theme` `:connect` `:goto N` `:new` `:cancel` | the shared host command table (see "Command line" of the Helix keymap) |
+
+Anything else becomes `Effect::HostCommand(text)`. `tab` completes command names;
+`up` `down` `ctrl-p` `ctrl-n` browse the history; the usual prompt editing keys apply.
+
+#### Global (every mode)
+
+`ctrl-enter` / `cmd-enter` RunStatementAtCursor (RunSelection with a selection) ·
+`ctrl-shift-enter` RunAll · `ctrl-space` RequestCompletion · `F5` RunAll.
+
+The deviations from real Vim (what `space` means, fixed options, no `:map` or Vimscript, no windows) are listed in
+[the engine README](../crates/quarry-editor/README.md#deviations-from-vim) and summarised in the
+[user guide](USER_GUIDE.md#vim-keymap).
 
 ### Standard key map
 

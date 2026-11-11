@@ -101,8 +101,10 @@ path again. Macros (`Q`/`q`) are recorded and replayed the same way.
 
 Registers are `char -> Vec<String>` (one value per selection). `_` is the black
 hole; `+`/`*` talk to the system clipboard through `Effect::SetClipboard` (write)
-and `Editor::set_clipboard` (read); `/` reads the last search pattern. The default
-register `"` is mirrored to the system clipboard on yank (see deviations).
+and `Editor::set_clipboard` (read); `/` reads the last search pattern. In the Helix keymap
+the default register `"` is mirrored to the system clipboard on yank (see deviations). The
+Vim keymap does so only after `Editor::set_vim_clipboard_unnamed(true)` (see "Deviations from
+Vim"). `Editor::recording_register()` says which Vim macro register is being recorded.
 
 ### Syntax highlighting
 
@@ -489,8 +491,12 @@ Deliberate:
   hlsearch`.
 * **Auto-pairs and auto-indent** are the shared ones: typing `(` inserts `()`. Enter
   and auto-indent normalise indentation to spaces.
-* The unnamed register is **not** mirrored to the clipboard; `"+` and `"*` are the
-  clipboard (and `space y`). `Effect::SetClipboard` is emitted for them.
+* By default the unnamed register is **not** mirrored to the clipboard (as in plain Vim): `"+`
+  and `"*` are the clipboard, and so is `space y`; `Effect::SetClipboard` is emitted for them.
+  `Editor::set_vim_clipboard_unnamed(true)` is `set clipboard=unnamedplus`: yanks and deletes
+  into the unnamed register also emit `SetClipboard`, and `p` pastes text another application put
+  on the clipboard (while the clipboard is still what the editor last wrote, the register keeps
+  its line / block kind). Quarry turns it on through the `vim.clipboard_unnamed` setting.
 * Arrow keys in Insert mode do not start a new undo step.
 * Counts are capped at 10 000, and replay (`.`, macros, `:normal`) at 200 000 keys.
 * Paragraph (`{` `}` `ip` `ap`) scans give up after 2 000 lines and sentence (`(` `)`)

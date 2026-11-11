@@ -4,7 +4,7 @@
 
 Quarry is a keyboard-first database IDE written in Rust on [GPUI](https://www.gpui.rs/) (through the
 [`gpui-kit`](https://github.com/longbridge/gpui-kit) component crate). It connects to PostgreSQL,
-MySQL/MariaDB and SQLite, gives you a SQL editor with Helix or standard key bindings, and shows results
+MySQL/MariaDB and SQLite, gives you a SQL editor with Helix, Vim or standard key bindings, and shows results
 as an editable grid, as a query plan, or on a map.
 
 It is also a codebase meant to be read: the database drivers, SQL tooling, geometry code and the text
@@ -13,7 +13,7 @@ editor are plain Rust libraries with ordinary tests, and the UI crates are thin 
 
 ## What works today
 
-Quarry 0.1.0-alpha.1 is an alpha. The application is fully wired together: every feature below is
+Quarry 0.1.0-alpha.2 is an alpha. The application is fully wired together: every feature below is
 implemented and was run by hand on Linux (X11) against PostgreSQL 16 with PostGIS, MariaDB 10.11 and
 SQLite. SSH tunnelling is covered by the driver integration tests only. The macOS and Windows builds are
 compiled and unit-tested in CI but nobody has used them by hand yet. See
@@ -26,6 +26,7 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 | ![Map](docs/screenshots/03-map-stores-zones.png) **Geometry on a map** | ![Plan](docs/screenshots/04-plan-insights.png) **EXPLAIN ANALYZE with insights** |
 | ![Editable grid](docs/screenshots/05-editable-grid.png) **Staged edits in the grid** | ![Explorer](docs/screenshots/06-explorer-suggested-fks-related.png) **Suggested foreign keys and related tables** |
 | ![Light theme](docs/screenshots/07-quarry-light.png) **Quarry Light** | ![SSH](docs/screenshots/09-connection-ssh.png) **Connection dialog with SSH tunnel** |
+| ![Vim visual block](docs/screenshots/10-vim-visual-block.png) **Vim keymap: a `V-BLOCK` selection** | ![Keymap choice](docs/screenshots/11-keymap-choice-welcome.png) **Choose Helix, Vim or Standard on the welcome view** |
 
 ## Features
 
@@ -54,9 +55,13 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
   `UPDATE`, `DELETE`), *Show DDL*, *Related Tables…*.
 
 **Editor**
-- Two complete key maps: **Helix** (modal, selection-first, multiple selections, registers, macros, text
-  objects, surround) and a **Standard** non-modal map that follows Zed's default bindings. Switch with
-  *Toggle Keymap* in the command palette. Tables are in [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md).
+- Three complete key maps: **Helix** (modal, selection-first, multiple selections, registers, macros, text
+  objects, surround; the default), **Vim** (modal, verb-then-motion: operators, text objects, registers, marks,
+  macros, `.` repeat, Visual / Visual-line / Visual-block, `:s` `:g` `:normal` and the rest of the ex line,
+  verified against real Vim by about 3,900 tests) and a **Standard** non-modal map that follows Zed's default
+  bindings. Choose on the welcome view, with *Select Keymap…* in the command palette or in Settings. Vim
+  yanks and deletes share the system clipboard (setting `vim.clipboard_unnamed`). Tables are in
+  [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md).
 - Tabbed consoles. Tabs can be dragged to reorder. A console keeps its text, cursor, title, connection and
   tab position across restarts.
 - Completion for keywords, schemas, tables, columns, aliases, functions and snippets, with dialect-specific
@@ -112,12 +117,15 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
   coordinates / WKT, GeoJSON export.
 - Selection is shared with the grid: clicking a feature selects its row, and *Show on Map* in the grid
   selects the feature.
+- *Fit* and zooming out show all of the data, also world-wide points in a short, wide panel: the map zooms
+  out until the world is 80% as tall as the panel, the basemap repeats sideways with the repeats dimmed, and each
+  feature is drawn exactly once (hover, click and measure use that one copy).
 
 **Look and feel**
 - 38 bundled themes (Quarry Dark, Quarry Light and 36 from 21 gpui-kit theme files), follow-the-system
   appearance, and import of Zed theme files. Fonts: IBM Plex Sans for the interface, Lilex for code.
-- Command palette, table picker, connection picker, a settings dialog, and a which-key box for the Helix
-  space menu.
+- Command palette, table picker, connection picker, a keymap picker, a settings dialog, and a which-key box for the
+  Helix and Vim space menu.
 
 ## Install
 
@@ -224,7 +232,7 @@ Quarry keeps its files in one directory (override it with `QUARRY_CONFIG_DIR`):
 
 | File | Contents |
 | --- | --- |
-| `settings.json` | theme, key map, fonts, row limit, map tile URL, formatter options (hand-editable; a bad key is ignored with a warning) |
+| `settings.json` | theme, key map (Helix, Vim or Standard) and `vim.clipboard_unnamed`, fonts, row limit, map tile URL, formatter options (hand-editable; a bad key is ignored with a warning) |
 | `connections.json` | saved connections, without passwords |
 | `themes/*.json` | imported or hand-written themes |
 | `history.jsonl` | statement history |
@@ -258,6 +266,22 @@ that therefore win over the same keys in the editor.
 | `mod-n` / `mod-w` | new console / close tab |
 | `mod-,` | settings |
 | `F5` | refresh the schema |
+
+**Vim key map**
+
+The complete tables (and the `space` leader menu that reaches every application action) are in
+[docs/KEYBINDINGS.md](docs/KEYBINDINGS.md#vim-key-map).
+
+| Keys | Action |
+| --- | --- |
+| `h j k l`, `w b e`, `0 ^ $`, `gg G`, `{ }` | motions |
+| `d c y` + motion or text object | `dw`, `ciw`, `di(`, `yap`, `>ip`, `gUiw`, `gcc` |
+| `v` `V` `ctrl-v` | Visual, Visual-line, Visual-block (`I` / `A` insert on every line) |
+| `p P`, `"a` `"+` | put, registers and the system clipboard |
+| `u` `ctrl-r`, `.`, `qa` `@a` | undo / redo, repeat, macros |
+| `/ ? n N * #`, `:s/a/b/g`, `:g/pat/d` | search and ex commands |
+| `space r`, `space e`, `space f`, `space ?` | run, explain, tables, command palette |
+| `:w :q :run :format :goto N :help` | application commands |
 
 **Helix key map (default)**
 
@@ -297,8 +321,15 @@ Editor
   a failed statement is underlined from the server's error position.
 - In the editor the engine's keys win over the application's shortcuts, so a few application chords
   (`ctrl-b`, `ctrl-o`, `ctrl-w`, `ctrl-k`, `F5`) do something else while the editor has focus in the Helix key
-  map; the actions stay in the palette and space menu. See
+  map, and in the Vim key map the `ctrl-` letters Vim uses (`ctrl-w`, `ctrl-b`, `ctrl-e`, `ctrl-n`, `ctrl-o`,
+  `ctrl-p` ...) are the editor's as well; the actions stay in the palette and space menu. See
   [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md#who-wins-a-key).
+- The Vim key map is not Vim. Out of scope: Vimscript, `:map` and friends, windows and tabs (`ctrl-w`, `:split`),
+  folds, digraphs and literal insert, spell checking, tags, `gq` / `gw`, the change list (`g;`), `gn`, the
+  tag objects, `:!` shell commands, and back-references in `:s` patterns. `space` is the leader (it no longer
+  moves right), the options are fixed (`shiftwidth=4`, `expandtab`, `ignorecase` with `smartcase`), and
+  typing `(` inserts `()`. The full list is in the
+  [engine README](crates/quarry-editor/README.md#deviations-from-vim).
 - Undo is linear (no undo tree).
 
 Databases

@@ -21,6 +21,29 @@ crate) gets `EditorEvent`s and gives the view providers.
 | `lines.rs` | the shaped-line cache | no |
 | `tests.rs` | headless GPUI tests (typing, popup, scrolling, key context) | |
 
+## Cursors, selections and modes
+
+The view has no keymap-specific painting. `Editor::cursor_style()` says how the cursor looks and
+`Editor::cursor_of(&selection)` where it is; `Editor::mode_label()` is the badge text.
+
+| Style | Drawn as | Used by |
+|---|---|---|
+| `Block` | a filled box over the grapheme with the glyph in the background colour (an outline when the editor is unfocused or a prompt has the keys); does not blink | Helix Normal and Select, Vim Normal and all Visual modes |
+| `Bar` | a 2 px line before the character; blinks while focused, steady while typing | Insert mode of Helix and Vim, the Standard keymap |
+| `Underline` | a 2 px line under the cell; does not blink | Vim Replace mode |
+
+Selections come from `Editor::selections()`. Vim's Visual modes are drawn as selections with exactly one cursor
+(the engine's `cursor_of` for the primary one; the other selections of a block get no cursor): `v` is one range,
+`V` a range of whole lines, and `ctrl-v` one selection per line. A rectangular block is outlined once for every
+run of consecutive lines (`element.rs`, `selection_geom::outline`), so its corners are rounded like one shape and a
+line shorter than the block, or an empty one, narrows the outline to a stub that is as wide as the line break marker.
+Vim's `hlsearch` matches stay painted after the prompt closes. A Vim Normal-mode cursor is not a selection, so the
+active-line highlight stays on; only the Visual modes switch it off.
+
+`EditorStatus` (see `status.rs`) carries `keymap`, `mode`, the pending keys (`"a2d`, `g`, `space`) and the macro
+register being recorded (`recording`); `mode_label()` mirrors the engine's labels: `NOR INS SEL STD`, and `NORMAL
+INSERT VISUAL V-LINE V-BLOCK REPLACE` for Vim.
+
 ## Controller versus element
 
 Painting is split in two phases so that event handlers never depend on paint state they cannot
@@ -71,9 +94,11 @@ word back". The rule, enforced by the host and tested end to end:
 How the pieces fit:
 
 1. The editor element publishes a **key context** (`actions::key_context`):
-   `QuarryEditor`, `keymap=helix|standard`, `mode=normal|insert|select|standard`, plus the
-   identifiers `prompt` while the `:` / `/` bar is open and `completion` while the popup is
-   open. The host predicates its own bindings with it (`!(QuarryEditor && keymap == helix &&
+   `QuarryEditor`, `keymap=helix|vim|standard`,
+   `mode=normal|insert|select|visual|visual-line|visual-block|replace|standard`, plus the
+   identifiers `prompt` while the `:` / `/` bar is open, `completion` while the popup is
+   open and `pending` while a Vim command (operator, `g`, register, count) waits for its rest. The host
+   predicates its own bindings with it (`!(QuarryEditor && keymap == helix &&
    mode == insert)`); see `crates/quarry/src/keymap/` and `docs/KEYBINDINGS.md`.
 2. `init` (also called when the view first renders) registers `NoAction` bindings in the editor context for `tab`,
    `shift-tab`, `ctrl-c` and `cmd-c`, which the gpui-kit root binds one level up for focus
@@ -85,7 +110,13 @@ How the pieces fit:
    page up/down and `ctrl-p`/`ctrl-n` move; `tab` accepts; `enter` accepts (or falls through
    as a newline, see below); `escape` closes. The same table is exported as
    `completion_owns(&KeyInput)`, so the host keeps its bindings off exactly these keys while
-   the popup is open, in both keymaps.
+   the popup is open, in all three keymaps.
+
+The view consumes `SetClipboard` (system clipboard), `Scroll` (`ctrl-d` `ctrl-e` `zt` `zz` ...; it keeps the
+engine told about the first visible line and the number of full lines with `Editor::set_viewport` every frame,
+which is what makes `H` `M` `L` exact), `RevealCursor`, `Status`, `RequestCompletion` and `DismissCompletion`. It also
+mirrors the setting `vim.clipboard_unnamed` into `Editor::set_vim_clipboard_unnamed`, and feeds the system
+clipboard to the engine before every key so `p` pastes what another application copied.
 
 Effects the view does not consume itself (run, explain, format, tab switching, open file ...)
 leave as `EditorEvent::Effect`; the Standard keymap emits the same actions as the application
@@ -95,12 +126,14 @@ bindings (`ctrl-w` is `Effect::CloseTab`), so there is exactly one path per keys
 
 * A **provider** (`CompletionProvider::complete(text, byte_offset)`) answers on the UI thread; it
   must take milliseconds.
-* **Auto-trigger**: after typing a word character or `.` in an insert-like mode (Helix Insert,
+* **Auto-trigger**: after typing a word character or `.` in an insert-like mode (Helix Insert, Vim Insert,
   Standard), when the word under the caret is non-empty and not purely numeric, or right after a
   `.`; and after typing a space that follows `FROM`, `JOIN`, `ON`, `INTO`, `UPDATE` or `TABLE`, or a comma
   inside a FROM list.
-  Not in Helix Normal/Select, and not while a prompt is open. `ctrl-space` opens it by hand and
-  may offer suggestions for an empty word.
+  Not in Helix Normal/Select or any Vim mode but Insert, and not while a prompt is open. `ctrl-space` opens it by
+  hand and may offer suggestions for an empty word. In Vim Insert `ctrl-n` / `ctrl-p` open it too (the engine asks
+  with `Effect::RequestCompletion` when the popup is closed, and the popup takes the key when it is open).
+  `esc` with the popup open only closes it; a second `esc` leaves Insert mode, in Helix and Vim alike.
 * **While open** it is re-queried after each edit: typing on in the same word keeps it, any other
   word (space, paren, new statement) closes it; a `.` starts a fresh list. Moving the caret
   out of the word closes it.
@@ -147,7 +180,7 @@ cx.subscribe(&editor, |_, _, ev: &EditorEvent, cx| match ev {
 div().child(editor.clone())                         // it fills its parent
 ```
 
-The view reads `quarry_ui::Settings` (keymap, buffer font, size, line height) when a settings
+The view reads `quarry_ui::Settings` (keymap, `vim.clipboard_unnamed`, buffer font, size, line height) when a settings
 store exists and follows its changes; without one it uses defaults. Bind application shortcuts
 with the key-context predicates above, never with a bare global binding on a key the engine
 uses. `examples/editor_demo.rs` is a runnable embedding (`cargo run -p quarry-editor-view
@@ -157,4 +190,5 @@ uses. `examples/editor_demo.rs` is a runnable embedding (`cargo run -p quarry-ed
 
 `cargo test -p quarry-editor-view`. Pure modules have unit tests next to the code; `tests.rs`
 drives a real `EditorView` in a headless GPUI window (typing, popup rules, horizontal reveal
-after edits, key-context contents).
+after edits, key-context contents; the `vim_*` tests cover the modes, status labels, clipboard, scrolling and `H` `M` `L`,
+mouse, effects, and `ctrl-n` / `esc` against the popup).
