@@ -1181,6 +1181,226 @@ pub fn kind_of_type_name(sql_type: &str) -> TypeKind {
     }
 }
 
+// ------------------------------------------------------- editor vocabulary
+
+/// Column types the editor offers for `kind`, parameters included. The list is only a convenience:
+/// any text is accepted, because a server knows far more types (extensions, domains, enums) than a list can.
+pub fn type_suggestions(kind: DatabaseKind) -> &'static [&'static str] {
+    match kind {
+        DatabaseKind::Postgres => &[
+            "integer",
+            "bigint",
+            "smallint",
+            "text",
+            "varchar(255)",
+            "char(1)",
+            "boolean",
+            "numeric(12,2)",
+            "real",
+            "double precision",
+            "uuid",
+            "date",
+            "time",
+            "timestamp",
+            "timestamptz",
+            "interval",
+            "json",
+            "jsonb",
+            "bytea",
+            "inet",
+            "cidr",
+            "text[]",
+            "integer[]",
+        ],
+        DatabaseKind::MySql => &[
+            "int",
+            "bigint",
+            "smallint",
+            "tinyint",
+            "tinyint(1)",
+            "varchar(255)",
+            "char(1)",
+            "text",
+            "mediumtext",
+            "longtext",
+            "decimal(12,2)",
+            "float",
+            "double",
+            "date",
+            "time",
+            "datetime",
+            "timestamp",
+            "year",
+            "json",
+            "blob",
+            "longblob",
+            "binary(16)",
+            "bit(1)",
+        ],
+        DatabaseKind::Sqlite => &[
+            "INTEGER",
+            "TEXT",
+            "REAL",
+            "NUMERIC",
+            "BLOB",
+            "BOOLEAN",
+            "DATE",
+            "DATETIME",
+            "TIMESTAMP",
+            "VARCHAR(255)",
+            "DECIMAL(12,2)",
+            "JSON",
+        ],
+    }
+}
+
+/// The suggestions that match what has been typed so far: by prefix of the whole text first, then of the
+/// base name, in list order. An exact match alone is not offered (there is nothing left to complete).
+pub fn matching_types(kind: DatabaseKind, typed: &str) -> Vec<&'static str> {
+    let t = typed.trim().to_ascii_lowercase();
+    let all = type_suggestions(kind);
+    if t.is_empty() {
+        return all.to_vec();
+    }
+    let mut out: Vec<&'static str> =
+        all.iter().copied().filter(|s| s.to_ascii_lowercase().starts_with(&t)).collect();
+    let rest: Vec<&'static str> =
+        all.iter().copied().filter(|s| !out.contains(s) && s.to_ascii_lowercase().contains(&t)).collect();
+    out.extend(rest);
+    out.retain(|s| !s.eq_ignore_ascii_case(&t));
+    out
+}
+
+/// Index access methods the dialect lets `CREATE INDEX` choose. SQLite has none.
+pub fn index_methods(kind: DatabaseKind) -> &'static [&'static str] {
+    match kind {
+        DatabaseKind::Postgres => &["btree", "hash", "gin", "gist", "brin", "spgist"],
+        DatabaseKind::MySql => &["BTREE", "HASH"],
+        DatabaseKind::Sqlite => &[],
+    }
+}
+
+/// `ON DELETE` / `ON UPDATE` actions. InnoDB parses `SET DEFAULT` and then refuses it, so MySQL does not
+/// get to pick it.
+pub fn fk_actions(kind: DatabaseKind) -> &'static [&'static str] {
+    match kind {
+        DatabaseKind::MySql => &["NO ACTION", "RESTRICT", "CASCADE", "SET NULL"],
+        _ => &["NO ACTION", "RESTRICT", "CASCADE", "SET NULL", "SET DEFAULT"],
+    }
+}
+
+/// The identity choices of a column, in the order the editor cycles through them. The label is the
+/// dialect's own word for it.
+pub fn identity_choices(kind: DatabaseKind) -> &'static [(Option<Identity>, &'static str)] {
+    match kind {
+        DatabaseKind::Postgres => {
+            &[(None, ""), (Some(Identity::ByDefault), "by default"), (Some(Identity::Always), "always")]
+        }
+        DatabaseKind::MySql => &[(None, ""), (Some(Identity::ByDefault), "AUTO_INCREMENT")],
+        DatabaseKind::Sqlite => &[(None, ""), (Some(Identity::ByDefault), "AUTOINCREMENT")],
+    }
+}
+
+/// Whether the dialect stores a comment on a column (SQLite has no such thing).
+pub fn supports_column_comments(kind: DatabaseKind) -> bool {
+    kind != DatabaseKind::Sqlite
+}
+
+/// Whether `CREATE INDEX ... WHERE` exists.
+pub fn supports_partial_indexes(kind: DatabaseKind) -> bool {
+    kind != DatabaseKind::MySql
+}
+
+/// Whether a foreign key can be `DEFERRABLE`.
+pub fn supports_deferrable(kind: DatabaseKind) -> bool {
+    kind != DatabaseKind::MySql
+}
+
+/// Whether the table comment can be edited. SQLite has no table comments either.
+pub fn supports_table_comment(kind: DatabaseKind) -> bool {
+    kind != DatabaseKind::Sqlite
+}
+
+// ---------------------------------------------------------------- running
+
+/// How a script relates to the session's own transaction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Session {
+    /// Auto-commit: the script brings its own transaction where the dialect has transactional DDL.
+    Own,
+    /// Manual-commit (or a transaction is already open): the statements join it and nothing commits.
+    /// `begin` opens the transaction first when none is open yet.
+    Joined { begin: Vec<String> },
+}
+
+/// One thing to send to the server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Step {
+    pub sql: String,
+    /// The statement of the script this step runs; `None` for `BEGIN` / `COMMIT`.
+    pub statement: Option<usize>,
+    /// The step reports problems as rows (`PRAGMA foreign_key_check`): any row is a failure.
+    pub fails_on_rows: bool,
+    /// Runs even after an earlier step failed (turning `PRAGMA foreign_keys` back on).
+    pub always: bool,
+}
+
+/// What to send, in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Script {
+    pub steps: Vec<Step>,
+    /// The script opened its own transaction: after a failure it must be rolled back.
+    pub own_transaction: bool,
+}
+
+/// The steps that run `stmts` on `kind`.
+///
+/// PostgreSQL and SQLite run the script in one transaction, so a failure leaves nothing behind. SQLite's
+/// table rebuild is the exception to the exception: `PRAGMA foreign_keys` is ignored inside a transaction,
+/// so the statements flagged [`Flag::OutsideTransaction`] at the start and end of the script run around
+/// the `BEGIN` / `COMMIT` instead of inside it. MySQL / MariaDB commit after every DDL statement; the
+/// statements simply run one by one. In a joined session nothing is wrapped, and a statement that
+/// cannot run inside a transaction is refused.
+pub fn plan_script(stmts: &[Statement], kind: DatabaseKind, session: &Session) -> Result<Script, String> {
+    let step = |i: usize, s: &Statement, always: bool| Step {
+        sql: s.sql.clone(),
+        statement: Some(i),
+        fails_on_rows: s.sql.trim_start().to_ascii_lowercase().starts_with("pragma foreign_key_check"),
+        always,
+    };
+    let control = |sql: &str| Step { sql: sql.into(), statement: None, fails_on_rows: false, always: false };
+    let outside = |s: &Statement| s.flags.contains(&Flag::OutsideTransaction);
+    if let Session::Joined { begin } = session {
+        if stmts.iter().any(outside) {
+            return Err("This change must run outside a transaction; commit or roll back first".into());
+        }
+        let mut steps: Vec<Step> = begin.iter().map(|b| control(b)).collect();
+        steps.extend(stmts.iter().enumerate().map(|(i, s)| step(i, s, false)));
+        return Ok(Script { steps, own_transaction: false });
+    }
+    let lead = stmts.iter().take_while(|s| outside(s)).count();
+    let trail = stmts[lead..].iter().rev().take_while(|s| outside(s)).count();
+    let middle = lead..stmts.len() - trail;
+    let wrap = transactional_ddl(kind) && (middle.len() > 1 || lead + trail > 0);
+    let mut steps = Vec::new();
+    for (i, s) in stmts.iter().enumerate().take(lead) {
+        steps.push(step(i, s, false));
+    }
+    if wrap {
+        steps.push(control("BEGIN"));
+    }
+    for i in middle.clone() {
+        steps.push(step(i, &stmts[i], false));
+    }
+    if wrap {
+        steps.push(control("COMMIT"));
+    }
+    for (i, s) in stmts.iter().enumerate().skip(stmts.len() - trail) {
+        steps.push(step(i, s, true));
+    }
+    Ok(Script { steps, own_transaction: wrap })
+}
+
 // -------------------------------------------------------------- validation
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1979,5 +2199,103 @@ mod tests {
         ] {
             assert_eq!(kind_of_type_name(t), k);
         }
+    }
+
+    // ---------------------------------------------------- editor vocabulary and script plan
+
+    fn plain(sql: &str) -> Statement {
+        Statement { sql: sql.into(), flags: vec![], explanation: String::new() }
+    }
+
+    fn steps(script: &Script) -> Vec<String> {
+        script.steps.iter().map(|s| s.sql.clone()).collect()
+    }
+
+    #[test]
+    fn type_suggestions_filter_by_what_is_typed() {
+        assert!(matching_types(Postgres, "").contains(&"jsonb"));
+        assert_eq!(matching_types(Postgres, "var"), vec!["varchar(255)"]);
+        // A prefix match comes before a mere substring match.
+        assert_eq!(matching_types(Postgres, "int")[0], "integer");
+        assert!(matching_types(Postgres, "int").contains(&"interval"));
+        // Typing a type completely leaves nothing to suggest.
+        assert!(matching_types(Postgres, "jsonb").is_empty());
+        assert!(matching_types(MySql, "tiny").contains(&"tinyint(1)"));
+        assert!(matching_types(Sqlite, "nothing like it").is_empty());
+        for kind in [Postgres, MySql, Sqlite] {
+            // Every suggestion is a type the engine can classify or knowingly treats as free text.
+            assert!(type_suggestions(kind).iter().all(|t| !t.trim().is_empty()));
+        }
+    }
+
+    #[test]
+    fn dialect_choices_match_what_the_dialects_accept() {
+        assert!(index_methods(Sqlite).is_empty());
+        assert!(index_methods(Postgres).contains(&"gin"));
+        assert!(!fk_actions(MySql).contains(&"SET DEFAULT"));
+        assert!(fk_actions(Postgres).contains(&"SET DEFAULT"));
+        assert_eq!(identity_choices(Postgres).len(), 3);
+        assert_eq!(identity_choices(MySql)[1].1, "AUTO_INCREMENT");
+        assert!(!supports_column_comments(Sqlite) && supports_column_comments(MySql));
+        assert!(!supports_partial_indexes(MySql) && supports_partial_indexes(Sqlite));
+        assert!(!supports_deferrable(MySql));
+        assert!(!supports_table_comment(Sqlite));
+    }
+
+    #[test]
+    fn postgres_runs_several_statements_in_one_transaction() {
+        let stmts = [plain("ALTER TABLE a ADD COLUMN b int"), plain("ALTER TABLE a DROP COLUMN c")];
+        let script = plan_script(&stmts, Postgres, &Session::Own).unwrap();
+        assert_eq!(
+            steps(&script),
+            vec!["BEGIN", "ALTER TABLE a ADD COLUMN b int", "ALTER TABLE a DROP COLUMN c", "COMMIT"]
+        );
+        assert!(script.own_transaction);
+        assert_eq!(script.steps[1].statement, Some(0));
+        assert_eq!(script.steps[0].statement, None);
+        // One statement is atomic by itself.
+        let one = plan_script(&stmts[..1], Postgres, &Session::Own).unwrap();
+        assert_eq!(steps(&one), vec!["ALTER TABLE a ADD COLUMN b int"]);
+        assert!(!one.own_transaction);
+    }
+
+    #[test]
+    fn mysql_never_wraps_because_it_could_not_roll_back() {
+        let stmts = [plain("ALTER TABLE a ADD COLUMN b int"), plain("ALTER TABLE a DROP COLUMN c")];
+        let script = plan_script(&stmts, MySql, &Session::Own).unwrap();
+        assert_eq!(steps(&script), vec!["ALTER TABLE a ADD COLUMN b int", "ALTER TABLE a DROP COLUMN c"]);
+        assert!(!script.own_transaction);
+    }
+
+    #[test]
+    fn a_joined_session_never_commits_and_opens_the_transaction_when_needed() {
+        let stmts = [plain("ALTER TABLE a ADD COLUMN b int"), plain("ALTER TABLE a DROP COLUMN c")];
+        let begin = Session::Joined { begin: vec!["BEGIN".into()] };
+        let script = plan_script(&stmts, Postgres, &begin).unwrap();
+        assert_eq!(steps(&script)[0], "BEGIN");
+        assert!(!steps(&script).contains(&"COMMIT".to_string()));
+        let open = Session::Joined { begin: vec![] };
+        assert_eq!(plan_script(&stmts, Postgres, &open).unwrap().steps.len(), 2);
+    }
+
+    #[test]
+    fn the_sqlite_rebuild_keeps_its_pragmas_outside_the_transaction() {
+        let o = customers(Sqlite);
+        let mut e = o.clone();
+        e.columns[1].data_type = "VARCHAR(40)".into();
+        let stmts = diff(&o, &e, Sqlite);
+        let script = plan_script(&stmts, Sqlite, &Session::Own).unwrap();
+        let sql = steps(&script);
+        assert_eq!(sql.first().unwrap(), "PRAGMA foreign_keys = OFF");
+        assert_eq!(sql[1], "BEGIN");
+        assert_eq!(sql[sql.len() - 2], "COMMIT");
+        assert_eq!(sql.last().unwrap(), "PRAGMA foreign_keys = ON");
+        let check = script.steps.iter().find(|s| s.sql == "PRAGMA foreign_key_check").unwrap();
+        assert!(check.fails_on_rows, "a violation found by the check must roll the rebuild back");
+        assert!(script.steps.last().unwrap().always, "the pragma is restored even after a failure");
+        assert!(script.own_transaction);
+        // Inside a session it cannot run at all.
+        let err = plan_script(&stmts, Sqlite, &Session::Joined { begin: vec![] }).unwrap_err();
+        assert!(err.contains("outside a transaction"), "{err}");
     }
 }
