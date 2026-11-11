@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Theta: a keyboard-first database IDE</title>
+<meta name="description" content="Theta is a native, GPU-accelerated database IDE for PostgreSQL, MySQL/MariaDB and SQLite, with Helix, Vim or standard keys and completion that writes your joins from foreign keys. Alpha, open source.">
+<meta name="theme-color" content="#181b1f">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Theta">
+<meta property="og:title" content="Theta: a keyboard-first database IDE">
+<meta property="og:description" content="Native SQL editor with Helix, Vim or standard keys and completion that writes your joins from foreign keys. Alpha.">
+<meta property="og:image" content="https://jessewilliamson.github.io/Quarry/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Theta, a keyboard-first database IDE, with the theta mark on a dark background">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Theta: a keyboard-first database IDE">
+<meta name="twitter:description" content="Native SQL editor with Helix, Vim or standard keys and completion that writes your joins from foreign keys. Alpha.">
+<meta name="twitter:image" content="https://jessewilliamson.github.io/Quarry/assets/og.png">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular.woff" as="font" type="font/woff" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexSans-SemiBold.woff" as="font" type="font/woff" crossorigin>
+<link rel="stylesheet" href="assets/css/site.css">
+<script>
+  // Runs before first paint so the saved theme never flashes. Storage can throw (private windows), hence try/catch.
+  (function () {
+    var d = document.documentElement;
+    d.classList.add("js");
+    try { var t = localStorage.getItem("theta-theme"); if (t === "light" || t === "dark") d.setAttribute("data-theme", t); } catch (e) {}
+  })();
+</script>
+</head>
+<body>
+<!--@nav-->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" d="M8 .2a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.71 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.96 0-.87.31-1.59.83-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.08-1.87 3.76-3.66 3.96.29.25.54.74.54 1.5v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 .2Z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M8 2v8.5M4.5 7.5 8 11l3.5-3.5M2.5 13.5h11"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="10" cy="10" r="3.4"/><path d="M10 2.5v1.8M10 15.7v1.8M2.5 10h1.8M15.7 10h1.8M4.7 4.7l1.3 1.3M14 14l1.3 1.3M4.7 15.3 6 14M14 6l1.3-1.3"/></g></symbol>
+  <symbol id="i-moon" viewBox="0 0 20 20"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M16.5 11.6A6.8 6.8 0 0 1 8.4 3.5a6.8 6.8 0 1 0 8.1 8.1Z"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 20 20"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M3 6h14M3 10h14M3 14h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></g></symbol>
+  <symbol id="i-fk" viewBox="0 0 14 14"><g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="3.5" cy="3" r="1.7"/><circle cx="10.5" cy="11" r="1.7"/><path d="M3.5 4.7v1.3a2 2 0 0 0 2 2h3.2a1.8 1.8 0 0 1 1.8 1.8"/></g></symbol>
+  <symbol id="i-table" viewBox="0 0 14 14"><g fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="2" width="11" height="10" rx="1.5"/><path d="M1.5 5.5h11M5.5 5.5V12"/></g></symbol>
+  <symbol id="i-replay" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 8a5.2 5.2 0 1 0 1.6-3.7"/><path d="M2.6 2.4v2.5h2.5"/></g></symbol>
+  <g id="theta" fill="none" stroke="currentColor" style="stroke-width:var(--mark-w,2)" stroke-linecap="butt"><ellipse cx="16" cy="22" rx="9.8" ry="14"/><path d="M6.2 22H25.8"/></g>
+</svg>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Theta, home"><svg class="mark" viewBox="0 0 32 44" aria-hidden="true"><use href="#theta"/></svg><span>Theta</span></a>
+    <nav class="nav-main" aria-label="Primary">
+      <ul class="nav-links" id="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#keymaps">Keymaps</a></li>
+        <li><a href="keybindings.html">Docs</a></li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/JesseWilliamson/Quarry" data-repo="">GitHub</a></li>
+      </ul>
+    </nav>
+    <div class="nav-actions">
+      <button class="icon-btn theme-toggle" type="button" aria-label="Switch colour theme"><svg class="moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
+      <button class="icon-btn menu-btn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links"><svg aria-hidden="true"><use href="#i-menu"/></svg></button>
+      <a class="btn btn-primary btn-sm" href="index.html#download">Download</a>
+    </div>
+  </div>
+</header>
+<!--/@nav-->
+
+<main id="main">
+
+  <!-- HERO -->
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap">
+      <p class="eyebrow"><svg class="m" viewBox="0 0 32 44" aria-hidden="true"><use href="#theta"/></svg><span>Keyboard-first database IDE &middot; Alpha</span></p>
+      <h1 id="hero-title">A database IDE that joins the dots.</h1>
+      <p class="lead">A native, GPU-accelerated SQL editor for PostgreSQL, MySQL and SQLite, with Helix, Vim or standard keys and completion that writes your joins from the schema.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/JesseWilliamson/Quarry/releases/latest" data-repo="/releases/latest"><svg aria-hidden="true"><use href="#i-download"/></svg>Download alpha</a>
+        <a class="btn" href="https://github.com/JesseWilliamson/Quarry" data-repo=""><svg aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
+      </div>
+      <p class="hint" id="dl-hint" aria-live="polite">Alpha builds for <strong>Linux</strong> (x86_64), <strong>macOS</strong> (Apple Silicon, Intel) and <strong>Windows</strong> (x86_64). Details <a href="#download">below</a>.</p>
+
+      <figure class="frame hero-shot">
+        <div class="frame-inner">
+          <picture>
+            <source type="image/webp" srcset="assets/screens/editor-results-900.webp 900w, assets/screens/editor-results.webp 1600w" sizes="(min-width: 1300px) 1160px, 100vw">
+            <img src="assets/screens/editor-results.png" width="1600" height="1000" fetchpriority="high" decoding="async"
+                 alt="Theta window in the dark theme. On the left the schema explorer; at the top a SQL console with a query that joins customers to orders and groups revenue by city; below it the results grid with twelve rows, one per city.">
+          </picture>
+        </div>
+        <figcaption><b>Fig. 01</b><span>The Helix keymap, a query run against the demo database, and the results grid. A real screenshot, not a mock-up.</span></figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- THE MOMENT: typed query -> suggestion -->
+  <section class="section" id="joins" aria-labelledby="joins-title">
+    <div class="wrap">
+      <div class="moment">
+        <div>
+          <p class="eyebrow"><span class="num">01</span> Completion</p>
+          <h2 id="joins-title">Type <code>join</code>. Get the join.</h2>
+          <p>After <code>JOIN</code>, Theta offers whole <code>JOIN&nbsp;&hellip;&nbsp;ON</code> clauses built from your foreign keys, so you stop retyping the same key pairs.</p>
+          <ul class="points">
+            <li><b>Declared keys first.</b> Every foreign key the database knows about, in both directions.</li>
+            <li><b>Inferred keys too.</b> Columns named like <code>customer_id</code> or <code>customerId</code> become suggested keys, marked as such.</li>
+            <li><b>Accept with <kbd>Tab</kbd>.</b> Open the list yourself with <kbd>ctrl-space</kbd>.</li>
+          </ul>
+        </div>
+
+        <figure style="margin:0" data-demo>
+          <div class="mock" role="img" aria-label="Illustration of the Theta editor. The query reads: select o.id, o.total, c.last_name from orders o join. A completion popup is open beneath it. Its first suggestion, a foreign key, reads: customers c on o.customer_id = c.id. Below are another declared key, order_items i on i.order_id = o.id, an inferred key, shipments s on s.order_id = o.id, and two plain tables.">
+            <div class="mock-tabs" aria-hidden="true"><span class="mock-tab"><i></i>console 1</span></div>
+            <button class="icon-btn mock-replay" type="button" aria-label="Replay the animation" data-replay><svg aria-hidden="true"><use href="#i-replay"/></svg></button>
+            <div class="mock-body" aria-hidden="true">
+              <pre class="ln"><span class="no">1</span><span class="code"><span class="kw">select</span> o.id, o.total, c.last_name</span></pre>
+              <pre class="ln"><span class="no">2</span><span class="code"><span class="kw">from</span> orders o</span></pre>
+              <pre class="ln active"><span class="no on">3</span><span class="code"><span data-type><span class="kw">join</span> </span><span class="ghost" data-ghost hidden><span class="ty">customers</span> c <span class="kw">on</span> o.customer_id = c.id</span><span class="caret"></span></span></pre>
+              <ul class="pop" data-pop>
+                <li class="sel"><svg class="ico"><use href="#i-fk"/></svg><span class="lbl">customers c on o.customer_id = c.id</span><span class="meta">FK orders_customer_id_fkey</span></li>
+                <li><svg class="ico"><use href="#i-fk"/></svg><span class="lbl">order_items i on i.order_id = o.id</span><span class="meta">FK order_items_order_id_fkey</span></li>
+                <li><svg class="ico"><use href="#i-fk"/></svg><span class="lbl">shipments s on s.order_id = o.id</span><span class="meta">suggested &middot; inferred</span></li>
+                <li><svg class="ico tbl"><use href="#i-table"/></svg><span class="lbl">customers</span><span class="meta">table &middot; 200 rows</span></li>
+                <li><svg class="ico tbl"><use href="#i-table"/></svg><span class="lbl">products</span><span class="meta">table &middot; 40 rows</span></li>
+                <li class="detail">customers c on o.customer_id = c.id</li>
+              </ul>
+            </div>
+            <div class="mock-status" aria-hidden="true"><span class="tip" data-tip><kbd>Tab</kbd> accepted</span><span data-col>Ln 3, Col 6</span><span class="mode">INS</span><span>demo &middot; PostgreSQL</span></div>
+          </div>
+          <figcaption class="fig-cap"><b>Fig. 02</b><span>The completion popup, set in the app&rsquo;s own colours and fonts. Table names are from the demo database.</span></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="section" id="features" aria-labelledby="features-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow"><span class="num">02</span> Features</p>
+        <h2 id="features-title">Everything between the keystroke and the answer.</h2>
+        <p>Write SQL, run it, read the result, check the plan, look at the map. One window, no mouse required.</p>
+      </div>
+
+      <div class="features">
+
+        <article class="feature">
+          <div class="feature-text">
+            <h3>Joins from the schema</h3>
+            <p>Completion knows your tables, columns, aliases and dialect-specific functions. After <code>JOIN</code> it proposes the whole clause, from declared and inferred foreign keys.</p>
+            <ul>
+              <li>Keywords, schemas, tables, columns, aliases, functions, snippets</li>
+              <li>Inferred keys carry a confidence and are labelled <em>suggested</em></li>
+              <li>A formatter and a quiet diagnostics pass sit alongside</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/completion-fk-joins-900.webp 900w, assets/screens/completion-fk-joins.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/completion-fk-joins.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta editor with a query ending in JOIN and the completion popup open. The first entry is orders o ON o.customer_id = c.id marked as a foreign key; the second is shipments s ON s.customer_id = c.id marked suggested and inferred.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature flip">
+          <div class="feature-text">
+            <h3>An explorer that suggests the keys your schema forgot</h3>
+            <p>Foreign keys the database does not declare are inferred from column names and listed under <em>Foreign Keys &rsaquo; Suggested</em>. <em>Related Tables&hellip;</em> lists both kinds and opens a ready-made <code>JOIN</code> query.</p>
+            <ul>
+              <li>Schemas, tables, views, routines and sequences, with row estimates</li>
+              <li>Columns, keys, foreign keys and indexes under every table</li>
+              <li><code>Generate</code> SELECT, INSERT, UPDATE or DELETE; show DDL</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/explorer-suggested-fks-900.webp 900w, assets/screens/explorer-suggested-fks.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/explorer-suggested-fks.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta explorer with the shipments table expanded; under Foreign Keys there is a Suggested group. A Related Tables popup over the editor lists public.customers, public.orders and public.stores, each marked suggested at 95 percent.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature">
+          <div class="feature-text">
+            <h3>A results grid you can edit, then review</h3>
+            <p>Change cells, add and delete rows, then look at the staged changes before anything is written. Theta shows the generated statements and applies them in one transaction.</p>
+            <ul>
+              <li>Virtualised: 100,000 rows by 60 columns stays interactive</li>
+              <li>Type-aware sorting and filtering, rectangular selection, inspector for JSON and long text</li>
+              <li>Export to CSV, TSV, JSON, Markdown or SQL <code>INSERT</code></li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/editable-grid-900.webp 900w, assets/screens/editable-grid.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/editable-grid.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta results grid of customer rows with three edited cells highlighted, and a toolbar above it reading 3 pending changes with Revert and Submit buttons.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature flip">
+          <div class="feature-text">
+            <h3>Query plans that say what to do</h3>
+            <p>Explain and Explain Analyze for PostgreSQL, MySQL/MariaDB and SQLite, as a tree, a flame graph or raw output. Insights are written for the specific plan, and when an index would help, the insight carries the <code>CREATE INDEX</code> statement.</p>
+            <ul>
+              <li>Sequential scans that discard most rows, estimates that are badly off</li>
+              <li>Nested-loop rescans, sorts and hashes that spill to disk</li>
+              <li><em>Open in Console</em> puts the suggested statement in a new tab</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/plan-insights-900.webp 900w, assets/screens/plan-insights.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/plan-insights.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta plan view for an EXPLAIN ANALYZE of a PostgreSQL query. A tree of operations with timings on the right; on the left three insights, including a sequential scan that reads 300,000 rows to return 900, with a suggested CREATE INDEX statement.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature">
+          <div class="feature-text">
+            <h3>Geometry on a map, selection shared with the grid</h3>
+            <p>Geometry columns are drawn on a basemap, or on a plain grid when the coordinate system is unknown. WKB, EWKB, WKT and GeoJSON are decoded; PostGIS is understood.</p>
+            <ul>
+              <li>Basemaps: OpenStreetMap, OpenTopoMap, none, or your own tile URL</li>
+              <li>Click a feature to select its row; measure distance and area</li>
+              <li>Tiles are cached, so places you have seen still draw offline</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/map-900.webp 900w, assets/screens/map.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/map.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta map view showing a delivery-zone polygon and a store point over an OpenStreetMap basemap of Berlin, with a feature tooltip open.">
+              </picture>
+            </div>
+            <figcaption><b>Map</b><span>&copy; OpenStreetMap contributors</span></figcaption>
+          </figure>
+        </article>
+
+        <article class="feature flip">
+          <div class="feature-text">
+            <h3>Yours to look at</h3>
+            <p>Thirty-eight bundled themes, light and dark, a system-follow mode, and import of Zed theme files. The interface is set in IBM Plex Sans, the code in Lilex.</p>
+            <ul>
+              <li>Zoom changes only the editor and results text</li>
+              <li>Command palette, table picker, connection picker, which-key menu</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/theme-light-900.webp 900w, assets/screens/theme-light.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/theme-light.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta in its light theme: explorer, a query in the editor and a results grid on a pale background.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+      </div>
+
+      <div class="grid-more" role="list">
+        <div role="listitem"><h4><span class="mono">SSH</span>Tunnels and keychains</h4><p>Connect through an SSH tunnel with a key file, a password or ssh-agent. Passwords go to the operating-system keychain, not to a settings file.</p></div>
+        <div role="listitem"><h4><span class="mono">TXN</span>Transactions</h4><p>Begin, commit and roll back from the title bar. While one is open, closing a tab or quitting asks what to do with it.</p></div>
+        <div role="listitem"><h4><span class="mono">RO</span>Read-only connections</h4><p>Mark a connection read-only and give it an accent colour. Theta classifies each statement and refuses writes before they are sent.</p></div>
+        <div role="listitem"><h4><span class="mono">SQL</span>Formatter</h4><p>Format the document or a selection. Indent width and keyword case are settings.</p></div>
+        <div role="listitem"><h4><span class="mono">HIST</span>History</h4><p>Every statement you run is kept, up to 5,000, and searchable in the History tab.</p></div>
+        <div role="listitem"><h4><span class="mono">TAB</span>Consoles that stay</h4><p>A console keeps its text, cursor, connection and tab position across restarts. Closed a tab by mistake? Reopen it with <kbd>mod-shift-t</kbd>.</p></div>
+      </div>
+
+      <div class="keymap-shots" style="margin-top:clamp(64px,8vw,112px)">
+        <figure class="frame">
+          <div class="frame-inner">
+            <picture>
+              <source type="image/webp" srcset="assets/screens/theme-picker-900.webp 900w, assets/screens/theme-picker.webp 1600w" sizes="(min-width: 820px) 560px, 100vw">
+              <img src="assets/screens/theme-picker.png" width="1600" height="1000" loading="lazy" decoding="async"
+                   alt="Theta theme picker open above the editor, filtered by the word tokyo and listing Tokyo Moon, Tokyo Night and Tokyo Storm.">
+            </picture>
+          </div>
+          <figcaption><b>Fig. 03</b><span>Find a theme by name in the picker, opened with <kbd>mod-k</kbd> <kbd>mod-t</kbd>.</span></figcaption>
+        </figure>
+        <figure class="frame">
+          <div class="frame-inner">
+            <picture>
+              <source type="image/webp" srcset="assets/screens/connection-ssh-900.webp 900w, assets/screens/connection-ssh.webp 1600w" sizes="(min-width: 820px) 560px, 100vw">
+              <img src="assets/screens/connection-ssh.png" width="1600" height="1000" loading="lazy" decoding="async"
+                   alt="Theta New Connection dialog for PostgreSQL: host, user, database and SSL mode, an enabled SSH tunnel section with a bastion host and key file, a read-only switch and a choice of accent colours.">
+            </picture>
+          </div>
+          <figcaption><b>Fig. 04</b><span>The connection dialog, with an SSH tunnel. PostgreSQL, MySQL/MariaDB and SQLite.</span></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- KEYMAPS -->
+  <section class="section" id="keymaps" aria-labelledby="keymaps-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow"><span class="num">03</span> Keymaps</p>
+        <h2 id="keymaps-title">Three keymaps. Pick the one your hands know.</h2>
+        <p>Modal editing is a first-class citizen, not a plugin. Choose on the welcome screen, in Settings, or from the command palette, and change your mind any time.</p>
+      </div>
+
+      <div class="tabs" data-tabs>
+        <div class="tablist" role="tablist" aria-label="Keymap">
+          <button class="tab" role="tab" id="tab-helix" aria-controls="panel-helix" aria-selected="true">Helix</button>
+          <button class="tab" role="tab" id="tab-vim" aria-controls="panel-vim" aria-selected="false" tabindex="-1">Vim</button>
+          <button class="tab" role="tab" id="tab-standard" aria-controls="panel-standard" aria-selected="false" tabindex="-1">Standard</button>
+        </div>
+
+        <div class="tabpanel" role="tabpanel" id="panel-helix" aria-labelledby="tab-helix" tabindex="0">
+          <h3 class="panel-title js-hide">Helix</h3>
+          <p class="panel-note">The default. Selection first: you choose what to act on, then act. Multiple selections, registers, macros, text objects and surround.</p>
+          <div class="cheat">
+            <div class="row"><span class="keys"><kbd>w</kbd><kbd>b</kbd><kbd>e</kbd></span><span class="what">Next word start, previous word start, next word end</span></div>
+            <div class="row"><span class="keys"><kbd>x</kbd></span><span class="what">Select the line; repeat to extend downwards</span></div>
+            <div class="row"><span class="keys"><kbd>d</kbd><kbd>c</kbd><kbd>y</kbd></span><span class="what">Delete, change or yank the selection</span></div>
+            <div class="row"><span class="keys"><kbd>s</kbd></span><span class="what">Select regex matches inside the selection, with live preview</span></div>
+            <div class="row"><span class="keys"><kbd>m</kbd><kbd>s</kbd><kbd>(</kbd></span><span class="what">Surround the selections with parentheses</span></div>
+            <div class="row"><span class="keys"><kbd>space</kbd><kbd>r</kbd></span><span class="what">Run the statement under the cursor</span></div>
+            <div class="row"><span class="keys"><kbd>space</kbd><kbd>f</kbd></span><span class="what">Go to table</span></div>
+            <div class="row"><span class="keys"><kbd>space</kbd><kbd>?</kbd></span><span class="what">Command palette</span></div>
+          </div>
+        </div>
+
+        <div class="tabpanel" role="tabpanel" id="panel-vim" aria-labelledby="tab-vim" tabindex="0">
+          <h3 class="panel-title js-hide">Vim</h3>
+          <p class="panel-note">Verb, then motion. Operators, counts, text objects, registers, marks, macros, <kbd>.</kbd> repeat, Visual, Visual-line and Visual-block, and the ex line. The engine is checked against real Vim 9.1: about 3,900 tests, most of them generated from it. It is not Vim: Vimscript, <code>:map</code> and windows are out of scope.</p>
+          <div class="cheat">
+            <div class="row"><span class="keys"><kbd>c</kbd><kbd>i</kbd><kbd>(</kbd></span><span class="what">Change inside parentheses</span></div>
+            <div class="row"><span class="keys"><kbd>d</kbd><kbd>d</kbd></span><span class="what">Delete the line</span></div>
+            <div class="row"><span class="keys"><kbd>.</kbd></span><span class="what">Repeat the last change</span></div>
+            <div class="row"><span class="keys"><kbd>q</kbd><kbd>a</kbd></span><span class="what">Record a macro into register a; <kbd>@</kbd><kbd>a</kbd> replays it</span></div>
+            <div class="row"><span class="keys"><kbd>ctrl-v</kbd><kbd>I</kbd></span><span class="what">Visual-block, then insert on every line</span></div>
+            <div class="row"><span class="keys"><kbd>:</kbd><kbd>s</kbd></span><span class="what">Substitute, with <code>:g</code>, <code>:normal</code> and ranges</span></div>
+            <div class="row"><span class="keys"><kbd>g</kbd><kbd>c</kbd><kbd>c</kbd></span><span class="what">Toggle a line comment</span></div>
+            <div class="row"><span class="keys"><kbd>space</kbd><kbd>r</kbd></span><span class="what">Run the statement under the cursor (<kbd>space</kbd> is the leader)</span></div>
+          </div>
+        </div>
+
+        <div class="tabpanel" role="tabpanel" id="panel-standard" aria-labelledby="tab-standard" tabindex="0">
+          <h3 class="panel-title js-hide">Standard</h3>
+          <p class="panel-note">Not modal. Follows Zed&rsquo;s default bindings, with <kbd>ctrl</kbd> and <kbd>cmd</kbd> interchangeable.</p>
+          <div class="cheat">
+            <div class="row"><span class="keys"><kbd>ctrl-d</kbd></span><span class="what">Select the word, then add the next occurrence</span></div>
+            <div class="row"><span class="keys"><kbd>ctrl-shift-l</kbd></span><span class="what">Select all occurrences</span></div>
+            <div class="row"><span class="keys"><kbd>alt-up</kbd><kbd>alt-down</kbd></span><span class="what">Move the line up or down</span></div>
+            <div class="row"><span class="keys"><kbd>ctrl-shift-d</kbd></span><span class="what">Duplicate the line</span></div>
+            <div class="row"><span class="keys"><kbd>ctrl-/</kbd></span><span class="what">Toggle <code>--</code> comments</span></div>
+            <div class="row"><span class="keys"><kbd>ctrl-f</kbd></span><span class="what">Search prompt</span></div>
+            <div class="row"><span class="keys"><kbd>ctrl-g</kbd></span><span class="what">Go to line</span></div>
+            <div class="row"><span class="keys"><kbd>ctrl-z</kbd></span><span class="what">Undo (<kbd>ctrl-shift-z</kbd> redoes)</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cheat-foot">
+        <span>In every keymap:</span>
+        <span class="keys"><kbd>mod-enter</kbd> run</span>
+        <span class="keys"><kbd>mod-shift-enter</kbd> run all</span>
+        <span class="keys"><kbd>mod-e</kbd> explain</span>
+        <span class="keys"><kbd>mod-shift-f</kbd> format</span>
+        <span class="keys"><kbd>mod-p</kbd> go to table</span>
+        <a href="keybindings.html">Full key bindings &rarr;</a>
+      </div>
+      <p class="hint" style="margin-top:12px">mod is <kbd>cmd</kbd> on macOS and <kbd>ctrl</kbd> on Linux and Windows.</p>
+
+      <div class="keymap-shots">
+        <figure class="frame">
+          <div class="frame-inner">
+            <picture>
+              <source type="image/webp" srcset="assets/screens/keymap-choice-900.webp 900w, assets/screens/keymap-choice.webp 1600w" sizes="(min-width: 820px) 560px, 100vw">
+              <img src="assets/screens/keymap-choice.png" width="1600" height="1000" loading="lazy" decoding="async"
+                   alt="Theta welcome view with three buttons to choose the keymap, Helix, Vim or Standard, and a cheat sheet of the chosen keymap beneath them.">
+            </picture>
+          </div>
+          <figcaption><b>Fig. 05</b><span>Choose on the welcome view. The cheat sheet follows your choice.</span></figcaption>
+        </figure>
+        <figure class="frame">
+          <div class="frame-inner">
+            <picture>
+              <source type="image/webp" srcset="assets/screens/vim-visual-block-900.webp 900w, assets/screens/vim-visual-block.webp 1600w" sizes="(min-width: 820px) 560px, 100vw">
+              <img src="assets/screens/vim-visual-block.png" width="1600" height="1000" loading="lazy" decoding="async"
+                   alt="Theta editor in the Vim keymap with a block selection down the first column of three lines of a query, and a V-BLOCK mode chip in the status bar.">
+            </picture>
+          </div>
+          <figcaption><b>Fig. 06</b><span>The Vim keymap in <code>V-BLOCK</code> mode.</span></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHY THETA -->
+  <section class="section" id="why" aria-labelledby="why-title">
+    <div class="wrap">
+      <p class="eyebrow"><span class="num">04</span> <span id="why-title">Why Theta?</span></p>
+      <div class="why">
+        <div class="why-mark" aria-hidden="true"><svg viewBox="0 0 32 44"><use href="#theta"/></svg></div>
+        <div>
+          <p class="passage">In relational algebra, a theta join (<em>&theta;-join</em>) is the general form of <code>JOIN</code>: rows from two tables, combined under any condition &theta;. Theta&rsquo;s job is to write that condition for you, from the foreign keys your database declares and the ones it should have.</p>
+          <p class="formula"><b>R &#8904;<sub>&theta;</sub> S</b> = &sigma;<sub>&theta;</sub>(R &times; S)</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATUS -->
+  <section class="section" id="status" aria-labelledby="status-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow"><span class="num">05</span> Status</p>
+        <h2 id="status-title">Alpha, and honest about it.</h2>
+      </div>
+      <div class="status-grid">
+        <div>
+          <h3>What has been tested</h3>
+          <ul class="plain-list">
+            <li><b>Linux (X11):</b> every feature on this page was run by hand against PostgreSQL 16 with PostGIS, MariaDB 10.11 and SQLite.</li>
+            <li><b>SSH tunnelling:</b> covered by the driver integration tests only.</li>
+            <li><b>macOS and Windows:</b> compiled and unit-tested in CI. Nobody has used those builds by hand yet, and they are unsigned.</li>
+            <li><b>MySQL 8 plans:</b> <code>EXPLAIN</code> parsing is tested from captured fixtures; live testing was against MariaDB.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Known limitations</h3>
+          <ul class="plain-list">
+            <li>No soft wrap and no code folding. Long lines scroll sideways.</li>
+            <li>Diagnostics are heuristic and stay quiet rather than flag valid SQL. The database remains the judge.</li>
+            <li>The Vim keymap is not Vim: no Vimscript, <code>:map</code>, windows, folds or digraphs.</li>
+            <li>Undo is linear. There is no undo tree.</li>
+            <li>Read-only is enforced by Theta, not the server. A <code>SELECT</code> that calls a function with side effects runs. Use a read-only database account when it matters.</li>
+            <li>One statement runs at a time per connection, and consoles on a connection share its session and transaction.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DOWNLOAD -->
+  <section class="section" id="download" aria-labelledby="download-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow"><span class="num">06</span> Download</p>
+        <h2 id="download-title">Get the alpha.</h2>
+        <p>Builds are attached to each release on GitHub, with a <code>SHA256SUMS</code> file. Replace <code>&lt;version&gt;</code> with the release you pick.</p>
+      </div>
+
+      <div class="dl-wrap">
+        <table class="dl">
+          <thead><tr><th scope="col">Platform</th><th scope="col">File</th><th scope="col">Install</th></tr></thead>
+          <tbody>
+            <tr data-os="linux"><th scope="row">Linux x86_64<span class="you">Your system</span></th><td><code>theta-&lt;version&gt;-linux-x86_64.tar.gz</code></td><td>Extract and run <code>./install.sh</code> (installs to <code>~/.local</code>).</td></tr>
+            <tr data-os="linux"><th scope="row">Linux x86_64 <span class="mono" style="font-weight:400;color:var(--muted)">AppImage</span><span class="you">Your system</span></th><td><code>Theta-&lt;version&gt;-linux-x86_64.AppImage</code></td><td><code>chmod +x</code> and run. Built only when the release job could fetch <code>appimagetool</code>.</td></tr>
+            <tr data-os="mac-arm"><th scope="row">macOS, Apple Silicon<span class="you">Your system</span></th><td><code>Theta-&lt;version&gt;-macos-arm64.zip</code></td><td>Unzip, drag <code>Theta.app</code> to Applications.</td></tr>
+            <tr data-os="mac-intel"><th scope="row">macOS, Intel<span class="you">Your system</span></th><td><code>Theta-&lt;version&gt;-macos-x86_64.zip</code></td><td>Unzip, drag <code>Theta.app</code> to Applications.</td></tr>
+            <tr data-os="windows"><th scope="row">Windows x86_64<span class="you">Your system</span></th><td><code>theta-&lt;version&gt;-windows-x86_64.zip</code></td><td>Unzip and run <code>theta.exe</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="dl-cta">
+        <a class="btn btn-primary" href="https://github.com/JesseWilliamson/Quarry/releases/latest" data-repo="/releases/latest"><svg aria-hidden="true"><use href="#i-download"/></svg>Open the latest release</a>
+        <a class="btn" href="https://github.com/JesseWilliamson/Quarry/releases" data-repo="/releases">All releases</a>
+      </div>
+
+      <div class="notes">
+        <div><h3>macOS</h3><p>The app is ad-hoc signed but not notarised, so Gatekeeper blocks the first launch. Right-click the app, choose <em>Open</em>, then <em>Open</em> again.</p></div>
+        <div><h3>Windows</h3><p>The executable is not code-signed, so SmartScreen warns on first launch. Choose <em>More info</em>, then <em>Run anyway</em>.</p></div>
+        <div><h3>Linux</h3><p>You need a working Vulkan driver (Mesa, or the proprietary one) plus <code>libxkbcommon</code>, <code>libwayland-client</code>, <code>libxcb</code> and <code>fontconfig</code>. The AppImage uses the ones on your system.</p></div>
+      </div>
+
+      <p class="fine-print">Prefer to build it yourself? <a href="https://github.com/JesseWilliamson/Quarry#build-from-source" data-repo="#build-from-source">Build from source</a>. Try <code>theta --demo</code> for a sample SQLite database with customers, orders, stores and delivery zones.</p>
+    </div>
+  </section>
+
+</main>
+
+<!--@footer-->
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <a class="brand" href="index.html" aria-label="Theta, home"><svg class="mark" viewBox="0 0 32 44" aria-hidden="true"><use href="#theta"/></svg><span>Theta</span></a>
+        <p style="max-width:34ch">A keyboard-first database IDE for PostgreSQL, MySQL/MariaDB and SQLite. Alpha software, built in the open.</p>
+      </div>
+      <div>
+        <h2>Product</h2>
+        <ul>
+          <li><a href="index.html#features">Features</a></li>
+          <li><a href="index.html#keymaps">Keymaps</a></li>
+          <li><a href="index.html#status">Status</a></li>
+          <li><a href="index.html#download">Download</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Resources</h2>
+        <ul>
+          <li><a href="keybindings.html">Key bindings</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+          <li><a href="https://github.com/JesseWilliamson/Quarry/blob/main/docs/USER_GUIDE.md" data-repo="/blob/main/docs/USER_GUIDE.md">User guide</a></li>
+          <li><a href="https://github.com/JesseWilliamson/Quarry" data-repo="">GitHub</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Credits</h2>
+        <ul>
+          <li>Built with <a href="https://www.gpui.rs/">GPUI</a></li>
+          <li>Type: <a href="assets/fonts/IBMPlexSans-OFL.txt">IBM Plex Sans</a> and <a href="assets/fonts/Lilex-OFL.txt">Lilex</a>, SIL Open Font License 1.1</li>
+          <li>Map screenshot: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors</li>
+        </ul>
+      </div>
+    </div>
+    <div class="fine">
+      <span>This site sets no cookies, runs no analytics and makes no third-party requests.</span>
+    </div>
+  </div>
+</footer>
+<!--/@footer-->
+<script src="assets/js/site.js" defer></script>
+</body>
+</html>
