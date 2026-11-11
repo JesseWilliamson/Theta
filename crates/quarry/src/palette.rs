@@ -45,6 +45,8 @@ fn commands() -> Vec<Command> {
         cmd!("Toggle Explorer", "View", IconName::PanelLeft, ToggleExplorer),
         cmd!("Toggle Bottom Panel", "View", IconName::PanelBottom, ToggleBottomPanel),
         cmd!("Focus Explorer", "View", IconName::FolderTree, FocusExplorer),
+        cmd!("Focus Editor", "View", IconName::SquareTerminal, FocusEditor),
+        cmd!("Focus Results", "View", IconName::Table, FocusResults),
         cmd!("Close Tab", "View", IconName::X, CloseTab),
         cmd!("Select Theme…", "Appearance", IconName::Palette, SelectTheme),
         cmd!("Import Zed Theme…", "Appearance", IconName::FileDown, ImportZedTheme),

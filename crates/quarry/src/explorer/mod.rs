@@ -55,6 +55,8 @@ pub enum ExplorerEvent {
     DeleteConnection(String),
     /// The user selected/used a connection: make it the active one.
     ConnectionActivated(String),
+    /// Escape in the tree: hand keyboard focus back to the editor.
+    ReturnFocus,
 }
 
 pub struct Explorer {
@@ -934,6 +936,7 @@ impl Render for Explorer {
                 .on_action(cx.listener(|this, _: &ExplorerCollapse, _, cx| this.collapse_or_ascend(cx)))
                 .on_action(cx.listener(|this, _: &ExplorerActivate, _, cx| this.activate(cx)))
                 .on_action(cx.listener(|this, _: &ExplorerFilter, window, cx| this.focus_filter(window, cx)))
+                .on_action(cx.listener(|_, _: &ExplorerBack, _, cx| cx.emit(ExplorerEvent::ReturnFocus)))
                 .child(
                     uniform_list(
                         "explorer-rows",

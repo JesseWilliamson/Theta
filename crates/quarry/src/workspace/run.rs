@@ -274,13 +274,7 @@ impl Workspace {
             Effect::OpenTablePicker => act(window, cx, Box::new(a::OpenTablePicker)),
             Effect::OpenThemePicker => act(window, cx, Box::new(a::SelectTheme)),
             Effect::FocusExplorer => act(window, cx, Box::new(a::FocusExplorer)),
-            Effect::FocusResults => {
-                if !self.state.bottom_open {
-                    self.toggle_bottom(cx);
-                }
-                let h = self.results.read(cx).grid.read(cx).focus_handle(cx);
-                window.focus(&h, cx);
-            }
+            Effect::FocusResults => self.focus_results(window, cx),
             Effect::ToggleBottomPanel => act(window, cx, Box::new(a::ToggleBottomPanel)),
             Effect::ToggleExplorer => act(window, cx, Box::new(a::ToggleExplorer)),
             Effect::Quit => act(window, cx, Box::new(a::Quit)),
@@ -295,15 +289,44 @@ impl Workspace {
         }
     }
 
+    /// Keyboard focus to the active console's editor.
+    pub(super) fn focus_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(c) = self.active_tab.and_then(|id| self.consoles.get(&id)) {
+            let handle = c.editor.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        }
+    }
+
+    /// Keyboard focus to the results grid (opening the bottom panel if it is hidden).
+    pub(super) fn focus_results(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.state.bottom_open {
+            self.toggle_bottom(cx);
+        }
+        if self.state.bottom_tab != BottomTab::Results {
+            self.set_bottom_tab(BottomTab::Results, cx);
+        }
+        let h = self.results.read(cx).grid.read(cx).focus_handle(cx);
+        window.focus(&h, cx);
+    }
+
     fn host_command(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
         let t = cmd.trim().trim_start_matches(':');
         let (name, arg) = t.split_once(char::is_whitespace).map(|(a, b)| (a, b.trim())).unwrap_or((t, ""));
         match name {
             "theme" if !arg.is_empty() => {
-                if quarry_ui::themes::available(cx).iter().any(|n| n.name.eq_ignore_ascii_case(arg)) {
-                    quarry_ui::themes::set_theme(arg, cx);
-                } else {
-                    self.notify(NoticeKind::Error, format!("No theme named “{arg}”"), window, cx);
+                let names: Vec<String> =
+                    quarry_ui::themes::available(cx).iter().map(|n| n.name.to_string()).collect();
+                match resolve_theme(&names, arg) {
+                    Ok(name) => quarry_ui::themes::set_theme(&name, cx),
+                    Err(options) if options.is_empty() => {
+                        self.notify(NoticeKind::Error, format!("No theme named “{arg}”"), window, cx)
+                    }
+                    Err(options) => self.notify(
+                        NoticeKind::Error,
+                        format!("“{arg}” matches several themes: {}", options.join(", ")),
+                        window,
+                        cx,
+                    ),
                 }
             }
             "theme" => window.dispatch_action(Box::new(crate::actions::SelectTheme), cx),
@@ -906,6 +929,7 @@ impl Workspace {
                 self.map.update(cx, |m, cx| m.select_row(row, true, cx));
             }
             GridEvent::SelectionChanged => {}
+            GridEvent::ReturnFocus => self.focus_editor(window, cx),
             GridEvent::FollowReference { column, value } => self.follow_reference(column, value, window, cx),
         }
     }
@@ -1611,6 +1635,46 @@ impl Workspace {
 
 #[allow(dead_code)]
 fn _unused(_: Entity<()>, _: RwLock<()>) {}
+
+/// The theme `arg` names: an exact name, else the only theme containing it (case-insensitively),
+/// so `:theme tokyo` finds "Tokyo Night". `Err` carries the candidates when ambiguous (or none).
+fn resolve_theme(names: &[String], arg: &str) -> Result<String, Vec<String>> {
+    let want = arg.trim().to_lowercase();
+    if let Some(n) = names.iter().find(|n| n.to_lowercase() == want) {
+        return Ok(n.clone());
+    }
+    let hits: Vec<&String> = names.iter().filter(|n| n.to_lowercase().contains(&want)).collect();
+    match hits.as_slice() {
+        [one] => Ok((*one).clone()),
+        [] => Err(Vec::new()),
+        many => {
+            // A prefix match on a unique theme wins over incidental substrings.
+            let prefixed: Vec<&&String> = many.iter().filter(|n| n.to_lowercase().starts_with(&want)).collect();
+            match prefixed.as_slice() {
+                [one] => Ok((**one).clone()),
+                _ => Err(many.iter().map(|n| (*n).clone()).collect()),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod theme_resolve_tests {
+    use super::resolve_theme;
+
+    #[test]
+    fn exact_substring_and_ambiguous() {
+        let names: Vec<String> = ["Quarry Dark", "Quarry Light", "Tokyo Night", "Catppuccin Latte", "Catppuccin Mocha"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(resolve_theme(&names, "tokyo"), Ok("Tokyo Night".into()));
+        assert_eq!(resolve_theme(&names, "QUARRY LIGHT"), Ok("Quarry Light".into()));
+        assert_eq!(resolve_theme(&names, "mocha"), Ok("Catppuccin Mocha".into()));
+        assert_eq!(resolve_theme(&names, "quarry").unwrap_err().len(), 2);
+        assert_eq!(resolve_theme(&names, "nope"), Err(vec![]));
+    }
+}
 
 /// Where the cursor belongs after `before` was re-flowed into `after`: the position with the
 /// same number of non-whitespace characters in front of it, since formatting only changes

@@ -141,4 +141,6 @@ pub enum GridEvent {
     SelectionChanged,
     /// Double-click / Enter on a cell of a foreign-key column.
     FollowReference { column: usize, value: Value },
+    /// Escape with nothing left to dismiss: keyboard focus should go back to the editor.
+    ReturnFocus,
 }

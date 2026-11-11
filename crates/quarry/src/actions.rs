@@ -18,6 +18,8 @@ actions!(
         NextTab,
         PreviousTab,
         FocusExplorer,
+        FocusEditor,
+        FocusResults,
         // Command surfaces
         OpenCommandPalette,
         OpenTablePicker,
@@ -52,5 +54,6 @@ actions!(
         ExplorerCollapse,
         ExplorerActivate,
         ExplorerFilter,
+        ExplorerBack,
     ]
 );

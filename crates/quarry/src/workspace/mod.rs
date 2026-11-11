@@ -523,6 +523,7 @@ impl Workspace {
             ExplorerEvent::OpenTable { connection_id, schema, table } => {
                 self.open_table(connection_id, schema, table, window, cx)
             }
+            ExplorerEvent::ReturnFocus => self.focus_editor(window, cx),
             ExplorerEvent::NewConsole { connection_id, sql } => {
                 self.open_console(Some(connection_id), sql, window, cx);
             }
@@ -884,6 +885,8 @@ impl Render for Workspace {
                 }
                 this.explorer.update(cx, |e, cx| e.focus(window, cx));
             }))
+            .on_action(cx.listener(|this, _: &FocusEditor, window, cx| this.focus_editor(window, cx)))
+            .on_action(cx.listener(|this, _: &FocusResults, window, cx| this.focus_results(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleKeymap, window, cx| this.toggle_keymap(window, cx)))
             .on_action(cx.listener(|this, _: &ImportZedTheme, window, cx| this.import_zed_theme(window, cx)))
             .on_action(

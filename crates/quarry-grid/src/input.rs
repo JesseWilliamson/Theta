@@ -160,11 +160,17 @@ impl ResultGrid {
                 true
             }
             "escape" => {
-                self.helix_visual = false;
+                let was_visual = std::mem::take(&mut self.helix_visual);
+                let widened = self.sel.is_some() && !self.current_range().is_some_and(|r| r.is_single());
                 if let Some(s) = self.sel
-                    && !self.current_range().is_some_and(|r| r.is_single())
+                    && widened
                 {
                     self.set_selection(Some(Selection::single(s.cursor)), false, cx);
+                }
+                // The first Escape narrows the selection; once there is nothing left to dismiss it
+                // hands focus back, so the keyboard alone can always return to the editor.
+                if !was_visual && !widened {
+                    cx.emit(GridEvent::ReturnFocus);
                 }
                 cx.notify();
                 true
