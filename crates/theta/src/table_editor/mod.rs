@@ -415,6 +415,7 @@ impl TableEditor {
     pub fn focus_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let handle = self.name_input.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
+        self.name_input.update(cx, |s, cx| s.select_all(window, cx));
     }
 
     // ------------------------------------------------------------ changes
@@ -1049,6 +1050,7 @@ impl TableEditor {
             Cmd::CopySql => self.copy_script(cx),
             Cmd::OpenInConsole => self.open_in_console(cx),
             Cmd::Revert => self.revert(window, cx),
+            Cmd::FocusName => self.focus_name(window, cx),
             Cmd::AddSuggested => {
                 if self.section != Section::ForeignKeys {
                     self.switch_section(Section::ForeignKeys, window, cx);

@@ -35,11 +35,11 @@ impl Render for PreviewDrag {
 /// Size a cell: checkbox-width columns keep their width, the others share what is left in proportion.
 fn sized(d: gpui_kit::Div, width: f32) -> gpui_kit::Div {
     if width == 0.0 {
-        d.flex_1().min_w(px(110.))
+        d.flex_basis(px(120.)).flex_grow(2.0).flex_shrink(1.0).min_w(px(110.))
     } else if width <= 70.0 {
         d.w(px(width)).flex_none()
     } else {
-        d.flex_basis(px(width)).flex_grow(width / 100.0).flex_shrink(1.0).min_w(px(width * 0.62))
+        d.flex_basis(px(width)).flex_grow(1.0).flex_shrink(1.0).min_w(px(width * 0.62))
     }
 }
 

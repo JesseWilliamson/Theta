@@ -35,6 +35,8 @@ pub enum Cmd {
     Revert,
     /// Pick one of the foreign keys the catalog suggests for this table.
     AddSuggested,
+    /// Put the keyboard in the table name field (the grid owns Tab, so it cannot get there that way).
+    FocusName,
 }
 
 /// A key press as the grid sees it: GPUI's key name plus the modifiers that matter.
@@ -79,6 +81,7 @@ pub fn interpret(press: Press, modal: bool, pending: Pending) -> (Option<Cmd>, P
             ("o", false) => Some(Cmd::OpenInConsole),
             ("r", false) => Some(Cmd::Revert),
             ("a", false) => Some(Cmd::AddSuggested),
+            ("n", false) => Some(Cmd::FocusName),
             _ => None,
         };
         return (cmd, None);
@@ -228,6 +231,7 @@ mod tests {
         assert_eq!(interpret(alt("o"), false, None).0, Some(Cmd::OpenInConsole));
         assert_eq!(interpret(alt("r"), false, None).0, Some(Cmd::Revert));
         assert_eq!(interpret(alt("a"), false, None).0, Some(Cmd::AddSuggested));
+        assert_eq!(interpret(alt("n"), false, None).0, Some(Cmd::FocusName));
         assert_eq!(interpret(alt("x"), false, None).0, None);
     }
 
@@ -259,7 +263,7 @@ mod tests {
         let mut used: Vec<String> =
             ["z", "y", "r", "home", "end", "shift-z"].iter().map(|k| format!("{primary}-{k}")).collect();
         used.extend(
-            ["up", "down", "left", "right", "p", "c", "o", "r", "a"].iter().map(|k| format!("alt-{k}")),
+            ["up", "down", "left", "right", "p", "c", "o", "r", "a", "n"].iter().map(|k| format!("alt-{k}")),
         );
         for b in crate::keymap::bindings() {
             let Some(first) = b.keystrokes().first() else { continue };
