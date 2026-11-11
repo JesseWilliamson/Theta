@@ -32,6 +32,8 @@ theta-grid = { path = "crates/theta-grid" }
 theta-map-view = { path = "crates/theta-map-view" }
 theta-editor-view = { path = "crates/theta-editor-view" }
 theta-plan-view = { path = "crates/theta-plan-view" }
+theta-import = { path = "crates/theta-import" }
+encoding_rs = "0.8"
 
 [profile.dev]
 opt-level = 1

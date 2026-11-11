@@ -1,0 +1,18 @@
+[package]
+name = "theta-import"
+description = "Streaming CSV/TSV parsing, format sniffing, type inference and the import/export pipelines for Theta."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+theta-core.workspace = true
+theta-sql.workspace = true
+encoding_rs.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+theta-drivers = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process"] }
