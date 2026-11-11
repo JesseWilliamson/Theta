@@ -2,9 +2,10 @@
 """Generates the Theta icon SVGs (run from anywhere; writes next to this file, stdlib only).
 
 The mark is the lowercase Greek letter theta, drawn as geometry rather than typeset: a ring with a
-horizontal bar across it, as thin white line art on a quiet dark grey gradient tile. Theta is the
+short horizontal bar inside it, as thin white line art on a quiet dark grey gradient tile. Theta is the
 name of the generalised join of relational algebra (the theta join), and the product's signature
-feature is suggesting joins.
+feature is suggesting joins. The bar is short and floats inside the ring (it touches nothing), which
+keeps the letter from reading as a zero with a slash.
 
 Outputs
   theta.svg        full-detail 512 tile, used for every size >= 64 px
@@ -52,13 +53,16 @@ def fmt(v):
 #   slant    italic angle in degrees (top leans right)
 #   sw       stroke width; sw_y: stroke at the top and bottom of the ring (calligraphic contrast)
 #   bar      "inner" ends on the ring's centre line, "over" pokes out by `over`,
-#            "short" stops `gap` short of the inner edge, "cursor" runs on right by `over`
+#            "short" stops `gap` short of the inner edge, "cursor" runs on right by `over`,
+#            "frac" is `bar_len` (a fraction) of the ring's inner width, centred, so a gap is left
+#            on both sides; "len" is `bar_len` in tile units, centred. Both measure the visible
+#            length, round caps included
 #   bar_y    bar centre relative to the ring centre (negative = above)
 #   bar_w    bar stroke width (default sw)
 #   cap      "butt" or "round" (bar ends)
 #   arc_gap  half-angle in degrees removed from the ring on both sides at the bar (two arcs)
 BASE = dict(rx=96, ry=132, n=2.0, slant=0, sw=14, sw_y=None, bar="inner", over=0, gap=0, bar_y=0,
-            bar_w=None, cap="butt", arc_gap=0)
+            bar_w=None, cap="butt", arc_gap=0, bar_len=0)
 
 
 def ring_pts(P, a0=0.0, a1=360.0, steps=None):
@@ -122,6 +126,11 @@ def glyph_shapes(P):
         xl, xr = -inner + P["gap"], inner - P["gap"]
     elif mode == "cursor":
         xl, xr = -w, w + P["over"]
+    elif mode in ("frac", "len"):
+        length = P["bar_len"] * 2 * inner if mode == "frac" else P["bar_len"]
+        # A round cap sticks out by half the stroke past the end of the path.
+        half = (length - (bw if P["cap"] == "round" else 0)) / 2
+        xl, xr = -half, half
     else:
         raise ValueError(mode)
     bar = path(skew(P, [(xl, by), (xr, by)]))
@@ -186,31 +195,40 @@ def svg_mark(P, pad=6):
 
 # ---- the chosen drawings ------------------------------------------------------------------------
 # Upright, because the small drawings must sit on whole pixels and a skewed ring cannot. The ring is
-# 0.77 as wide as it is tall, the bar a little thinner than the ring, and it overshoots the ring by
-# under one stroke so the mark cannot be read as a zero, a no-entry sign or an "O".
-FULL = dict(BASE, rx=98, ry=130, sw=15, bar_w=13, bar="over", over=11)
+# 0.77 as wide as it is tall. The bar is deliberately short: 55% of the ring's inner width, centred
+# and a hair above the middle, with a clear gap to the ring on both sides. Spanning the whole gap
+# made the letter read as a Phi-like "O with a line"; with air around it the eye reads the bar as
+# the theta's crossbar. It is a little lighter than the ring (13 against 15) and has butt ends, so
+# it cannot be mistaken for the dash of a no-entry sign.
+FULL = dict(BASE, rx=98, ry=130, sw=15, bar_w=13, bar="frac", bar_len=0.55, bar_y=-5)
 # Heavier, uniform strokes for 24-48 px in-app use; strokes only (no fills) so the renderer's lack of
 # fill-opacity support cannot matter.
-MARK = dict(BASE, rx=98, ry=130, sw=20, bar="over", over=12)
+MARK = dict(BASE, rx=98, ry=130, sw=20, bar_w=17, bar="frac", bar_len=0.55, bar_y=-6)
 
 
-def on_grid(px, outer_w, outer_h, stroke, over=1):
+def on_grid(px, outer_w, outer_h, stroke, bar_len, bar_w=None, bar_y=0):
     """A drawing whose every edge lies on a whole pixel of a `px` pixel icon.
 
-    Sizes are in pixels. The glyph is centred on the tile and the bar sits on pixel rows, so
-    both counters (above and below the bar) are whole numbers of pixels tall.
+    All sizes are in pixels. The ring is centred on the tile, `bar_len` is the visible bar length
+    and `bar_y` (negative = up) moves its centre from the ring's centre; choose them so the bar
+    covers whole pixel rows and leaves whole pixels of gap to the ring on both sides.
     """
     u = 512 / px
+    bw = bar_w or stroke
     return dict(BASE, rx=(outer_w - stroke) / 2 * u, ry=(outer_h - stroke) / 2 * u, sw=stroke * u,
-                bar="over", over=(stroke / 2 + over) * u, bar_w=stroke * u)
+                bar="len", bar_len=bar_len * u, bar_w=bw * u, bar_y=bar_y * u)
 
 
-# 32 px grid (also used at 48): 14 x 18 px ring (the full icon's 0.77 proportion), 2 px stroke, counters 6 px.
-MID = on_grid(32, 14, 18, 2)
-# 16 px grid: 8 x 10 px ring, 2 px stroke, counters 2 px above and below the 2 px bar.
-SMALL = on_grid(16, 8, 10, 2, over=0)
-# 24 px grid: 10 x 14 px ring, 2 px stroke, counters 4 px.
-SMALL24 = on_grid(24, 10, 14, 2)
+# 32 px grid (also used at 48): 14 x 18 px ring (the full icon's 0.77 proportion), 2 px stroke, inner
+# 10 x 14. The bar is 6 px long (60%), 2 px gaps either side and 6 px counters above and below.
+MID = on_grid(32, 14, 18, 2, 6)
+# 16 px grid: 10 x 12 px ring, 2 px stroke, inner 6 x 8. The bar is 4 px long and 1 px thick with 1 px
+# gaps to the ring, and sits on the row that leaves 3 px above and 4 below (the large drawing's bar is
+# also a hair high and lighter than the ring). An 8 x 10 ring would leave only 4 px inside, where a bar
+# and two gaps do not fit; a 2 px bar in this counter looks like a block rather than a crossbar.
+SMALL = on_grid(16, 10, 12, 2, 4, 1, -0.5)
+# 24 px grid: 12 x 16 px ring, 2 px stroke, inner 8 x 12: 4 px bar, 2 px gaps, 5 px counters.
+SMALL24 = on_grid(24, 12, 16, 2, 4)
 
 
 def main():
