@@ -5,6 +5,7 @@
 //! No I/O and no async: everything is a function of its arguments so it can run on
 //! every keystroke and be tested without a database.
 
+pub mod admin;
 pub mod complete;
 pub mod ddl;
 pub mod export;

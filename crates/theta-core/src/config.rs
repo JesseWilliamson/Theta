@@ -64,6 +64,14 @@ pub enum Feature {
     EditRows,
     /// BEGIN / COMMIT across statements.
     Transactions,
+    /// The Sessions tab: list server sessions, cancel a query, terminate a session.
+    Sessions,
+    /// The Roles tab: list roles / users and their privileges.
+    Roles,
+    /// Changing roles: create, alter, grant, revoke, drop.
+    RoleEdit,
+    /// Export Database: Theta's own SQL dump.
+    Dump,
 }
 
 /// Why each feature is missing, `None` when it works. One row per kind keeps the answer in one place.
@@ -77,6 +85,10 @@ pub struct Features {
     pub import: Option<&'static str>,
     pub edit_rows: Option<&'static str>,
     pub transactions: Option<&'static str>,
+    pub sessions: Option<&'static str>,
+    pub roles: Option<&'static str>,
+    pub role_edit: Option<&'static str>,
+    pub dump: Option<&'static str>,
 }
 
 /// Everything the application needs to know about a kind of database that is not SQL
@@ -136,6 +148,10 @@ const NO_FEATURES: Features = Features {
     import: None,
     edit_rows: None,
     transactions: None,
+    sessions: None,
+    roles: None,
+    role_edit: None,
+    dump: None,
 };
 
 const SERVER: Sections = Sections { network: true, ssl: true, ssh: true, file: false, create_file: false };
@@ -185,7 +201,18 @@ static SQLITE: KindInfo = KindInfo {
     database_placeholder: "",
     path_placeholder: "/path/to/database.sqlite",
     family: Family::Sqlite,
-    features: NO_FEATURES,
+    features: Features {
+        sessions: Some(
+            "an embedded database runs inside Theta's own process and has no server sessions to list",
+        ),
+        roles: Some(
+            "an embedded database has no users or roles; access is whatever the file's permissions allow",
+        ),
+        role_edit: Some(
+            "an embedded database has no users or roles; access is whatever the file's permissions allow",
+        ),
+        ..NO_FEATURES
+    },
     ssl_labels: [None; 4],
     tls_port: None,
 };
@@ -209,6 +236,18 @@ static COCKROACH: KindInfo = KindInfo {
         ),
         create_table: Some(
             "the generated CREATE TABLE (identity columns, types) is not verified against CockroachDB yet",
+        ),
+        sessions: Some(
+            "CockroachDB has its own SHOW SESSIONS / CANCEL SESSION statements and no pg_cancel_backend; not supported yet",
+        ),
+        roles: Some(
+            "CockroachDB's roles live in system tables with different columns than PostgreSQL's; not supported yet",
+        ),
+        role_edit: Some(
+            "CockroachDB's roles live in system tables with different columns than PostgreSQL's; not supported yet",
+        ),
+        dump: Some(
+            "the generated CREATE TABLE is not verified against CockroachDB yet; use Run SQL Script to restore a dump made elsewhere",
         ),
         ..NO_FEATURES
     },
@@ -241,6 +280,18 @@ static REDSHIFT: KindInfo = KindInfo {
         import: Some("Redshift has no savepoints and loads data with COPY from S3; use COPY in a console"),
         edit_rows: Some(
             "primary keys are informational on Redshift (not enforced), so a row has no reliable identity",
+        ),
+        sessions: Some(
+            "Redshift sessions are in STV_SESSIONS and its roles in PG_USER / SVV_*, not in the PostgreSQL catalogs this tab reads; not supported yet",
+        ),
+        roles: Some(
+            "Redshift sessions are in STV_SESSIONS and its roles in PG_USER / SVV_*, not in the PostgreSQL catalogs this tab reads; not supported yet",
+        ),
+        role_edit: Some(
+            "Redshift sessions are in STV_SESSIONS and its roles in PG_USER / SVV_*, not in the PostgreSQL catalogs this tab reads; not supported yet",
+        ),
+        dump: Some(
+            "Redshift needs its own column attributes (DISTKEY, SORTKEY, ENCODE) that the generated CREATE TABLE does not carry; use UNLOAD or pg_dump",
         ),
         ..NO_FEATURES
     },
@@ -281,6 +332,16 @@ static YUGABYTE: KindInfo = KindInfo {
              rewrites in particular); not supported yet",
         ),
         create_table: Some("the generated CREATE TABLE is not verified against YugabyteDB yet"),
+        sessions: Some(
+            "YugabyteDB is not verified against the PostgreSQL catalogs this tab reads (its sessions are spread over several nodes); not supported yet",
+        ),
+        roles: Some(
+            "YugabyteDB is not verified against the PostgreSQL catalogs this tab reads (its sessions are spread over several nodes); not supported yet",
+        ),
+        role_edit: Some(
+            "YugabyteDB is not verified against the PostgreSQL catalogs this tab reads (its sessions are spread over several nodes); not supported yet",
+        ),
+        dump: Some("the generated CREATE TABLE is not verified against YugabyteDB yet; use ysql_dump"),
         ..NO_FEATURES
     },
     ssl_labels: PG_SSL,
@@ -298,7 +359,19 @@ static TIDB: KindInfo = KindInfo {
     database_placeholder: "database name",
     path_placeholder: "",
     family: Family::MySql,
-    features: NO_FEATURES,
+    features: Features {
+        sessions: Some(
+            "TiDB uses KILL TIDB with cluster-wide connection ids and has no pg-style lock views; not supported yet",
+        ),
+        roles: Some(
+            "TiDB's mysql.user differs from MySQL's and roles are managed differently; not supported yet",
+        ),
+        role_edit: Some(
+            "TiDB's mysql.user differs from MySQL's and roles are managed differently; not supported yet",
+        ),
+        dump: Some("the generated CREATE TABLE is not verified against TiDB yet; use mysqldump or Dumpling"),
+        ..NO_FEATURES
+    },
     ssl_labels: PG_SSL,
     tls_port: None,
 };
@@ -317,6 +390,15 @@ static DUCKDB: KindInfo = KindInfo {
     features: Features {
         import: Some(
             "DuckDB has no savepoints, which the import's per-batch recovery needs; use COPY or read_csv() in a console",
+        ),
+        sessions: Some(
+            "an embedded database runs inside Theta's own process and has no server sessions to list",
+        ),
+        roles: Some(
+            "an embedded database has no users or roles; access is whatever the file's permissions allow",
+        ),
+        role_edit: Some(
+            "an embedded database has no users or roles; access is whatever the file's permissions allow",
         ),
         ..NO_FEATURES
     },
@@ -339,6 +421,12 @@ static SQLSERVER: KindInfo = KindInfo {
         modify_table: Some("the table editor does not generate T-SQL ALTER TABLE yet"),
         create_table: Some("the table editor does not generate T-SQL CREATE TABLE yet"),
         import: Some("the CSV import uses savepoints, which T-SQL spells differently; not supported yet"),
+        role_edit: Some(
+            "Theta lists SQL Server logins, users and role membership (read-only); changing them needs T-SQL that is not generated yet",
+        ),
+        dump: Some(
+            "the DDL generator does not emit T-SQL (CREATE TABLE with IDENTITY, bracket quoting) yet; Run SQL Script still restores a script made elsewhere",
+        ),
         ..NO_FEATURES
     },
     ssl_labels: [
@@ -372,6 +460,13 @@ static CLICKHOUSE: KindInfo = KindInfo {
             "ClickHouse tables have no row identity (a primary key is not unique), so rows cannot be edited here",
         ),
         transactions: Some("ClickHouse over HTTP has no transactions"),
+        roles: Some(
+            "ClickHouse access control is SQL-driven (CREATE USER ... / system.users) and its 18.x servers predate it; not supported yet",
+        ),
+        role_edit: Some("ClickHouse access control is not supported yet"),
+        dump: Some(
+            "a ClickHouse table needs an ENGINE and ORDER BY, which the generated CREATE TABLE does not carry; use clickhouse-client",
+        ),
         ..NO_FEATURES
     },
     ssl_labels: [Some("HTTP"), None, None, Some("HTTPS")],
@@ -427,6 +522,10 @@ impl DatabaseKind {
             Feature::Import => f.import,
             Feature::EditRows => f.edit_rows,
             Feature::Transactions => f.transactions,
+            Feature::Sessions => f.sessions,
+            Feature::Roles => f.roles,
+            Feature::RoleEdit => f.role_edit,
+            Feature::Dump => f.dump,
         }
     }
 
