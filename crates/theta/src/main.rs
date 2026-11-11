@@ -4,6 +4,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    // Before anything reads or creates the new directories (the panic hook included).
+    theta_ui::legacy::migrate_app_dirs();
     theta::panic::install(theta_ui::config_dir());
     let demo_env = std::env::var("THETA_DEMO").is_ok_and(|v| v == "1");
     let args = match theta::cli::parse(std::env::args().skip(1), demo_env) {

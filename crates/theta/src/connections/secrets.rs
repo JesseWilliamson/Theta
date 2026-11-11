@@ -1,7 +1,7 @@
 //! Connection secrets: OS keychain when available, memory otherwise.
 //!
 //! Passwords never touch `connections.json`. They are stored as one JSON blob
-//! per connection id in the platform keychain (service "theta"). If the
+//! per connection id in the platform keychain (service "theta"; the former "quarry" service is read as a fallback). If the
 //! keychain cannot be used (no Secret Service on a headless machine, a locked
 //! keyring, a sandbox) the secrets of the running session are kept in memory so
 //! connecting still works, and [`SecretStore::persistent`] reports `false` so the
@@ -82,26 +82,68 @@ pub trait SecretBackend: Send + Sync {
     fn delete(&self, id: &str) -> Result<(), String>;
 }
 
-pub struct KeyringBackend;
+pub struct KeyringBackend {
+    service: &'static str,
+}
 
 const SERVICE: &str = "theta";
+/// The keychain service name before the rename from Quarry.
+const LEGACY_SERVICE: &str = "quarry";
+
+impl KeyringBackend {
+    /// Reads fall back to the pre-rename service so saved passwords survive the upgrade.
+    pub fn system() -> impl SecretBackend {
+        WithLegacy {
+            current: KeyringBackend { service: SERVICE },
+            legacy: KeyringBackend { service: LEGACY_SERVICE },
+        }
+    }
+}
 
 impl SecretBackend for KeyringBackend {
     fn set(&self, id: &str, value: &str) -> Result<(), String> {
-        keyring::Entry::new(SERVICE, id).and_then(|e| e.set_password(value)).map_err(|e| e.to_string())
+        keyring::Entry::new(self.service, id).and_then(|e| e.set_password(value)).map_err(|e| e.to_string())
     }
     fn get(&self, id: &str) -> Result<Option<String>, String> {
-        match keyring::Entry::new(SERVICE, id).and_then(|e| e.get_password()) {
+        match keyring::Entry::new(self.service, id).and_then(|e| e.get_password()) {
             Ok(v) => Ok(Some(v)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(e.to_string()),
         }
     }
     fn delete(&self, id: &str) -> Result<(), String> {
-        match keyring::Entry::new(SERVICE, id).and_then(|e| e.delete_credential()) {
+        match keyring::Entry::new(self.service, id).and_then(|e| e.delete_credential()) {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(e.to_string()),
         }
+    }
+}
+
+/// Writes go to `current`; a read that misses there is answered from `legacy` and copied
+/// forward, so each secret is migrated the first time it is used. The legacy entry is left
+/// in place: deleting a user's only copy of a password is not worth the tidiness, and
+/// `delete` removes both so a removed connection leaves nothing behind.
+struct WithLegacy<B> {
+    current: B,
+    legacy: B,
+}
+
+impl<B: SecretBackend> SecretBackend for WithLegacy<B> {
+    fn set(&self, id: &str, value: &str) -> Result<(), String> {
+        self.current.set(id, value)
+    }
+    fn get(&self, id: &str) -> Result<Option<String>, String> {
+        if let Some(v) = self.current.get(id)? {
+            return Ok(Some(v));
+        }
+        // A failing legacy lookup must not hide the (successful) "no entry" answer above.
+        let Some(v) = self.legacy.get(id).ok().flatten() else { return Ok(None) };
+        let _ = self.current.set(id, &v);
+        Ok(Some(v))
+    }
+    fn delete(&self, id: &str) -> Result<(), String> {
+        let _ = self.legacy.delete(id);
+        self.current.delete(id)
     }
 }
 
@@ -125,7 +167,7 @@ impl SecretStore {
     }
 
     pub fn system() -> Self {
-        Self::new(Some(Box::new(KeyringBackend)))
+        Self::new(Some(Box::new(KeyringBackend::system())))
     }
 
     /// Memory only (used by tests and when the keychain is known to be absent).
@@ -277,6 +319,22 @@ mod tests {
             auth: SshAuth::KeyFile { path: "/k".into(), passphrase: Some("phrase".into()) },
         });
         c
+    }
+
+    #[test]
+    fn legacy_service_secrets_are_read_and_copied_forward() {
+        let (current, legacy) = (Arc::new(FakeBackend::default()), Arc::new(FakeBackend::default()));
+        legacy.set("c1", "old-secret").unwrap();
+        let b = WithLegacy { current: current.clone(), legacy: legacy.clone() };
+        assert_eq!(b.get("c1").unwrap().as_deref(), Some("old-secret"));
+        assert_eq!(current.get("c1").unwrap().as_deref(), Some("old-secret"));
+        assert_eq!(b.get("missing").unwrap(), None);
+        // A value in the current service always wins over a stale legacy one.
+        current.set("c1", "new-secret").unwrap();
+        assert_eq!(b.get("c1").unwrap().as_deref(), Some("new-secret"));
+        // Deleting a connection's secret removes both copies.
+        b.delete("c1").unwrap();
+        assert_eq!((current.get("c1").unwrap(), legacy.get("c1").unwrap()), (None, None));
     }
 
     #[test]

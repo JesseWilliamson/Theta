@@ -193,7 +193,13 @@ impl Settings {
                 Err(e) => warnings.push(format!("settings.json: ignoring \"{key}\" ({e})")),
             }
         }
-        let settings: Settings = serde_json::from_value(current).unwrap_or_default();
+        let mut settings: Settings = serde_json::from_value(current).unwrap_or_default();
+        // Settings written before the Quarry -> Theta rename name the old themes.
+        for name in [&mut settings.theme, &mut settings.light_theme, &mut settings.dark_theme] {
+            if let Some(new) = crate::legacy::renamed_theme(name) {
+                *name = new.into();
+            }
+        }
         (settings.sanitized(), warnings)
     }
 
@@ -342,6 +348,20 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quarry_theme_names_in_old_settings_files_are_migrated_silently() {
+        let text = r#"{"theme":"Quarry Dark","light_theme":"Quarry Light","dark_theme":"quarry dark","keymap":"vim"}"#;
+        let (s, warnings) = Settings::parse_lenient(text);
+        assert_eq!(
+            (s.theme.as_str(), s.light_theme.as_str(), s.dark_theme.as_str()),
+            ("Theta Dark", "Theta Light", "Theta Dark")
+        );
+        assert_eq!(s.keymap, KeymapMode::Vim);
+        assert!(warnings.is_empty());
+        let (other, _) = Settings::parse_lenient(r#"{"theme":"Tokyo Night"}"#);
+        assert_eq!(other.theme, "Tokyo Night");
+    }
 
     #[test]
     fn defaults_round_trip() {

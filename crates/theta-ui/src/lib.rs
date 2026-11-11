@@ -15,6 +15,7 @@ mod db_icon;
 mod fonts;
 pub mod fuzzy;
 mod keyhint;
+pub mod legacy;
 mod panel;
 pub mod picker;
 pub mod settings;
