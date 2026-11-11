@@ -10,6 +10,7 @@
 
 mod assets;
 pub mod colors;
+pub mod contrast;
 mod db_icon;
 mod fonts;
 pub mod fuzzy;

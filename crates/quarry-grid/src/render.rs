@@ -4,7 +4,6 @@
 //! from a cache, so frame cost depends on the viewport, not the result size.
 
 use crate::actions::{EditCancel, EditNext, EditPrev, FilterClose, NextCell, PrevCell};
-use crate::contrast::ensure_contrast;
 use crate::editing::After;
 use crate::format::{CellKind, format_count, format_duration};
 use crate::grid::{CachedCell, HEADER_H, ROW_H, ResultGrid};
@@ -30,6 +29,7 @@ use gpui_kit::{
     div, px,
 };
 use quarry_core::TypeKind;
+use quarry_ui::contrast::ensure_contrast;
 use quarry_ui::{CHROME_TEXT_SIZE, Settings, tool_button};
 use std::time::Instant;
 

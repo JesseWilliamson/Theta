@@ -133,6 +133,7 @@ pub fn preview(name: &str, cx: &mut App) -> bool {
     };
     Theme::update(cx, |theme| {
         theme.apply_config(&config);
+        ensure_readable_muted_text(theme);
         // Fonts are a user setting, not part of a colour theme, so they win
         // over whatever a theme file might say.
         theme.font_family = ui_family.into();
@@ -141,6 +142,22 @@ pub fn preview(name: &str, cx: &mut App) -> bool {
         theme.mono_font_size = px(mono_size);
     });
     true
+}
+
+/// Minimum contrast for secondary text (labels, hints, line numbers, column types).
+const MUTED_MIN_CONTRAST: f32 = 4.0;
+
+/// Many themes, bundled and imported, ship a `muted.foreground` that is barely readable on
+/// their own surfaces (2.2:1 on Catppuccin Latte, 2.4:1 on Ayu Dark and Tokyo Storm). Every
+/// panel draws secondary text with it, so rather than patching individual themes the colour
+/// is pulled toward the foreground until it passes on every surface it is drawn on.
+fn ensure_readable_muted_text(theme: &mut Theme) {
+    let surfaces = [theme.background, theme.sidebar, theme.tab_bar, theme.secondary, theme.muted];
+    let mut muted = theme.muted_foreground;
+    for surface in surfaces {
+        muted = crate::contrast::ensure_contrast(muted, surface, theme.foreground, MUTED_MIN_CONTRAST);
+    }
+    theme.muted_foreground = muted;
 }
 
 /// (Re)apply whatever the settings say; falls back to the mode defaults when
@@ -193,6 +210,29 @@ mod tests {
             assert!(!set.themes.is_empty(), "{file} has no themes");
         }
         assert_eq!(BUNDLED.len(), 22, "21 gpui-kit theme files plus quarry.json");
+    }
+
+    #[test]
+    fn bundled_themes_get_readable_muted_text() {
+        use crate::contrast::ratio;
+        use gpui_kit::component::ThemeRegistry;
+        let mut app = gpui_kit::TestAppContext::single();
+        app.update(|cx| {
+            crate::init(cx);
+            let names: Vec<_> = ThemeRegistry::global(cx).themes().keys().cloned().collect();
+            assert!(names.len() >= 38);
+            for name in names {
+                assert!(preview(&name, cx));
+                let t = cx.theme();
+                let rgb = |c: gpui_kit::Hsla| {
+                    let r = c.to_rgb();
+                    [r.r, r.g, r.b]
+                };
+                // On the editor/panel background: the surface all text sits on.
+                let r = ratio(rgb(t.muted_foreground), rgb(t.background));
+                assert!(r >= MUTED_MIN_CONTRAST - 0.05, "{name}: muted text is {r:.2}:1 on the background");
+            }
+        });
     }
 
     #[test]

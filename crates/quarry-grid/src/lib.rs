@@ -9,7 +9,6 @@
 
 mod actions;
 pub mod compare;
-pub mod contrast;
 pub mod copy;
 mod editing;
 pub mod filter;
