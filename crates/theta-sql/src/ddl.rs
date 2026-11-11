@@ -1415,9 +1415,21 @@ pub enum Fix {
     MakeNotNull(u32),
 }
 
+/// Which part of the table an [`Issue`] is about, so an editor can mark the right section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    Table,
+    Columns,
+    Keys,
+    ForeignKeys,
+    Indexes,
+    Checks,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Issue {
     pub severity: Severity,
+    pub scope: Scope,
     pub message: String,
     /// The column concerned, if any.
     pub column: Option<u32>,
@@ -1427,8 +1439,20 @@ pub struct Issue {
 /// Problems that can be seen from the draft alone. Errors block Execute; warnings do not.
 pub fn validate(d: &TableDraft, kind: DatabaseKind) -> Vec<Issue> {
     let mut out = Vec::new();
-    let err =
-        |m: String, c: Option<u32>| Issue { severity: Severity::Error, message: m, column: c, fix: None };
+    let err = |m: String, c: Option<u32>| Issue {
+        severity: Severity::Error,
+        scope: if c.is_some() { Scope::Columns } else { Scope::Table },
+        message: m,
+        column: c,
+        fix: None,
+    };
+    let err_in = |scope: Scope, m: String| Issue {
+        severity: Severity::Error,
+        scope,
+        message: m,
+        column: None,
+        fix: None,
+    };
     if d.name.trim().is_empty() {
         out.push(err("The table needs a name.".into(), None));
     }
@@ -1459,7 +1483,7 @@ pub fn validate(d: &TableDraft, kind: DatabaseKind) -> Vec<Issue> {
     }
     if let Some(pk) = &d.primary_key {
         if pk.columns.is_empty() {
-            out.push(err("The primary key has no columns.".into(), None));
+            out.push(err_in(Scope::Keys, "The primary key has no columns.".into()));
         }
         for id in &pk.columns {
             if let Some(c) = d.col(*id)
@@ -1467,6 +1491,7 @@ pub fn validate(d: &TableDraft, kind: DatabaseKind) -> Vec<Issue> {
             {
                 out.push(Issue {
                     severity: Severity::Warning,
+                    scope: Scope::Keys,
                     message: format!("Primary key column {} allows NULL; it will be made NOT NULL.", c.name),
                     column: Some(c.id),
                     fix: Some(Fix::MakeNotNull(c.id)),
@@ -1477,7 +1502,7 @@ pub fn validate(d: &TableDraft, kind: DatabaseKind) -> Vec<Issue> {
     let known = |ids: &[u32]| ids.iter().all(|i| d.col(*i).is_some());
     for u in &d.uniques {
         if u.columns.is_empty() || !known(&u.columns) {
-            out.push(err("A unique constraint refers to a missing column.".into(), None));
+            out.push(err_in(Scope::Keys, "A unique constraint refers to a missing column.".into()));
         }
     }
     for f in &d.foreign_keys {
@@ -1486,30 +1511,30 @@ pub fn validate(d: &TableDraft, kind: DatabaseKind) -> Vec<Issue> {
             || f.ref_table.trim().is_empty()
             || f.ref_columns.is_empty()
         {
-            out.push(err("A foreign key is incomplete.".into(), None));
+            out.push(err_in(Scope::ForeignKeys, "A foreign key is incomplete.".into()));
         } else if f.columns.len() != f.ref_columns.len() {
-            out.push(err(
+            out.push(err_in(
+                Scope::ForeignKeys,
                 format!(
                     "Foreign key to {} pairs {} columns with {}.",
                     f.ref_table,
                     f.columns.len(),
                     f.ref_columns.len()
                 ),
-                None,
             ));
         }
     }
     for i in &d.indexes {
         if i.raw.is_none() && (i.columns.is_empty() || !known(&i.columns)) {
-            out.push(err(format!("Index {} has no valid columns.", i.name), None));
+            out.push(err_in(Scope::Indexes, format!("Index {} has no valid columns.", i.name)));
         }
         if i.name.trim().is_empty() {
-            out.push(err("An index has no name.".into(), None));
+            out.push(err_in(Scope::Indexes, "An index has no name.".into()));
         }
     }
     for c in &d.checks {
         if c.expression.trim().is_empty() {
-            out.push(err("A check constraint is empty.".into(), None));
+            out.push(err_in(Scope::Checks, "A check constraint is empty.".into()));
         }
     }
     out
@@ -1531,6 +1556,11 @@ pub fn apply_fix(d: &mut TableDraft, fix: &Fix) {
 pub fn check_foreign_keys(d: &TableDraft, catalog: &Catalog) -> Vec<Issue> {
     let mut out = Vec::new();
     for f in &d.foreign_keys {
+        // A table that points at itself: for a table being created the catalog cannot know it yet, and
+        // the draft's own columns are what the key refers to.
+        if f.ref_table.eq_ignore_ascii_case(&d.name) {
+            continue;
+        }
         let Some((_, rt)) = catalog
             .find_table(f.ref_schema.as_deref().or(d.schema.as_deref()), &f.ref_table)
             .or_else(|| catalog.find_table(None, &f.ref_table))
@@ -1538,6 +1568,7 @@ pub fn check_foreign_keys(d: &TableDraft, catalog: &Catalog) -> Vec<Issue> {
             if !f.ref_table.is_empty() {
                 out.push(Issue {
                     severity: Severity::Error,
+                    scope: Scope::ForeignKeys,
                     message: format!("Referenced table {} does not exist.", f.ref_table),
                     column: None,
                     fix: None,
@@ -1555,6 +1586,7 @@ pub fn check_foreign_keys(d: &TableDraft, catalog: &Catalog) -> Vec<Issue> {
                 if d.col(*mine).is_some() {
                     out.push(Issue {
                         severity: Severity::Error,
+                        scope: Scope::ForeignKeys,
                         message: format!("{} has no column {theirs}.", rt.name),
                         column: Some(*mine),
                         fix: None,
@@ -1566,6 +1598,7 @@ pub fn check_foreign_keys(d: &TableDraft, catalog: &Catalog) -> Vec<Issue> {
             if family(&a.data_type) != b.kind {
                 out.push(Issue {
                     severity: Severity::Warning,
+                    scope: Scope::ForeignKeys,
                     message: format!(
                         "{} ({}) references {}.{} ({}): the types differ and the server may refuse or cast.",
                         a.name, a.data_type, rt.name, b.name, b.data_type
@@ -1573,6 +1606,78 @@ pub fn check_foreign_keys(d: &TableDraft, catalog: &Catalog) -> Vec<Issue> {
                     column: Some(a.id),
                     fix: None,
                 });
+            }
+        }
+    }
+    out
+}
+
+/// Name clashes the draft cannot see by itself: the table name against the tables of its schema (unless it
+/// is the table's own name before the edit), and constraint or index names used twice in the draft.
+/// PostgreSQL and SQLite keep index names schema-wide, so an index named like another table's index fails
+/// at the server; this reports the clashes the catalog proves.
+pub fn check_names(
+    d: &TableDraft,
+    original_name: Option<&str>,
+    catalog: &Catalog,
+    kind: DatabaseKind,
+) -> Vec<Issue> {
+    let mut out = Vec::new();
+    let issue = |scope: Scope, message: String| Issue {
+        severity: Severity::Error,
+        scope,
+        message,
+        column: None,
+        fix: None,
+    };
+    let name = d.name.trim();
+    let own = original_name.is_some_and(|o| o.eq_ignore_ascii_case(name));
+    if !name.is_empty() && !own {
+        let schema = d.schema.as_deref().or(catalog.default_schema.as_deref());
+        let clash = schema
+            .and_then(|s| catalog.schema(s))
+            .is_some_and(|s| s.tables.iter().any(|t| t.name.eq_ignore_ascii_case(name)));
+        if clash {
+            out.push(issue(Scope::Table, format!("A table named {name} already exists.")));
+        }
+    }
+    let mut seen: Vec<(String, &'static str)> = Vec::new();
+    let mut note = |scope: Scope, n: &str, what: &'static str, out: &mut Vec<Issue>| {
+        if n.is_empty() {
+            return;
+        }
+        let key = n.to_ascii_lowercase();
+        if let Some((_, other)) = seen.iter().find(|(k, _)| *k == key) {
+            out.push(issue(scope, format!("The name {n} is used by a {what} and by a {other}.")));
+        } else {
+            seen.push((key, what));
+        }
+    };
+    for u in &d.uniques {
+        note(Scope::Keys, u.name.as_deref().unwrap_or(""), "unique constraint", &mut out);
+    }
+    for f in &d.foreign_keys {
+        note(Scope::ForeignKeys, f.name.as_deref().unwrap_or(""), "foreign key", &mut out);
+    }
+    for c in &d.checks {
+        note(Scope::Checks, c.name.as_deref().unwrap_or(""), "check", &mut out);
+    }
+    // Index names are per table in MySQL; elsewhere they share the schema with every other index.
+    for i in &d.indexes {
+        note(Scope::Indexes, &i.name, "index", &mut out);
+        if kind != DatabaseKind::MySql {
+            let schema = d.schema.as_deref().or(catalog.default_schema.as_deref());
+            let elsewhere = schema.and_then(|s| catalog.schema(s)).is_some_and(|s| {
+                s.tables.iter().any(|t| {
+                    !t.name.eq_ignore_ascii_case(original_name.unwrap_or(name))
+                        && t.indexes.iter().any(|x| x.name.eq_ignore_ascii_case(&i.name))
+                })
+            });
+            if elsewhere && !i.name.is_empty() {
+                out.push(issue(
+                    Scope::Indexes,
+                    format!("An index named {} already exists on another table.", i.name),
+                ));
             }
         }
     }
@@ -2297,5 +2402,69 @@ mod tests {
         // Inside a session it cannot run at all.
         let err = plan_script(&stmts, Sqlite, &Session::Joined { begin: vec![] }).unwrap_err();
         assert!(err.contains("outside a transaction"), "{err}");
+    }
+
+    #[test]
+    fn issues_say_which_section_they_belong_to() {
+        let mut d = customers(Postgres);
+        d.columns[1].name.clear();
+        d.primary_key = Some(KeyDraft { id: 5, name: None, columns: vec![] });
+        d.indexes[0].name.clear();
+        d.checks.push(CheckDraft { id: 20, name: None, expression: " ".into() });
+        d.foreign_keys.push(ForeignKeyDraft {
+            id: 21,
+            name: None,
+            columns: vec![],
+            ref_schema: None,
+            ref_table: String::new(),
+            ref_columns: vec![],
+            on_delete: None,
+            on_update: None,
+            deferrable: false,
+            initially_deferred: false,
+        });
+        let scopes: Vec<Scope> = validate(&d, Postgres).iter().map(|i| i.scope).collect();
+        for want in [Scope::Columns, Scope::Keys, Scope::Indexes, Scope::Checks, Scope::ForeignKeys] {
+            assert!(scopes.contains(&want), "{want:?} missing from {scopes:?}");
+        }
+        let empty = validate(&TableDraft::default(), Postgres);
+        assert!(empty.iter().all(|i| i.scope == Scope::Table));
+    }
+
+    #[test]
+    fn name_clashes_are_found_against_the_catalog() {
+        let existing = Table { name: "orders".into(), ..Default::default() };
+        let other = Table {
+            name: "other".into(),
+            indexes: vec![Index { name: "shared_idx".into(), ..Default::default() }],
+            ..Default::default()
+        };
+        let catalog = Catalog {
+            schemas: vec![theta_core::Schema {
+                name: "public".into(),
+                tables: vec![existing, other],
+                ..Default::default()
+            }],
+            default_schema: Some("public".into()),
+        };
+        let mut d = customers(Postgres);
+        d.name = "Orders".into();
+        let msgs: Vec<String> =
+            check_names(&d, None, &catalog, Postgres).into_iter().map(|i| i.message).collect();
+        assert_eq!(msgs, vec!["A table named Orders already exists."]);
+        // Keeping its own name is no clash.
+        assert!(check_names(&d, Some("orders"), &catalog, Postgres).is_empty());
+        // Index names are schema-wide in PostgreSQL but per table in MySQL.
+        let mut d = customers(Postgres);
+        d.indexes[0].name = "shared_idx".into();
+        assert_eq!(check_names(&d, Some("customers"), &catalog, Postgres).len(), 1);
+        assert!(check_names(&d, Some("customers"), &catalog, MySql).is_empty());
+        // The same constraint name twice inside the draft.
+        let mut d = customers(Postgres);
+        d.checks = vec![
+            CheckDraft { id: 30, name: Some("c".into()), expression: "true".into() },
+            CheckDraft { id: 31, name: Some("C".into()), expression: "true".into() },
+        ];
+        assert_eq!(check_names(&d, Some("customers"), &catalog, Postgres).len(), 1);
     }
 }
