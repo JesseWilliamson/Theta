@@ -206,17 +206,6 @@ impl SettingsView {
                 cx,
             ))
             .child(self.row("Interface font", None, div().w(px(230.)).child(Select::new(&self.ui_font)), cx))
-            .child(self.row(
-                "Interface font size",
-                None,
-                self.stepper(
-                    "ui-size",
-                    format!("{:.0}", s.ui_font_size),
-                    move |s| s.ui_font_size = clamp(s.ui_font_size - 1.0),
-                    move |s| s.ui_font_size = clamp(s.ui_font_size + 1.0),
-                ),
-                cx,
-            ))
             .child(self.row("Editor font", None, div().w(px(230.)).child(Select::new(&self.buf_font)), cx))
             .child(self.row(
                 "Editor font size",

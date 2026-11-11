@@ -51,9 +51,9 @@ fn commands() -> Vec<Command> {
         cmd!("Select Theme…", "Appearance", IconName::Palette, SelectTheme),
         cmd!("Import Zed Theme…", "Appearance", IconName::FileDown, ImportZedTheme),
         cmd!("Toggle Keymap (Helix / Standard)", "Appearance", IconName::Keyboard, ToggleKeymap),
-        cmd!("Zoom In", "Appearance", IconName::ZoomIn, ZoomIn),
-        cmd!("Zoom Out", "Appearance", IconName::ZoomOut, ZoomOut),
-        cmd!("Reset Zoom", "Appearance", IconName::Search, ZoomReset),
+        cmd!("Increase Editor Font Size", "Appearance", IconName::ZoomIn, ZoomIn),
+        cmd!("Decrease Editor Font Size", "Appearance", IconName::ZoomOut, ZoomOut),
+        cmd!("Reset Editor Font Size", "Appearance", IconName::Search, ZoomReset),
         cmd!("Open Settings File", "App", IconName::Settings, OpenSettingsFile),
         cmd!("Quit", "App", IconName::Power, Quit),
     ]

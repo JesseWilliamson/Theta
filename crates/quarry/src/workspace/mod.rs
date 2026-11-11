@@ -422,6 +422,8 @@ impl Workspace {
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             t.title = title.into();
             cx.notify();
+            // The title is part of what is restored on the next launch.
+            self.schedule_save(tab_id, cx);
         }
     }
 
@@ -695,15 +697,14 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Zoom scales the editor and the results grid (the buffer font). The chrome is laid out in
+    /// fixed-size units, so scaling only its text would leave it half-resized: it stays put.
     fn zoom(&mut self, delta: f32, cx: &mut Context<Self>) {
         Settings::update(cx, |s| {
             if delta == 0.0 {
-                let d = quarry_ui::Settings::default();
-                s.ui_font_size = d.ui_font_size;
-                s.buffer_font_size = d.buffer_font_size;
+                s.buffer_font_size = quarry_ui::Settings::default().buffer_font_size;
             } else {
-                s.ui_font_size += delta;
-                s.buffer_font_size += delta;
+                s.buffer_font_size = (s.buffer_font_size + delta).clamp(8.0, 32.0);
             }
         });
     }
