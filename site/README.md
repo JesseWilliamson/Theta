@@ -60,11 +60,11 @@ need Playwright: `NODE_PATH=$(npm root -g) node site/tools/check.mjs http://loca
 - **The theta mark.** One source: `packaging/icons/gen_icon.py`, which draws the app icon, the in-app
   `theta-mark.svg` and everything below. `tools/mark.py` imports it and derives what the site draws: the hidden sprite
   `build_pages.py` puts in every page, with `<symbol id="theta">` (medium weight, for the nav, footer and eyebrow) and
-  `<symbol id="theta-fine">` (the approved delicate drawing, for the large marks), both used as `<use href="#theta"/>`
+  `<symbol id="theta-fine">` (the real GFS Didot theta, for the large marks), both used as `<use href="#theta"/>`
   in an `<svg>` sized by CSS; `assets/theta-mark.svg`; `assets/favicon.svg` (the 32 px pixel-grid app icon); and the
   mark in `tools/og.html`. `python3 site/tools/mark.py` rewrites them, `--check` (run by `check.mjs`) fails if they are
   stale. Never edit those files by hand. The marks are filled shapes, so there is no stroke width to tune; the two
-  symbols exist because the delicate drawing's hairlines vanish below about 60 px tall.
+  symbols exist because the real glyph's hairlines vanish below about 60 px tall.
 - **Screenshots.** Pages refer to stable names in `assets/screens/` (`editor-results`, `completion-fk-joins`,
   `map`, `plan-insights`, `editable-grid`, `explorer-suggested-fks`, `theme-light`, `theme-picker`,
   `connection-ssh`, `vim-visual-block`, `keymap-choice`). Re-shoot into `docs/screenshots/` under the same
