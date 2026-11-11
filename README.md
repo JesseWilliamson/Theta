@@ -128,7 +128,7 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 
 ## Install
 
-Releases are published on the [GitHub Releases](https://github.com/JesseWilliamson/Quarry/releases) page.
+Releases are published on the [GitHub Releases](https://github.com/JesseWilliamson/Theta/releases) page.
 The release workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)) builds these files
 from a `v*` tag and attaches them to a draft release that the maintainer publishes by hand:
 
@@ -398,7 +398,7 @@ screenshot harness, adding a database driver, adding a theme, and the CI and rel
 
 ## Licence and credits
 
-The licence for Theta's own code is to be decided by the repository owner.
+Theta's own code is released under the [MIT licence](LICENSE).
 
 - **Fonts**: IBM Plex Sans (IBM Corp.) and Lilex (The Lilex Project Authors), both under the SIL Open
   Font License 1.1; the licence texts sit next to the fonts in `crates/theta-ui/assets/fonts/`.

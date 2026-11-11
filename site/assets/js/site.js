@@ -4,7 +4,7 @@
 
   // The one place the repository URL lives for scripts. After a rename run `python3 tools/set_repo.py NEW_URL`,
   // which updates this constant and the plain href fallbacks in the HTML.
-  var REPO = "https://github.com/JesseWilliamson/Quarry";
+  var REPO = "https://github.com/JesseWilliamson/Theta";
 
   var doc = document;
   var root = doc.documentElement;

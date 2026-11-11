@@ -16,4 +16,4 @@ Thanks for helping with Theta. The short version:
 7. Changes to `theta-core` are contract changes: describe the need in the pull request and expect discussion.
 8. Add a line under *Unreleased* in [CHANGELOG.md](CHANGELOG.md) for anything a user would notice.
 
-The repository's licence has not been chosen yet; please ask the owner before contributing larger changes.
+Theta is released under the MIT licence (see `LICENSE`); contributions are accepted under the same terms.

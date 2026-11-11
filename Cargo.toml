@@ -4,9 +4,9 @@ members = ["crates/*"]
 
 [workspace.package]
 version = "0.1.0-alpha.4"
-repository = "https://github.com/JesseWilliamson/Quarry"
+repository = "https://github.com/JesseWilliamson/Theta"
 edition = "2024"
-license = "Apache-2.0"
+license = "MIT"
 publish = false
 
 [workspace.dependencies]

@@ -24,8 +24,8 @@ SITE = ROOT / "site"
 PARTIALS = SITE / "tools" / "partials"
 
 # Kept in step with assets/js/site.js and the HTML fallbacks by tools/set_repo.py.
-REPO = "https://github.com/JesseWilliamson/Quarry"
-PAGES_URL = "https://jessewilliamson.github.io/Quarry/"
+REPO = "https://github.com/JesseWilliamson/Theta"
+PAGES_URL = "https://jessewilliamson.github.io/Theta/"
 
 # The product is called Theta; the Markdown sources may still say the old name in prose.
 # Code spans, URLs and file paths are left alone: they name things that exist in the repository.

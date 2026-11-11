@@ -6,6 +6,13 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+### Changed
+
+- Theta is now released under the MIT licence (`LICENSE`).
+- The repository moved to <https://github.com/JesseWilliamson/Theta>; links, the map-tile User-Agent and the
+  website point there.
+- Website at <https://jessewilliamson.github.io/Theta/>, deployed from `site/` by GitHub Pages.
+
 ## [0.1.0-alpha.4] - 2026-11-11
 
 ### Renamed from Quarry to Theta
@@ -310,8 +317,8 @@ Packaging and docs
 - The AppImage does not bundle the Vulkan or Wayland libraries.
 - The map basemap needs network access (cached tiles still draw offline).
 
-[Unreleased]: https://github.com/JesseWilliamson/Quarry/compare/v0.1.0-alpha.4...HEAD
-[0.1.0-alpha.4]: https://github.com/JesseWilliamson/Quarry/compare/v0.1.0-alpha.3...v0.1.0-alpha.4
-[0.1.0-alpha.3]: https://github.com/JesseWilliamson/Quarry/compare/v0.1.0-alpha.2...v0.1.0-alpha.3
-[0.1.0-alpha.2]: https://github.com/JesseWilliamson/Quarry/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
-[0.1.0-alpha.1]: https://github.com/JesseWilliamson/Quarry/releases/tag/v0.1.0-alpha.1
+[Unreleased]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.4...HEAD
+[0.1.0-alpha.4]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.3...v0.1.0-alpha.4
+[0.1.0-alpha.3]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.2...v0.1.0-alpha.3
+[0.1.0-alpha.2]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
+[0.1.0-alpha.1]: https://github.com/JesseWilliamson/Theta/releases/tag/v0.1.0-alpha.1
