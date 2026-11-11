@@ -91,14 +91,15 @@ def run(text, keys, regs=('"',), setup=(), ex=None):
         if ex is not None:
             line = 'silent! exe "%s"' % body_ex(ex)
         elif "\u00a6" in keys:
-            line = "\n".join('silent! call feedkeys("%s", "xt")' % vim_string(seg) for seg in keys.split("\u00a6"))
+            segs = keys.split("\u00a6") + ["<esc><esc>"]
+            line = "\n".join('silent! call feedkeys("%s", "xt")' % vim_string(seg) for seg in segs)
         else:
             line = 'silent! exe "normal %s"' % vim_string(keys)
         script = [
             "set nocompatible noswapfile nofixeol wrapscan nohlsearch shortmess+=I ignorecase smartcase",
             "set autoindent shiftwidth=4 expandtab softtabstop=4",
             "nnoremap Y y$",
-            "set nrformats=bin,hex tabstop=4 nojoinspaces",
+            "set nrformats=bin,hex tabstop=4 nojoinspaces backspace=indent,eol,start",
             "call cursor(%d, %d)" % (cl, cc),
             "clearjumps",
             "call setpos(\"''\", [0, %d, %d, 0])" % (cl, cc),

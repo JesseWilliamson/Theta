@@ -68,10 +68,17 @@ impl Editor {
     pub(crate) fn vis_exit(&mut self) {
         if let Some(v) = self.vim.vis.take() {
             self.vim.last_vis = Some(v);
-            self.vim.marks.insert('<', v.anchor.min(v.cursor));
-            self.vim.marks.insert('>', v.anchor.max(v.cursor));
-            self.mode = Mode::Normal;
             let t = self.rope.slice(..);
+            let (lo, hi) = (v.anchor.min(v.cursor), v.anchor.max(v.cursor));
+            if v.kind == VKind::Line {
+                // linewise: `'<` is column 0 and `'>` the end of the line
+                self.vim.marks.insert('<', lstart(t, line_of(t, lo)));
+                self.vim.marks.insert('>', lend(t, line_of(t, hi)));
+            } else {
+                self.vim.marks.insert('<', lo);
+                self.vim.marks.insert('>', hi);
+            }
+            self.mode = Mode::Normal;
             let c = clamp_normal(t, v.cursor);
             self.set_sels(Selections::single(Selection::point(c)));
         }
@@ -384,7 +391,8 @@ impl Editor {
                     let at = if lc < la {
                         lstart(t, la)
                     } else if c >= lend(t, lc) {
-                        last_char(t, lc)
+                        // on the line end: after `$` before the last char, else after it
+                        if self.vim.want == usize::MAX { last_char(t, lc) } else { lend(t, lc) }
                     } else if col_of(t, c) == 0 {
                         c
                     } else {

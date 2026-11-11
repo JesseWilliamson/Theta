@@ -388,8 +388,7 @@ impl Editor {
         self.vim.marks.insert('\'', pos);
         let rope = self.rp();
         let t = rope.slice(..);
-        let l = line_of(t, pos);
-        self.vim.jumps.retain(|&p| line_of(t, p.min(t.len_chars())) != l);
+        let _ = t;
         self.vim.jumps.push(pos);
         if self.vim.jumps.len() > 100 {
             self.vim.jumps.remove(0);
@@ -397,15 +396,36 @@ impl Editor {
         self.vim.jump_idx = self.vim.jumps.len();
     }
 
+    /// Vim removes duplicate lines from the jumplist lazily, keeping the newest entry of each.
+    fn cleanup_jumps(&mut self) {
+        let rope = self.rp();
+        let t = rope.slice(..);
+        let len = t.len_chars();
+        let old = std::mem::take(&mut self.vim.jumps);
+        let at_end = self.vim.jump_idx >= old.len();
+        let mut kept: Vec<usize> = Vec::new();
+        let mut new_idx = 0;
+        for (i, &p) in old.iter().enumerate() {
+            if i == self.vim.jump_idx {
+                new_idx = kept.len();
+            }
+            let l = line_of(t, p.min(len));
+            if !old[i + 1..].iter().any(|&q| line_of(t, q.min(len)) == l) {
+                kept.push(p);
+            }
+        }
+        self.vim.jump_idx = if at_end { kept.len() } else { new_idx.min(kept.len()) };
+        self.vim.jumps = kept;
+    }
+
     pub(crate) fn jump_cmd(&mut self, back: bool, n: usize) {
         let rope = self.rp();
         let t = rope.slice(..);
         let len = t.len_chars();
         let cur = self.vcur();
+        self.cleanup_jumps();
         if back {
             if self.vim.jump_idx >= self.vim.jumps.len() {
-                let l = line_of(t, cur);
-                self.vim.jumps.retain(|&p| line_of(t, p.min(len)) != l);
                 self.vim.jumps.push(cur);
                 self.vim.jump_idx = self.vim.jumps.len() - 1;
             }
@@ -425,6 +445,30 @@ impl Editor {
 
     /// Keep marks, jumps and tracked positions pointing at the same text across edits.
     pub(crate) fn vim_map(&mut self, tx: &Transaction) {
+        // a mark loses its line when the whole line (with its break) is deleted
+        {
+            let rope = &self.rope;
+            let len = rope.len_chars();
+            let dead: Vec<char> = self
+                .vim
+                .marks
+                .iter()
+                .filter(|(k, _)| k.is_ascii_alphabetic())
+                .filter(|(_, p)| {
+                    let p = (**p).min(len);
+                    let l = rope.char_to_line(p);
+                    let (ls, le) = (
+                        rope.line_to_char(l),
+                        if l + 1 < rope.len_lines() { rope.line_to_char(l + 1) } else { len },
+                    );
+                    tx.changes.iter().any(|c| c.to > c.from && c.from <= ls && c.to >= le && le > ls)
+                })
+                .map(|(k, _)| *k)
+                .collect();
+            for k in dead {
+                self.vim.marks.remove(&k);
+            }
+        }
         let v = &mut self.vim;
         for p in v.marks.values_mut() {
             *p = tx.map_pos(*p, Assoc::After);

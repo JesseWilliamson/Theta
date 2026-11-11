@@ -818,6 +818,11 @@ impl Editor {
                 };
                 let body = self.nl_str(&text).repeat(n);
                 let total = body.chars().count();
+                if total == 0 {
+                    // putting the empty string changes nothing
+                    self.vset(cur);
+                    return;
+                }
                 if flags.split_line && text.ends_with('\n') {
                     // unreachable for Char registers: kept for symmetry
                 }
