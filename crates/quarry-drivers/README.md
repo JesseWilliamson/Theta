@@ -34,6 +34,14 @@ let out = conn.execute("SELECT 1", &ExecOptions::default()).await?;
   word); SRID 0 yields plain WKB.
 * **SSH host keys** are checked against `~/.ssh/known_hosts` with trust-on-first-use:
   unknown hosts are accepted and recorded, a *changed* key is refused.
+* **A lost session** (the server closed the socket, the network dropped) is reported as
+  `Error::Closed`. The application reconnects when it sees that error. A server that ends the session
+  with an explicit error (PostgreSQL `57P01`, `terminating connection due to administrator command`)
+  reports that error first; the next statement then fails with `Error::Closed`.
+* **Plan parsers** are public functions (`parse_postgres_plan_json`, `parse_mysql_plan_json`,
+  `parse_sqlite_plan`). PostgreSQL and MariaDB plans are tested against captured output *and* live servers;
+  MySQL 8 `EXPLAIN FORMAT=JSON` and `EXPLAIN ANALYZE` are tested from the fixtures in `tests/fixtures/` only,
+  because the live test server is MariaDB 10.11.
 * `in_transaction` asks the server (`now() = statement_timestamp()` on
   PostgreSQL, the OK packet's status flags on MySQL), because neither client
   library exposes the protocol's transaction state. While a statement is running

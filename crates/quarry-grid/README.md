@@ -58,8 +58,18 @@ GPUI layer: `grid` (state), `render`, `input` (keys/pointer), `editing`,
   the pre-edit values. Names in `RowChange` are the source table's column names
   (`Column::origin.column` when present).
 - `GridMeta::reference_columns` (added to the brief's API) marks foreign-key
-  columns: link icon in the header, ctrl-click / Enter / double-click emits
-  `FollowReference`.
+  columns: link icon in the header. Ctrl-click (cmd-click on macOS) and the
+  context menu's *Follow Reference* always emit `FollowReference`; Enter and
+  double-click do so only where the cell cannot be edited, because on an
+  editable cell they start the cell editor.
+- `ResultGrid::select_row(row, cx)` selects and scrolls to a row of the result
+  set by its original index, whatever the current sort or filter shows (it does
+  nothing when a filter hides the row) and does not take focus. The application
+  uses it to follow a click on the map.
+- Keys: `mod-enter` submits staged edits while the grid has focus (the
+  application does not bind its own `mod-enter` there). `mod-0` ("set NULL") is
+  only reachable from the context menu in the application, because the
+  application's global `mod-0` (reset zoom) is matched first.
 - JSON in the inspector is syntax-coloured but not mouse-selectable (gpui-kit's
   selectable text areas cannot take per-range colours); the copy button copies it
   and plain text/EWKT use a read-only selectable `Textarea`.

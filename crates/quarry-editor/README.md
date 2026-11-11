@@ -76,6 +76,14 @@ history is linear (redo is discarded by new edits), not Helix's undo tree.
 `handle_key` canonicalises the key, runs the prompt if one is open, then the global
 bindings (`ctrl-enter`, `ctrl-shift-enter`, `ctrl-space`, `F5`), then the keymap.
 
+Inside Quarry the application binds chords of its own (`ctrl-b`, `ctrl-w`, `F5` ...) and GPUI matches bound
+chords before the editor view sees a key, so those keys never reach `handle_key`; `F5` there is *Refresh
+Schema*, not run all. `docs/KEYBINDINGS.md` lists the conflicts.
+
+The two key tables below (`## Helix keymap`, `## Standard keymap`) are embedded in the application and parsed when
+the settings dialog opens (`crates/quarry/src/exec/keyref.rs`) to fill Settings › Keymap, so keep their `###` headings and two-column
+`| keys | action |` rows.
+
 Helix Normal/Select keys walk a trie (`helix.rs::build_trie`); leaves are `Cmd`
 values with a description, which doubles as the data for `key_hints()`. Counts
 (`1`-`9` then `0`-`9`, capped at 10 000), `"x` register prefixes and
