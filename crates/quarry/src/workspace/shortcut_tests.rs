@@ -157,6 +157,13 @@ impl RefreshExt for Window {
     }
 }
 
+/// The platform's primary modifier plus `key`: Cmd on macOS, Ctrl elsewhere.
+/// App-level shortcuts are bound to it (`mod-…` in the keymap), so tests that
+/// exercise them must press what a user on that platform would press.
+fn primary(key: &str) -> String {
+    format!("{}-{key}", if cfg!(target_os = "macos") { "cmd" } else { "ctrl" })
+}
+
 fn press(vcx: &mut VisualTestContext, keystroke: &str) {
     vcx.update(|window, cx| window.press(keystroke, cx));
     vcx.run_until_parked();
@@ -312,15 +319,15 @@ fn standard_keymap_has_exactly_one_path_for_new_close_and_reopen(cx: &mut TestAp
     let (f, vcx) = setup(cx);
     enter(&f, vcx, standard(), "select 42;", 4);
     let tabs = tab_count(&f, vcx);
-    press(vcx, "ctrl-n");
+    press(vcx, &primary("n"));
     assert_eq!(tab_count(&f, vcx), tabs + 1, "one ctrl-n opens exactly one console");
     // The new console is empty: closing it leaves nothing to reopen. Go back to the first.
-    press(vcx, "ctrl-w");
+    press(vcx, &primary("w"));
     assert_eq!(tab_count(&f, vcx), tabs, "one ctrl-w closes exactly one console");
     enter(&f, vcx, standard(), "select 42;", 4);
-    press(vcx, "ctrl-w");
+    press(vcx, &primary("w"));
     assert_eq!(tab_count(&f, vcx), tabs - 1);
-    press(vcx, "ctrl-shift-t");
+    press(vcx, &primary("shift-t"));
     assert_eq!(tab_count(&f, vcx), tabs, "ctrl-shift-t reopens the closed console");
     assert_eq!(editor_text(&f, vcx), "select 42;");
     let cursor = editor_of(&f, vcx).read_with(vcx, |v, _| v.status().column);
@@ -370,7 +377,7 @@ fn closing_a_console_keeps_it_on_a_persisted_reopen_stack(cx: &mut TestAppContex
     // Three consoles with distinct text, closed in order; the reopen order is the reverse.
     for (i, text) in ["select 1;", "select 2;", "select 3;"].iter().enumerate() {
         enter(&f, vcx, standard(), text, i + 1);
-        press(vcx, "ctrl-w");
+        press(vcx, &primary("w"));
     }
     let on_disk = crate::exec::consoles::list_closed(&closed_dir);
     assert_eq!(
@@ -395,7 +402,7 @@ fn closing_a_console_keeps_it_on_a_persisted_reopen_stack(cx: &mut TestAppContex
     assert_eq!(editor_text(&f, vcx), "select 3;");
     assert_eq!(f.ws.read_with(vcx, |ws, _| ws.active_console().and_then(|t| t.connection_id.clone())), conn);
     enter(&f, vcx, standard(), "select 3;", 3);
-    press(vcx, "ctrl-shift-t");
+    press(vcx, &primary("shift-t"));
     assert_eq!(editor_text(&f, vcx), "select 2;");
     assert_eq!(crate::exec::consoles::list_closed(&closed_dir).len(), 1);
 }
