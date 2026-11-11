@@ -57,24 +57,6 @@ where
     }
 }
 
-#[cfg(test)]
-mod clock_tests {
-    use super::format_local;
-    use chrono::{FixedOffset, TimeZone as _};
-
-    #[test]
-    fn today_shows_the_clock_older_entries_the_date() {
-        let tz = FixedOffset::east_opt(2 * 3600).unwrap();
-        let now = tz.with_ymd_and_hms(2026, 11, 10, 15, 0, 0).unwrap();
-        let today = tz.with_ymd_and_hms(2026, 11, 10, 14, 32, 7).unwrap();
-        assert_eq!(format_local(today, now), "14:32:07");
-        let earlier = tz.with_ymd_and_hms(2026, 3, 4, 9, 5, 0).unwrap();
-        assert_eq!(format_local(earlier, now), "Mar 4 09:05");
-        let last_year = tz.with_ymd_and_hms(2025, 12, 31, 23, 59, 0).unwrap();
-        assert_eq!(format_local(last_year, now), "2025-12-31 23:59");
-    }
-}
-
 impl HistoryPanel {
     pub fn new(store: HistoryStore, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search history"));
@@ -246,5 +228,23 @@ impl Render for HistoryPanel {
                 ),
             )
             .child(div().flex_1().min_h_0().child(body))
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::format_local;
+    use chrono::{FixedOffset, TimeZone as _};
+
+    #[test]
+    fn today_shows_the_clock_older_entries_the_date() {
+        let tz = FixedOffset::east_opt(2 * 3600).unwrap();
+        let now = tz.with_ymd_and_hms(2026, 11, 10, 15, 0, 0).unwrap();
+        let today = tz.with_ymd_and_hms(2026, 11, 10, 14, 32, 7).unwrap();
+        assert_eq!(format_local(today, now), "14:32:07");
+        let earlier = tz.with_ymd_and_hms(2026, 3, 4, 9, 5, 0).unwrap();
+        assert_eq!(format_local(earlier, now), "Mar 4 09:05");
+        let last_year = tz.with_ymd_and_hms(2025, 12, 31, 23, 59, 0).unwrap();
+        assert_eq!(format_local(last_year, now), "2025-12-31 23:59");
     }
 }

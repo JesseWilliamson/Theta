@@ -346,7 +346,7 @@ fn main() {
                     GridEvent::Export(r) => eprintln!("export: {r:?}"),
                     GridEvent::ShowOnMap { column, row } => eprintln!("show on map: col {column} row {row:?}"),
                     GridEvent::FollowReference { column, value } => eprintln!("follow ref: col {column} = {value:?}"),
-                    GridEvent::SelectionChanged => {}
+                    GridEvent::SelectionChanged | GridEvent::ReturnFocus => {}
                 });
                 Demo { grid, _sub: sub }
                 })
