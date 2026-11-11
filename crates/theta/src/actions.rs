@@ -45,6 +45,8 @@ actions!(
         ExplainAnalyze,
         FormatDocument,
         ToggleParameters,
+        SurroundWith,
+        EditLiveTemplates,
         BeginTransaction,
         CommitTransaction,
         RollbackTransaction,

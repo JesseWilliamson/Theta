@@ -22,6 +22,7 @@ pub mod persist;
 mod run;
 mod status_bar;
 mod tabs;
+mod templates;
 mod title_bar;
 mod txn;
 mod welcome;
@@ -993,6 +994,12 @@ impl Render for Workspace {
                 cx.emit(WorkspaceEvent::Explain { analyze: true });
                 this.explain_active(true, window, cx)
             }))
+            .on_action(
+                cx.listener(|this, _: &SurroundWith, window, cx| this.open_surround_picker(window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &EditLiveTemplates, window, cx| this.edit_templates_file(window, cx)),
+            )
             .on_action(
                 cx.listener(|this, _: &NewConnectionFolder, window, cx| {
                     this.new_connection_folder(window, cx)

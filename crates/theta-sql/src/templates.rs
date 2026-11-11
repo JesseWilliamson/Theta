@@ -284,15 +284,6 @@ pub fn resolve_variables(body: &str, vars: &Vars) -> String {
     out
 }
 
-/// `schema.table`, quoting nothing (the catalog's names are shown as the user will read them).
-pub fn table_variable(schema: &str, table: &str, default_schema: Option<&str>) -> String {
-    match default_schema {
-        Some(d) if d == schema => table.to_string(),
-        _ if schema.is_empty() => table.to_string(),
-        _ => format!("{schema}.{table}"),
-    }
-}
-
 // ------------------------------------------------------------------------------------------- surround
 
 /// A way to wrap the selected text ("Surround with").
@@ -459,13 +450,6 @@ mod tests {
         assert!(!needs_table("SELECT ${selection} ${date} ${clipboard}"));
         assert!(!needs_table("\\${table}"));
         assert!(!needs_table("${1:table}"));
-    }
-
-    #[test]
-    fn table_names_are_qualified_unless_default() {
-        assert_eq!(table_variable("public", "t", Some("public")), "t");
-        assert_eq!(table_variable("sales", "t", Some("public")), "sales.t");
-        assert_eq!(table_variable("", "t", None), "t");
     }
 
     #[test]

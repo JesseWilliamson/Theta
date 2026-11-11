@@ -54,7 +54,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-shift-f` | format document |
 | `mod-q` | quit |
 
-These actions have no key: *New Connection Folder…*, *Move Connection to Folder…*, *Toggle Query Parameters*, *Connect…*, *Disconnect*, *Save Console As…*, *Begin Transaction*, *Commit
+These actions have no key: *Surround Selection with…*, *Edit Live Templates…*, *Transactions: Auto-commit*, *Transactions: Manual*, *Transaction Isolation Level…*, *New Connection Folder…*, *Move Connection to Folder…*, *Toggle Query Parameters*, *Connect…*, *Disconnect*, *Save Console As…*, *Begin Transaction*, *Commit
 Transaction*, *Roll Back Transaction*, *Import Zed Theme…*, *Select Keymap…* and *Use Helix / Vim / Standard
 Keymap*, *Open Settings File*. Use the
 command palette. *Refresh Schema* and *Reopen Closed Tab* are also in the palette and menus; `:reopen` does the
@@ -165,6 +165,15 @@ keys. `ctrl-n` / `ctrl-p` are literal `ctrl` on every platform.
 The popup opens by itself while typing a word or `.`, and after a space that follows `FROM`, `JOIN`, `ON`,
 `INTO`, `UPDATE`, `TABLE` or a comma in a `FROM` list. (`ctrl-p` / `ctrl-n` move the selection like `up` / `down`:
 owned by the popup in both key maps; see [Who wins a key](#who-wins-a-key).)
+
+### Live templates (every key map)
+
+| Keys | Action |
+| --- | --- |
+| `tab` after an abbreviation | expand the template (while typing: Helix / Vim Insert mode, Standard) |
+| `tab` / `shift-tab` in a template | next / previous placeholder; past the last one the template ends |
+| `esc` | leave the template (and, in Helix and Vim, Insert mode) |
+| `enter` with the completion popup open | accept the suggestion (inside a template `tab` is *not* accept) |
 
 ## Results grid
 

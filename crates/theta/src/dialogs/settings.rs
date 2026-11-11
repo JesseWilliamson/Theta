@@ -22,19 +22,28 @@ pub enum Section {
     Appearance,
     Editor,
     Data,
+    Templates,
     Map,
     Keymap,
     About,
 }
 
 impl Section {
-    const ALL: [Section; 6] =
-        [Section::Appearance, Section::Editor, Section::Data, Section::Map, Section::Keymap, Section::About];
+    const ALL: [Section; 7] = [
+        Section::Appearance,
+        Section::Editor,
+        Section::Data,
+        Section::Templates,
+        Section::Map,
+        Section::Keymap,
+        Section::About,
+    ];
     fn label(self) -> &'static str {
         match self {
             Section::Appearance => "Appearance",
             Section::Editor => "Editor",
             Section::Data => "Data",
+            Section::Templates => "Templates",
             Section::Map => "Map",
             Section::Keymap => "Keymap",
             Section::About => "About",
@@ -561,6 +570,77 @@ impl SettingsView {
             .into_any_element()
     }
 
+    /// The live templates: what each abbreviation expands to, with the built-ins and the user's side by side.
+    fn templates(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        let mono = theta_ui::Settings::get(cx).buffer_font_family.clone();
+        let store = crate::templates::TemplateStore::global();
+        let user = store.user();
+        let warnings = store.warnings();
+        // The built-ins differ by dialect only for `crt` and `exp`; show PostgreSQL's and say so.
+        let builtins = theta_sql::templates::builtins(theta_core::DatabaseKind::Postgres);
+        let row = |abbr: String, desc: String, tag: &'static str, body: String| {
+            h_flex()
+                .gap_3()
+                .items_start()
+                .py_1p5()
+                .border_b_1()
+                .border_color(theme.border.opacity(0.5))
+                .child(
+                    div().w(px(84.)).flex_shrink_0().font_family(mono.clone()).text_size(px(13.)).child(abbr),
+                )
+                .child(
+                    v_flex().flex_1().min_w_0().child(div().text_size(px(13.)).child(desc)).child(
+                        div()
+                            .font_family(mono.clone())
+                            .text_size(px(11.))
+                            .text_color(theme.muted_foreground)
+                            .child(SharedString::from(body.replace('\n', " ↵ "))),
+                    ),
+                )
+                .child(div().flex_shrink_0().text_size(px(11.)).text_color(theme.muted_foreground).child(tag))
+        };
+        v_flex()
+            .gap_2()
+            .child(
+                div().text_size(px(13.)).text_color(theme.muted_foreground).child(
+                    "Type an abbreviation and press Tab (or accept it from the completion list) to expand it. Tab and Shift+Tab move between the stops; Escape leaves the template. Your own templates live in templates.json and replace a built-in of the same name.",
+                ),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("tpl-edit")
+                            .label("Edit templates.json")
+                            .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::actions::EditLiveTemplates), cx)),
+                    )
+                    .child(Button::new("tpl-reload").label("Reload").on_click(cx.listener(|_, _, _, cx| {
+                        crate::templates::TemplateStore::global().reload();
+                        cx.notify();
+                    }))),
+            )
+            .children(warnings.into_iter().map(|w| div().text_size(px(12.)).text_color(theme.danger).child(w)))
+            .child(div().pt_2().font_weight(FontWeight::MEDIUM).text_size(px(13.)).child(format!("Your templates ({})", user.len())))
+            .when(user.is_empty(), |d| {
+                d.child(div().text_size(px(12.)).text_color(theme.muted_foreground).child("None yet: “Edit templates.json” creates the file with an example."))
+            })
+            .children(user.iter().map(|t| {
+                let tag = if t.dialects.is_empty() { "yours" } else { "yours · some databases" };
+                row(t.abbreviation.clone(), t.description.clone(), tag, t.body.clone())
+            }))
+            .child(div().pt_2().font_weight(FontWeight::MEDIUM).text_size(px(13.)).child("Built in"))
+            .children(builtins.into_iter().filter(|b| !user.iter().any(|u| u.abbreviation.eq_ignore_ascii_case(&b.abbreviation))).map(|t| {
+                row(t.abbreviation, t.description, "built in", t.body)
+            }))
+            .child(
+                div().pt_1().text_size(px(11.)).text_color(theme.muted_foreground).child(
+                    "Variables: ${table} (asks which table), ${columns}, ${selection}, ${clipboard}, ${date}. Stops: $1, ${2:default}, $0; a repeated stop is edited together. crt and exp differ by database.",
+                ),
+            )
+            .into_any_element()
+    }
+
     fn about(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let line = |t: String| div().text_size(px(13.)).text_color(theme.muted_foreground).child(t);
@@ -598,6 +678,7 @@ impl Render for SettingsView {
             Section::Appearance => self.appearance(cx),
             Section::Editor => self.editor(cx),
             Section::Data => self.data(cx),
+            Section::Templates => self.templates(cx),
             Section::Map => self.map(cx),
             Section::Keymap => self.keymap(cx),
             Section::About => self.about(cx),

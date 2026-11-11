@@ -59,17 +59,47 @@ pub struct Console {
 pub struct SqlCompletion {
     pub kind: DatabaseKind,
     pub catalog: CatalogSlot,
+    pub templates: std::sync::Arc<crate::templates::TemplateStore>,
 }
 
 impl CompletionProvider for SqlCompletion {
     fn complete(&self, text: &str, byte_offset: usize) -> CompletionList {
         let catalog = self.catalog.read().ok().and_then(|c| c.clone());
-        theta_sql::complete(&CompletionRequest {
+        let mut list = theta_sql::complete(&CompletionRequest {
             sql: text,
             offset: byte_offset,
             kind: self.kind,
             catalog: catalog.as_deref(),
-        })
+        });
+        // The user's templates: offered wherever a word is being typed, and a template with the same
+        // abbreviation as a built-in replaces it.
+        let user: Vec<_> = self.templates.user().into_iter().filter(|t| t.applies_to(self.kind)).collect();
+        if !user.is_empty() {
+            let prefix = text.get(list.replace_range.clone()).unwrap_or("").to_lowercase();
+            list.items.retain(|i| {
+                i.kind != theta_sql::CompletionKind::Snippet
+                    || !user.iter().any(|t| t.abbreviation.eq_ignore_ascii_case(&i.label))
+            });
+            if !prefix.is_empty() {
+                for t in user.iter().filter(|t| t.abbreviation.to_lowercase().starts_with(&prefix)) {
+                    list.items.push(theta_sql::CompletionItem {
+                        label: t.abbreviation.clone(),
+                        kind: theta_sql::CompletionKind::Snippet,
+                        detail: (!t.description.is_empty()).then(|| t.description.clone()),
+                        insert_text: t.body.clone(),
+                        score: 140,
+                    });
+                }
+                list.items.sort_by_key(|i| std::cmp::Reverse(i.score));
+                list.items.truncate(theta_sql::complete::MAX_ITEMS);
+            }
+        }
+        list
+    }
+
+    fn snippet_for(&self, word: &str) -> Option<String> {
+        let all = theta_sql::templates::merged(self.kind, &self.templates.user());
+        theta_sql::templates::expand(&all, word).map(|t| t.body.clone())
     }
 }
 

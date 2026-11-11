@@ -232,6 +232,33 @@ MySQL user variables (`@x := 1`, `SET @x = 1`, `@@version`) are not parameters. 
   when the catalog is loaded, unknown tables and columns. The linter is heuristic and deliberately quiet:
   an underline is worth a look, but the absence of one proves nothing. The database has the last word.
 
+### Live templates
+
+Type an abbreviation (`sel`, `selw`, `ins`, `upd`, `del`, `join`, `cte`, `case`, `cnt`, `grp`, `top`, `exists`,
+`idx`, `uidx`, `crt`, `exp`, `selt`, `selcols`) and press `Tab` while typing (Helix and Vim Insert mode, or the
+Standard keymap), or pick it from the completion list (kind *Snippet*, offered at the start of a statement). The
+template expands with its first placeholder selected; type to replace it, `Tab` / `Shift-Tab` move to the next /
+previous placeholder, `Escape` leaves the template, and moving the cursor away ends it. A placeholder that
+appears more than once is *linked*: typing in one edits all of them. The whole expansion is one undo step.
+`crt` and `exp` differ by database (identity column syntax, `EXPLAIN` form).
+
+Your own templates are in `templates.json` in the config directory (*Edit Live Templates…* in the palette, or
+Settings › Templates, creates it with an example and opens it). The file is a list, or `{"templates": [...]}`:
+
+```json
+{"templates": [
+  {"abbreviation": "recent", "description": "rows from the last N days", "dialects": ["postgres"],
+   "body": "SELECT *\nFROM ${table}\nWHERE ${1:created_at} >= now() - interval '${2:7} days'$0"}
+]}
+```
+
+`$1`, `${2:default}` and `$0` are tab stops. `${table}` opens a table picker and inserts the chosen (qualified)
+name, `${columns}` the comma-separated columns of that table, and `${selection}`, `${clipboard}` and `${date}` do what
+they say. A template with the same abbreviation as a built-in replaces it; `dialects` limits it to some databases.
+The file is re-read when it changes, and Settings › Templates lists every template with its expansion and shows
+what was wrong with an entry it skipped. **Surround Selection with…** (palette) wraps the selected SQL in
+`SELECT count(*) FROM (…) t`, a subquery, a CTE, `EXISTS (…)` or parentheses.
+
 ### Files, history and the palette
 
 - *History*: every executed statement is recorded in `history.jsonl` and listed in the History tab (see

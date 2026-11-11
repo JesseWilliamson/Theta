@@ -143,7 +143,11 @@ impl Workspace {
         let slot2 = slot.clone();
         console.editor.update(cx, |e, _| {
             e.set_database_kind(kind);
-            e.set_completion_provider(Some(Rc::new(SqlCompletion { kind, catalog: slot })));
+            e.set_completion_provider(Some(Rc::new(SqlCompletion {
+                kind,
+                catalog: slot,
+                templates: crate::templates::TemplateStore::global(),
+            })));
             e.set_diagnostics_provider(Some(Arc::new(move |text: &str| {
                 let c = slot2.read().ok().and_then(|c| c.clone());
                 theta_sql::lint(text, kind, c.as_deref())
@@ -280,6 +284,9 @@ impl Workspace {
             }
             EditorEvent::StateChanged => self.refresh_editor_status(id, cx),
             EditorEvent::Effect(e) => self.on_editor_effect(id, e, window, cx),
+            EditorEvent::ExpandSnippet { body, replace } => {
+                self.expand_template(id, body, replace, window, cx)
+            }
             EditorEvent::Focused | EditorEvent::Blurred => {}
         }
     }

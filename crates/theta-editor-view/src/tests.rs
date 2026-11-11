@@ -1133,3 +1133,45 @@ fn vim_pending_keys_registers_and_recording_show_in_the_status(cx: &mut TestAppC
     assert!(f.view.read_with(cx, |v, _| v.editor().key_hints().is_some()), "the leader menu has hints");
     f.keys(cx, "<esc>");
 }
+
+struct Templates;
+
+impl CompletionProvider for Templates {
+    fn complete(&self, _: &str, _: usize) -> CompletionList {
+        CompletionList { replace_range: 0..0, items: Vec::new() }
+    }
+    fn snippet_for(&self, word: &str) -> Option<String> {
+        (word == "sel").then(|| "SELECT ${1:*} FROM ${2:t}$0".to_string())
+    }
+}
+
+#[gpui_kit::test]
+fn tab_after_an_abbreviation_asks_the_host_to_expand_and_tab_walks_the_stops(cx: &mut TestAppContext) {
+    for keymap in [Keymap::Helix, Keymap::Standard] {
+        let f = setup(cx, "", keymap);
+        f.view.update(cx, |v, _| v.set_completion_provider(Some(Rc::new(Templates))));
+        f.keys(cx, if keymap == Keymap::Standard { "sel<tab>" } else { "isel<tab>" });
+        let ask = f.events.borrow().iter().find_map(|e| match e {
+            EditorEvent::ExpandSnippet { body, replace } => Some((body.clone(), replace.clone())),
+            _ => None,
+        });
+        let (body, replace) = ask.unwrap_or_else(|| panic!("{keymap:?}: no expansion requested"));
+        assert_eq!(
+            f.text(cx),
+            "sel",
+            "{keymap:?}: the abbreviation stays until the host inserts the snippet"
+        );
+        f.view.update(cx, |v, cx| v.insert_snippet(replace, &body, cx));
+        assert_eq!(f.text(cx), "SELECT * FROM t");
+        f.keys(cx, "id<tab>orders");
+        assert_eq!(f.text(cx), "SELECT id FROM orders", "{keymap:?}");
+    }
+}
+
+#[gpui_kit::test]
+fn tab_without_an_abbreviation_is_not_taken(cx: &mut TestAppContext) {
+    let f = setup(cx, "", Keymap::Standard);
+    f.view.update(cx, |v, _| v.set_completion_provider(Some(Rc::new(Templates))));
+    f.keys(cx, "xyz<tab>");
+    assert!(!f.events.borrow().iter().any(|e| matches!(e, EditorEvent::ExpandSnippet { .. })));
+}

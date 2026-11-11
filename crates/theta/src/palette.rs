@@ -40,6 +40,8 @@ fn commands() -> Vec<Command> {
         cmd!("Explain", "Query", IconName::Network, Explain),
         cmd!("Explain Analyze", "Query", IconName::Activity, ExplainAnalyze),
         cmd!("Format Document", "Query", IconName::Clock, FormatDocument),
+        cmd!("Surround Selection with…", "Query", IconName::Scissors, SurroundWith),
+        cmd!("Edit Live Templates…", "Query", IconName::Scissors, EditLiveTemplates),
         cmd!("Toggle Query Parameters", "Query", IconName::Settings, ToggleParameters),
         cmd!("Begin Transaction", "Query", IconName::Play, BeginTransaction),
         cmd!("Commit Transaction", "Query", IconName::Check, CommitTransaction),

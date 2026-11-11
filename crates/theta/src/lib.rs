@@ -18,4 +18,5 @@ pub mod panels;
 pub mod panic;
 pub mod runtime;
 pub mod sqlgen;
+pub mod templates;
 pub mod workspace;

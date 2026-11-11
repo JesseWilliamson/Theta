@@ -52,6 +52,13 @@ pub enum EditorEvent {
     },
     /// Selections, mode or pending keys changed: the status bar should refresh.
     StateChanged,
+    /// A live template should be expanded: `body` is the template text (variables not yet resolved) and
+    /// `replace` the char range it replaces (the abbreviation). The host resolves the variables, which may
+    /// need the user's input, and calls [`EditorView::insert_snippet`].
+    ExpandSnippet {
+        body: String,
+        replace: Range<usize>,
+    },
     Focused,
     Blurred,
 }
@@ -59,6 +66,11 @@ pub enum EditorEvent {
 /// Supplies completions on the UI thread; must be fast (theta-sql takes 1-2 ms).
 pub trait CompletionProvider: 'static {
     fn complete(&self, text: &str, byte_offset: usize) -> CompletionList;
+
+    /// The body of the live template whose abbreviation is exactly `word`, for expansion with Tab.
+    fn snippet_for(&self, _word: &str) -> Option<String> {
+        None
+    }
 }
 
 /// Supplies diagnostics for squiggles, called ~300 ms after the last edit on a background thread.
@@ -566,7 +578,15 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> bool {
         self.pause_blink(cx);
+        // While a snippet's tab stops are active, Tab means "next stop", not "accept the suggestion" (Enter
+        // still accepts it): close the popup so the key reaches the engine.
+        if self.editor.snippet_active() && input.key == Key::Tab && self.completion.take().is_some() {
+            cx.notify();
+        }
         if self.completion.is_some() && self.completion_key(input, window, cx) {
+            return true;
+        }
+        if self.try_expand_template(input, cx) {
             return true;
         }
         let before = self.state_key();
@@ -580,6 +600,70 @@ impl EditorView {
         let edited = self.editor.revision() != rev0 && !self.read_only;
         self.finish_input(outcome.effects, Some(input), rev0, before, edited, window, cx);
         outcome.handled
+    }
+
+    /// Tab after a template abbreviation, while typing text (Insert mode, or the Standard keymap): ask the
+    /// host to expand it. Anything else falls through to the engine, which uses Tab for snippet stops.
+    fn try_expand_template(&mut self, input: &KeyInput, cx: &mut Context<Self>) -> bool {
+        let plain_tab = input.key == Key::Tab
+            && !input.modifiers.ctrl
+            && !input.modifiers.alt
+            && !input.modifiers.shift
+            && !input.modifiers.platform;
+        let typing = matches!(self.editor.mode(), Mode::Insert | Mode::Standard);
+        if !plain_tab
+            || !typing
+            || self.read_only
+            || self.editor.snippet_active()
+            || self.editor.prompt().is_some()
+        {
+            return false;
+        }
+        let Some(provider) = self.completion_provider.clone() else { return false };
+        let cursor = self.editor.cursor_of(&self.editor.primary());
+        let start = {
+            let mut i = cursor;
+            while i > 0 && self.editor.slice(i - 1..i).chars().all(is_word_char) {
+                i -= 1;
+            }
+            i
+        };
+        if start == cursor {
+            return false;
+        }
+        let word = self.editor.slice(start..cursor);
+        let Some(body) = provider.snippet_for(&word) else { return false };
+        cx.emit(EditorEvent::ExpandSnippet { body, replace: start..cursor });
+        true
+    }
+
+    /// Replace `replace` (char range) with the snippet `body` (variables already resolved) and start
+    /// navigating its tab stops. Lines after the first take the indentation of the line it lands on.
+    pub fn insert_snippet(&mut self, replace: Range<usize>, body: &str, cx: &mut Context<Self>) {
+        if self.read_only {
+            return;
+        }
+        let len = self.editor.len_chars();
+        let replace = replace.start.min(len)..replace.end.min(len);
+        let line = self.editor.char_to_line(replace.start);
+        let line_start = self.editor.line_to_char(line);
+        let indent: String = self
+            .editor
+            .slice(line_start..replace.start)
+            .chars()
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect();
+        let snippet = theta_editor::Snippet::parse(body).indented(&indent);
+        let rev0 = self.editor.revision();
+        self.editor.set_selections(vec![Selection::new(replace.start, replace.end)], 0);
+        self.editor.insert_snippet(&snippet);
+        self.completion = None;
+        self.pending_reveal = true;
+        if self.editor.revision() != rev0 {
+            self.on_edited(cx);
+        }
+        cx.emit(EditorEvent::StateChanged);
+        cx.notify();
     }
 
     /// Keys that belong to an open completion popup. Returns true when consumed.
@@ -902,6 +986,15 @@ impl EditorView {
         let Some(state) = self.completion.take() else { return };
         let Some(item) = state.selected_item().cloned() else { return };
         if self.read_only {
+            return;
+        }
+        if item.kind == theta_sql::CompletionKind::Snippet {
+            // A template: the host resolves its variables, then calls `insert_snippet`.
+            cx.emit(EditorEvent::ExpandSnippet {
+                body: item.insert_text.clone(),
+                replace: state.replace.clone(),
+            });
+            cx.notify();
             return;
         }
         let before = self.state_key();
