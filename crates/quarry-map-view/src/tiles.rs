@@ -180,7 +180,7 @@ mod tests {
         let light = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png";
         let dark = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
         assert_ne!(cache_dir_name(light), cache_dir_name(dark));
-        assert!(cache_dir_name(light).starts_with("{s}") == false);
+        assert!(!cache_dir_name(light).starts_with("{s}"));
         assert_eq!(cache_dir_name(light), cache_dir_name(light));
         let t = TileId { z: 1, x: 0, y: 1 };
         let root = std::path::Path::new("/c");

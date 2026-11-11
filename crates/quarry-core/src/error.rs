@@ -101,6 +101,8 @@ fn lost_text(message: &str) -> bool {
     .any(|p| m.contains(p))
 }
 
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +173,3 @@ mod tests {
         assert!(!Error::Unsupported("x".into()).is_connection_lost());
     }
 }
-
-pub type Result<T, E = Error> = std::result::Result<T, E>;
