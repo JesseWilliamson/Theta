@@ -782,3 +782,19 @@ fn squiggles_follow_the_text_through_edits(cx: &mut TestAppContext) {
     f.keys(cx, "<C-end><left><left><left><left><left><left><left><left>x");
     assert!(f.view.read_with(cx, |v, _| v.diagnostics.is_empty()), "an edit inside the range drops it");
 }
+
+#[gpui_kit::test]
+fn cursor_on_the_last_line_is_painted_away_from_column_zero(cx: &mut TestAppContext) {
+    // The paint pass culls cursors by visible char range; the range of a document whose last
+    // line is visible must extend to the end of the text, not to that line's start.
+    for (text, keymap, keys) in
+        [("select name from t", Keymap::Helix, "ww"), ("select name from t", Keymap::Standard, "<C-end>")]
+    {
+        let f = setup(cx, text, keymap);
+        f.render(cx);
+        f.keys(cx, keys);
+        f.render(cx);
+        let b = f.view.read_with(cx, |v, _| v.ime_anchor).expect("the cursor is painted");
+        assert!(f32::from(b.origin.x) > 100.0, "{keymap:?}: cursor at x={:?}", b.origin.x);
+    }
+}
