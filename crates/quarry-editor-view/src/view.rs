@@ -2,6 +2,7 @@
 //! calls and engine effects into view state. Painting lives in `element.rs`, popups and
 //! chrome in `render.rs`; this file is the controller.
 
+use crate::actions::{CompletionKey, classify_completion_key};
 use crate::completion::{CompletionState, auto_trigger_after_space, is_noop_accept, is_word_char};
 use crate::display::byte_range_to_chars;
 use crate::geometry;
@@ -286,6 +287,31 @@ impl EditorView {
         self.editor.text()
     }
 
+    /// Whether the completion popup is open.
+    pub fn completion_open(&self) -> bool {
+        self.completion.is_some()
+    }
+
+    /// Close the completion popup if it is open.
+    pub fn close_completion(&mut self, cx: &mut Context<Self>) {
+        if self.completion.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// The index of the highlighted suggestion while the popup is open.
+    pub fn completion_selected(&self) -> Option<usize> {
+        self.completion.as_ref().map(|c| c.selected)
+    }
+
+    /// Open the completion popup by hand (what `ctrl-space` does). A no-op without a provider.
+    pub fn request_completion(&mut self, cx: &mut Context<Self>) {
+        if self.completion_provider.is_some() {
+            self.completion = self.query_completion(true);
+            cx.notify();
+        }
+    }
+
     pub fn set_completion_provider(&mut self, provider: Option<Rc<dyn CompletionProvider>>) {
         self.completion_provider = provider;
         if self.completion_provider.is_none() {
@@ -554,17 +580,11 @@ impl EditorView {
 
     /// Keys that belong to an open completion popup. Returns true when consumed.
     fn completion_key(&mut self, input: &KeyInput, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let m = &input.modifiers;
-        let plain = !m.ctrl && !m.alt && !m.shift && !m.platform;
-        match &input.key {
-            Key::Up if plain => self.move_completion(-1, cx),
-            Key::Down if plain => self.move_completion(1, cx),
-            Key::PageUp if plain => self.move_completion(-8, cx),
-            Key::PageDown if plain => self.move_completion(8, cx),
-            Key::Char('p') if m.ctrl && !m.alt && !m.platform => self.move_completion(-1, cx),
-            Key::Char('n') if m.ctrl && !m.alt && !m.platform => self.move_completion(1, cx),
-            Key::Tab if plain => self.accept_completion(window, cx),
-            Key::Enter if plain => {
+        let Some(key) = classify_completion_key(input) else { return false };
+        match key {
+            CompletionKey::Move(delta) => self.move_completion(delta, cx),
+            CompletionKey::Accept => self.accept_completion(window, cx),
+            CompletionKey::Enter => {
                 // Accepting an identical word would swallow the newline: dismiss and let the
                 // engine insert it. Tab still accepts.
                 let current = self.completion.as_ref().map(|c| self.editor.slice(c.replace.clone()));
@@ -578,11 +598,10 @@ impl EditorView {
                 }
                 self.accept_completion(window, cx)
             }
-            Key::Escape if plain => {
+            CompletionKey::Close => {
                 self.completion = None;
                 cx.notify();
             }
-            _ => return false,
         }
         true
     }

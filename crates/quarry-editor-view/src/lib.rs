@@ -23,7 +23,7 @@ mod status;
 mod util;
 mod view;
 
-pub use actions::{KEY_CONTEXT, init};
+pub use actions::{KEY_CONTEXT, completion_owns, init, key_context, keymap_name, mode_name};
 pub use status::{EditorStatus, StatementStatus};
 pub use view::{CompletionProvider, DiagnosticsProvider, EditorEvent, EditorView, FrameStats};
 

@@ -29,4 +29,5 @@ mod types;
 pub mod view;
 
 pub use grid::ResultGrid;
+pub use input::owns_chord;
 pub use types::*;

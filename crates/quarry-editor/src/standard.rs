@@ -209,6 +209,9 @@ impl Editor {
                     self.std_move(shift, |t, s| text::line_end(t, t.char_to_line(s.head)));
                 }
             }
+            // The same tab keys as the application's `mod-pageup` / `mod-pagedown`.
+            Key::PageUp if prim => self.effects.push(Effect::PreviousTab),
+            Key::PageDown if prim => self.effects.push(Effect::NextTab),
             Key::PageUp | Key::PageDown => {
                 let lines = self.lines_viewport();
                 self.std_vertical(key == Key::PageDown, lines, shift);

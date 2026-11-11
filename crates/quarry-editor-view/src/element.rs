@@ -592,6 +592,10 @@ impl EditorView {
             let x = f32::from(entry.x_of_col(col));
             let (_, end_b) = grapheme_extent(&entry.display, col);
             let w = (f32::from(entry.shaped.x_for_index(end_b)) - x).max(cell_w);
+            // `longest` was reset by the edit and is only rebuilt from the visible lines
+            // further down; without this the clamp below would use a width of 0 and throw
+            // away the reveal (typing at the end of a long line never scrolled).
+            self.longest.1 = self.longest.1.max(f32::from(entry.width));
             if let Some(req) = pending_scroll {
                 self.scroll_y = geometry::scroll_for_request(req, cl, self.scroll_y, line_h, bh);
             }

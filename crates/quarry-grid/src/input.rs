@@ -10,6 +10,46 @@ use gpui_kit::{
 };
 use quarry_ui::{KeymapMode, Settings};
 
+/// The ctrl/cmd chords the grid handles itself while it has focus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Chord {
+    SelectAll,
+    Copy,
+    Filter,
+    Undo,
+    SetNull,
+    Submit,
+    Top,
+    Bottom,
+    HalfPageDown,
+    HalfPageUp,
+}
+
+/// The single table of the grid's primary-modifier chords. `key` is the key name without
+/// modifiers (`"a"`, `"enter"`, `"0"`); shift only changes what `Copy` does.
+fn chord(key: &str, helix: bool) -> Option<Chord> {
+    Some(match key {
+        "a" => Chord::SelectAll,
+        "c" => Chord::Copy,
+        "f" => Chord::Filter,
+        "z" => Chord::Undo,
+        "0" => Chord::SetNull,
+        "enter" => Chord::Submit,
+        "home" => Chord::Top,
+        "end" => Chord::Bottom,
+        "d" if helix => Chord::HalfPageDown,
+        "u" if helix => Chord::HalfPageUp,
+        _ => return None,
+    })
+}
+
+/// Whether the focused grid uses `ctrl`/`cmd` + `key` for something of its own (in either key
+/// map). The application keeps its global bindings off these keys while the grid has focus
+/// (`ctrl-0` is "set NULL" there, not "reset zoom").
+pub fn owns_chord(key: &str) -> bool {
+    chord(key, true).is_some()
+}
+
 impl ResultGrid {
     pub(crate) fn on_key_down(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         // Only act when the grid itself has focus: the filter box, the cell
@@ -27,48 +67,48 @@ impl ResultGrid {
         let page = self.page_rows();
 
         let handled = if secondary && !m.alt {
-            match key {
-                "a" => {
+            match chord(key, helix) {
+                Some(Chord::SelectAll) => {
                     self.select_all(cx);
                     true
                 }
-                "c" => {
+                Some(Chord::Copy) => {
                     self.copy_selection(m.shift, cx);
                     true
                 }
-                "f" => {
+                Some(Chord::Filter) => {
                     self.open_filter(window, cx);
                     true
                 }
-                "z" => {
+                Some(Chord::Undo) => {
                     self.undo_edit(cx);
                     true
                 }
-                "0" => {
+                Some(Chord::SetNull) => {
                     self.set_null(cx);
                     true
                 }
-                "enter" => {
+                Some(Chord::Submit) => {
                     self.submit_changes(cx);
                     true
                 }
-                "home" => {
+                Some(Chord::Top) => {
                     self.move_selection(Motion::Top, m.shift, cx);
                     true
                 }
-                "end" => {
+                Some(Chord::Bottom) => {
                     self.move_selection(Motion::Bottom, m.shift, cx);
                     true
                 }
-                "d" if helix => {
+                Some(Chord::HalfPageDown) => {
                     self.move_selection(Motion::PageDown(page / 2), extend, cx);
                     true
                 }
-                "u" if helix => {
+                Some(Chord::HalfPageUp) => {
                     self.move_selection(Motion::PageUp(page / 2), extend, cx);
                     true
                 }
-                _ => false,
+                None => false,
             }
         } else if !m.alt {
             self.plain_key(key, m.shift, extend, helix, page, ks.key_char.as_deref(), window, cx)

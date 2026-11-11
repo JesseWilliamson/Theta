@@ -134,7 +134,7 @@ impl Editor {
                 self.close_prompt(true);
                 return true;
             }
-            Key::Char('c') if ctrl => {
+            Key::Char('c') if ctrl && !m.alt => {
                 self.close_prompt(true);
                 return true;
             }

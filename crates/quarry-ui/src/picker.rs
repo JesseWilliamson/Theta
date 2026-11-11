@@ -25,14 +25,21 @@ use std::ops::Range;
 
 actions!(quarry_picker, [PickerNext, PickerPrev, PickerFirst, PickerLast]);
 
+/// The key context of an open picker.
+pub const PICKER_CONTEXT: &str = "Picker";
+
+/// Keystrokes the picker binds for itself (literal `ctrl`, on every platform). The application
+/// keeps its own global bindings off these while a picker is open.
+pub const PICKER_KEYSTROKES: [&str; 6] = ["ctrl-n", "ctrl-p", "pagedown", "pageup", "ctrl-home", "ctrl-end"];
+
 pub(crate) fn bind_keys(cx: &mut App) {
     cx.bind_keys([
-        KeyBinding::new("ctrl-n", PickerNext, Some("Picker")),
-        KeyBinding::new("ctrl-p", PickerPrev, Some("Picker")),
-        KeyBinding::new("pagedown", PickerNext, Some("Picker")),
-        KeyBinding::new("pageup", PickerPrev, Some("Picker")),
-        KeyBinding::new("ctrl-home", PickerFirst, Some("Picker")),
-        KeyBinding::new("ctrl-end", PickerLast, Some("Picker")),
+        KeyBinding::new("ctrl-n", PickerNext, Some(PICKER_CONTEXT)),
+        KeyBinding::new("ctrl-p", PickerPrev, Some(PICKER_CONTEXT)),
+        KeyBinding::new("pagedown", PickerNext, Some(PICKER_CONTEXT)),
+        KeyBinding::new("pageup", PickerPrev, Some(PICKER_CONTEXT)),
+        KeyBinding::new("ctrl-home", PickerFirst, Some(PICKER_CONTEXT)),
+        KeyBinding::new("ctrl-end", PickerLast, Some(PICKER_CONTEXT)),
     ]);
 }
 

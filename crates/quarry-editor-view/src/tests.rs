@@ -820,3 +820,60 @@ fn enter_after_a_table_alias_does_not_accept_a_keyword_suggestion(cx: &mut TestA
     f.keys(cx, "select * from customers c<ret>where 1 = 1");
     assert_eq!(f.text(cx), "select * from customers c\nwhere 1 = 1");
 }
+
+// ---- horizontal reveal after edits -------------------------------------------------------------
+
+fn long_line(n: usize) -> &'static str {
+    Box::leak("x".repeat(n).into_boxed_str())
+}
+
+/// The caret must be inside the text viewport horizontally after the view has painted.
+fn assert_caret_visible(f: &Fixture, cx: &mut TestAppContext) {
+    f.render(cx);
+    let (sx, cell_w, viewport_w, col) = f.view.read_with(cx, |v, _| {
+        let l = v.layout.clone().expect("painted");
+        let c = v.editor().primary();
+        let cursor = v.editor().cursor_of(&c);
+        let col = cursor - v.editor().line_to_char(v.editor().char_to_line(cursor));
+        (v.scroll_x, l.cell_w, f32::from(l.bounds.size.width) - l.gutter_w, col)
+    });
+    let x = col as f32 * cell_w;
+    assert!(sx > 0.0, "view must have scrolled right (col {col}), scroll_x = {sx}");
+    assert!(x >= sx && x <= sx + viewport_w, "caret x {x} outside [{sx}, {}]", sx + viewport_w);
+}
+
+#[gpui_kit::test]
+fn typing_at_the_end_of_a_long_line_scrolls_horizontally(cx: &mut TestAppContext) {
+    let f = setup(cx, long_line(200), Keymap::Standard);
+    f.render(cx);
+    f.keys(cx, "<End>");
+    f.render(cx);
+    // Typed characters arrive through the platform input path as well as key events: both
+    // must reveal the caret on the very frame after the edit.
+    f.keys(cx, "abcdefghijklmnopqrstuvwxyz0123456789");
+    assert_caret_visible(&f, cx);
+}
+
+#[gpui_kit::test]
+fn typing_at_the_end_of_a_long_line_scrolls_in_helix_insert_mode(cx: &mut TestAppContext) {
+    let f = setup(cx, long_line(200), Keymap::Helix);
+    f.render(cx);
+    f.keys(cx, "A");
+    f.render(cx);
+    f.keys(cx, "abcdefghijklmnopqrstuvwxyz");
+    assert_caret_visible(&f, cx);
+}
+
+#[gpui_kit::test]
+fn platform_text_insertion_scrolls_to_the_caret(cx: &mut TestAppContext) {
+    let f = setup(cx, long_line(200), Keymap::Standard);
+    f.render(cx);
+    f.keys(cx, "<End>");
+    f.render(cx);
+    let view = f.view.clone();
+    cx.update_window(f.window, |_, window, cx| {
+        view.update(cx, |v, cx| v.insert_from_platform(&"y".repeat(120), window, cx));
+    })
+    .unwrap();
+    assert_caret_visible(&f, cx);
+}

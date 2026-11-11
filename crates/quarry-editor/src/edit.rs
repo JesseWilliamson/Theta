@@ -381,6 +381,8 @@ impl Editor {
                     Selection::point(text::line_end(t, line))
                 });
             }
+            // ctrl/cmd-pageup/down switch tabs in the application; they are not page keys.
+            (Key::PageUp | Key::PageDown, ..) if m.ctrl || m.platform => return false,
             (Key::PageUp, ..) => self.run(crate::helix::Cmd::PageUp, None),
             (Key::PageDown, ..) => self.run(crate::helix::Cmd::PageDown, None),
             (Key::Left, _, true) | (Key::Char('b'), false, true) => self.word_move_insert(false),

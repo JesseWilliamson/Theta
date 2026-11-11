@@ -186,7 +186,12 @@ impl Render for EditorView {
 
         div()
             .id("quarry-editor")
-            .key_context(KEY_CONTEXT)
+            .key_context(key_context(
+                self.editor.keymap(),
+                self.editor.mode(),
+                self.editor.prompt().is_some(),
+                self.completion.is_some(),
+            ))
             .track_focus(&self.focus_handle)
             .size_full()
             .flex()
