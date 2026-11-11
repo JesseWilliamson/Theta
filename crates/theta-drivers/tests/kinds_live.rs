@@ -126,6 +126,66 @@ fn tidb() -> Spec {
     }
 }
 
+fn sqlserver() -> Spec {
+    Spec {
+        kind: DatabaseKind::SqlServer,
+        seed: &[
+            "CREATE TABLE {p}_dept (id int PRIMARY KEY, name nvarchar(50) NOT NULL)",
+            "CREATE TABLE {p}_emp (id int PRIMARY KEY, dept_id int NOT NULL, name nvarchar(50), salary decimal(10,2), \
+             CONSTRAINT {p}_fk FOREIGN KEY (dept_id) REFERENCES {p}_dept(id))",
+            "CREATE INDEX {p}_emp_name ON {p}_emp (name)",
+            "CREATE VIEW {p}_v AS SELECT e.name, d.name AS dept FROM {p}_emp e JOIN {p}_dept d ON d.id = e.dept_id",
+            "INSERT INTO {p}_dept VALUES (1, N'eng'), (2, N'ops')",
+            "INSERT INTO {p}_emp VALUES (1, 1, N'ada', 10.50), (2, 1, N'bob', 20.00), (3, 2, N'cy', 30.25)",
+        ],
+        cleanup: &["DROP VIEW {p}_v", "DROP TABLE {p}_emp", "DROP TABLE {p}_dept"],
+        typed_sql: "SELECT CAST(1 AS bigint) AS i, CAST(2.50 AS decimal(10,2)) AS n, N'héllo' AS t, CAST(1 AS bit) AS b, \
+                    CAST('2024-02-29' AS date) AS d, CAST('2024-02-29 13:14:15' AS datetime2(0)) AS ts, \
+                    CAST('123E4567-E89B-12D3-A456-426614174000' AS uniqueidentifier) AS u",
+        typed: &[
+            ("i", "1"),
+            ("n", "2.50"),
+            ("t", "héllo"),
+            ("b", "true"),
+            ("d", "2024-02-29"),
+            ("ts", "2024-02-29 13:14:15"),
+            ("u", "123E4567-E89B-12D3-A456-426614174000"),
+        ],
+        slow_sql: "WAITFOR DELAY '00:01:00'",
+        has_index: true,
+        has_fk: true,
+    }
+}
+
+fn duckdb_spec() -> Spec {
+    Spec {
+        kind: DatabaseKind::DuckDb,
+        seed: &[
+            "CREATE TABLE {p}_dept (id INTEGER PRIMARY KEY, name VARCHAR NOT NULL)",
+            "CREATE TABLE {p}_emp (id INTEGER PRIMARY KEY, dept_id INTEGER NOT NULL REFERENCES {p}_dept(id), name VARCHAR, salary DECIMAL(10,2))",
+            "CREATE INDEX {p}_emp_name ON {p}_emp (name)",
+            "CREATE VIEW {p}_v AS SELECT e.name, d.name AS dept FROM {p}_emp e JOIN {p}_dept d ON d.id = e.dept_id",
+            "INSERT INTO {p}_dept VALUES (1, 'eng'), (2, 'ops')",
+            "INSERT INTO {p}_emp VALUES (1, 1, 'ada', 10.50), (2, 1, 'bob', 20.00), (3, 2, 'cy', 30.25)",
+        ],
+        cleanup: &[],
+        typed_sql: "SELECT 1::BIGINT AS i, 2.50::DECIMAL(10,2) AS n, 'héllo' AS t, true AS b, DATE '2024-02-29' AS d, \
+                    TIMESTAMP '2024-02-29 13:14:15' AS ts, '123e4567-e89b-12d3-a456-426614174000'::UUID AS u",
+        typed: &[
+            ("i", "1"),
+            ("n", "2.50"),
+            ("t", "héllo"),
+            ("b", "true"),
+            ("d", "2024-02-29"),
+            ("ts", "2024-02-29 13:14:15"),
+            ("u", "123e4567-e89b-12d3-a456-426614174000"),
+        ],
+        slow_sql: "SELECT sum(i) FROM range(100000000000) t(i)",
+        has_index: true,
+        has_fk: true,
+    }
+}
+
 async fn conformance(config: ConnectionConfig, spec: Spec) {
     let kind = spec.kind;
     let p = unique("tl");
@@ -292,4 +352,26 @@ async fn postgres_through_the_generic_run() {
 #[tokio::test]
 async fn mariadb_through_the_generic_run() {
     conformance(mysql_config(), Spec { kind: DatabaseKind::MySql, ..tidb() }).await;
+}
+
+#[tokio::test]
+async fn sqlserver_server() {
+    if let Some(c) = env_config("THETA_TEST_SQLSERVER_URL", DatabaseKind::SqlServer) {
+        conformance(c, sqlserver()).await;
+    }
+}
+
+/// DuckDB is embedded, so it always runs; the file is private to the test.
+#[cfg(feature = "duckdb")]
+#[tokio::test]
+async fn duckdb_in_memory_and_file() {
+    let mut mem = ConnectionConfig::new("t-duck", "duck", DatabaseKind::DuckDb);
+    mem.path = ":memory:".into();
+    conformance(mem, duckdb_spec()).await;
+    let dir = std::env::temp_dir().join(unique("duck-kinds"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut file = ConnectionConfig::new("t-duck-file", "duck", DatabaseKind::DuckDb);
+    file.path = dir.join("t.duckdb").to_string_lossy().into_owned();
+    conformance(file, duckdb_spec()).await;
+    let _ = std::fs::remove_dir_all(&dir);
 }

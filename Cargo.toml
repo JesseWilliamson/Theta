@@ -20,7 +20,7 @@ serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "fs"] }
 theta-core = { path = "crates/theta-core" }
-theta-drivers = { path = "crates/theta-drivers" }
+theta-drivers = { path = "crates/theta-drivers", default-features = false }
 theta-sql = { path = "crates/theta-sql" }
 theta-geo = { path = "crates/theta-geo" }
 theta-editor = { path = "crates/theta-editor" }
@@ -46,3 +46,8 @@ opt-level = 2
 lto = "thin"
 codegen-units = 4
 strip = true
+
+# DuckDB's C++ sources are compiled by its build script with the profile's debug level; with line tables on
+# the objects alone take several gigabytes. The Rust side of DuckDB keeps its own settings.
+[profile.dev.package.libduckdb-sys]
+debug = false

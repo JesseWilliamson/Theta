@@ -7,6 +7,12 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 
+[features]
+# DuckDB is compiled from C++ source (the `bundled` feature), which dominates a clean build. It is on by
+# default; `--no-default-features` gives a driver crate without it.
+default = ["duckdb"]
+duckdb = ["dep:duckdb"]
+
 [dependencies]
 theta-core.workspace = true
 tokio.workspace = true
@@ -17,6 +23,10 @@ tokio-postgres = "0.7.18"
 postgres-protocol = "0.6"
 tokio-postgres-rustls = { version = "0.14.0", features = ["aws-lc-rs"] }
 mysql_async = { version = "0.37.1", default-features = false, features = ["default-rustls"] }
+duckdb = { version = "=1.20000.1", default-features = false, features = ["bundled", "parquet", "json"], optional = true }
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
+tiberius = { version = "0.12", default-features = false, features = ["rustls", "tds73"] }
+tokio-util = { version = "0.7", features = ["compat"] }
 rusqlite = { version = "0.41.1", features = ["bundled", "column_metadata", "column_decltype"] }
 russh = "0.65.1"
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }

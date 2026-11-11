@@ -5,8 +5,16 @@
 //!
 //! Everything runs on Tokio. The entry point for the application is [`connect`].
 
+mod clickhouse;
 pub mod demo;
+#[cfg(feature = "duckdb")]
+mod duck;
+mod mssql;
 mod mysql;
+mod plan_ch;
+#[cfg(feature = "duckdb")]
+mod plan_duck;
+mod plan_mssql;
 mod plan_mysql;
 mod plan_pg;
 mod plan_text;
@@ -65,9 +73,33 @@ pub fn driver_for(kind: DatabaseKind) -> Box<dyn Driver> {
         | DatabaseKind::YugabyteDb => Box::new(postgres::PostgresDriver { kind }),
         DatabaseKind::MySql | DatabaseKind::TiDb => Box::new(mysql::MysqlDriver { kind }),
         DatabaseKind::Sqlite => Box::new(sqlite::SqliteDriver),
-        DatabaseKind::DuckDb | DatabaseKind::SqlServer | DatabaseKind::ClickHouse => {
-            unreachable!("driver arrives with its own commit")
-        }
+        #[cfg(feature = "duckdb")]
+        DatabaseKind::DuckDb => Box::new(duck::DuckDriver),
+        #[cfg(not(feature = "duckdb"))]
+        DatabaseKind::DuckDb => Box::new(Unavailable { kind }),
+        DatabaseKind::ClickHouse => Box::new(clickhouse::ClickHouseDriver),
+        DatabaseKind::SqlServer => Box::new(mssql::SqlServerDriver),
+    }
+}
+
+/// Stands in for a driver that this build left out (a cargo feature is off): connecting says so instead of
+/// the kind silently vanishing from a saved connection list.
+#[cfg(not(feature = "duckdb"))]
+struct Unavailable {
+    kind: DatabaseKind,
+}
+
+#[cfg(not(feature = "duckdb"))]
+#[async_trait]
+impl Driver for Unavailable {
+    fn kind(&self) -> DatabaseKind {
+        self.kind
+    }
+    async fn connect(&self, _: &ConnectionConfig) -> Result<Box<dyn Connection>> {
+        Err(Error::Unsupported(format!(
+            "this build of Theta was compiled without {} support (cargo feature \"duckdb\")",
+            self.kind.label()
+        )))
     }
 }
 
@@ -96,6 +128,16 @@ pub async fn connect_with_notices(config: &ConnectionConfig) -> Result<(Box<dyn 
         }
         k if k.family() == Family::MySql => {
             mysql::MysqlConnection::connect(config, Some(mysql::LocalEndpoint { port: local }))
+                .await
+                .map(|c| Box::new(c) as Box<dyn Connection>)
+        }
+        DatabaseKind::SqlServer => {
+            mssql::SqlServerConnection::connect(config, Some(mssql::LocalEndpoint { port: local }))
+                .await
+                .map(|c| Box::new(c) as Box<dyn Connection>)
+        }
+        DatabaseKind::ClickHouse => {
+            clickhouse::ClickHouseConnection::connect(config, Some(clickhouse::LocalEndpoint { port: local }))
                 .await
                 .map(|c| Box::new(c) as Box<dyn Connection>)
         }
