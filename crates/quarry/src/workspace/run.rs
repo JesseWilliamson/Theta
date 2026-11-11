@@ -289,6 +289,16 @@ impl Workspace {
         }
     }
 
+    /// Where keyboard focus belongs when the window opens: the active editor if there is one
+    /// (restored consoles included), else the workspace itself.
+    pub fn focus_default(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.active_tab.is_some_and(|id| self.consoles.contains_key(&id)) {
+            self.focus_editor(window, cx);
+        } else {
+            self.focus.focus(window, cx);
+        }
+    }
+
     /// Keyboard focus to the active console's editor.
     pub(super) fn focus_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(c) = self.active_tab.and_then(|id| self.consoles.get(&id)) {

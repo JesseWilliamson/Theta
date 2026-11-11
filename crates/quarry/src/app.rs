@@ -8,7 +8,7 @@ use crate::connections::{ConnectionStore, connections_path, new_connection_id};
 use crate::workspace::Workspace;
 use crate::{demo, keymap, runtime};
 use gpui_kit::component::TitleBar;
-use gpui_kit::{AppContext as _, Bounds, Entity, Focusable as _, WindowBounds, WindowOptions, px, size};
+use gpui_kit::{AppContext as _, Bounds, Entity, WindowBounds, WindowOptions, px, size};
 use quarry_core::{Catalog, ConnectionConfig, DatabaseKind, Schema, Table, TableKind};
 use std::sync::Arc;
 
@@ -64,7 +64,7 @@ pub fn run(args: Args) {
         handle
             .update(cx, |_, window, cx| {
                 window.set_window_title("Quarry");
-                workspace.read(cx).focus_handle(cx).focus(window, cx);
+                workspace.update(cx, |ws, cx| ws.focus_default(window, cx));
                 if let Some(w) = warning {
                     workspace
                         .update(cx, |ws, cx| ws.notify(crate::connections::NoticeKind::Error, w, window, cx));
