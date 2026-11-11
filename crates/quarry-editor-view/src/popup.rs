@@ -104,9 +104,10 @@ pub(crate) fn completion_popup(
                 })
                 .child(Icon::new(icon).size(px(14.)).text_color(color))
                 .child(
+                    // The name is what you are choosing by: it keeps its width and the detail gives way.
                     div()
-                        .flex_1()
-                        .min_w_0()
+                        .flex_shrink_0()
+                        .max_w(px(360.))
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
@@ -119,7 +120,8 @@ pub(crate) fn completion_popup(
                     |d, text| {
                         d.child(
                             div()
-                                .flex_shrink_0()
+                                .ml_auto()
+                                .min_w_0()
                                 .max_w(px(210.))
                                 .overflow_hidden()
                                 .whitespace_nowrap()

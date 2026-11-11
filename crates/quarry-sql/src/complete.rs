@@ -491,7 +491,9 @@ fn join_items(env: &Env, scan: &ScopeScan) -> Vec<Raw> {
         .into_iter()
         .take(40)
         .map(|j| {
-            let text = j.clause.strip_prefix("JOIN ").unwrap_or(&j.clause).to_string();
+            let text = j.clause.strip_prefix("JOIN ").unwrap_or(&j.clause);
+            // Keywords follow the casing the user is typing in (`join … on`, not `join … ON`).
+            let text = text.replace(" ON ", &format!(" {} ", env.kw("ON"))).replace(" AND ", &format!(" {} ", env.kw("AND")));
             let detail = if j.inferred { format!("suggested · {}", j.via) } else { format!("FK {}", j.via) };
             raw(text.clone(), CompletionKind::Join, Some(detail), text, if j.inferred { 450 } else { 600 })
         })
@@ -1280,8 +1282,10 @@ mod tests {
         let l = items("select * from customers c join |");
         let first = &l[0];
         assert_eq!(first.kind, CompletionKind::Join);
-        assert_eq!(first.label, "orders o ON o.customer_id = c.id");
-        assert_eq!(first.insert_text, "orders o ON o.customer_id = c.id");
+        assert_eq!(first.label, "orders o on o.customer_id = c.id", "keywords follow the typed casing");
+        assert_eq!(first.insert_text, "orders o on o.customer_id = c.id");
+        let upper = items("SELECT * FROM customers c JOIN |");
+        assert_eq!(upper[0].insert_text, "orders o ON o.customer_id = c.id");
         assert!(first.detail.as_deref().unwrap().contains("orders_customer_id_fkey"));
         // Ordinary tables still follow.
         assert!(l.iter().any(|i| i.label == "products" && i.kind == CompletionKind::Table));
@@ -1290,7 +1294,7 @@ mod tests {
     #[test]
     fn join_prefix_filters_join_items() {
         let l = items("select * from orders o join cu|");
-        assert_eq!(l[0].label, "customers c ON o.customer_id = c.id");
+        assert_eq!(l[0].label, "customers c on o.customer_id = c.id");
         assert_eq!(l[0].kind, CompletionKind::Join);
     }
 

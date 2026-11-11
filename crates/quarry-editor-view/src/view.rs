@@ -153,9 +153,8 @@ pub struct EditorView {
     pub(crate) diagnostics: Vec<Diag>,
     pub(crate) transient: Option<(u64, Diag)>,
     diag_task: Option<Task<()>>,
-    /// When the user last edited in an insert-like mode, and the char range of the statement
-    /// being typed: its "unfinished" diagnostics stay hidden until typing pauses.
-    typing: Option<(Instant, Range<usize>)>,
+    /// The char range of the statement being typed (set by an edit in an insert-like mode, cleared when typing pauses): its "unfinished" diagnostics stay hidden until typing pauses.
+    typing: Option<Range<usize>>,
     typing_task: Option<Task<()>>,
     pub(crate) pending_initial_diagnostics: bool,
     pub(crate) hover: Option<Hover>,
@@ -683,7 +682,15 @@ impl EditorView {
         let cursor = self.primary_cursor();
         let text = self.text_snapshot();
         let span = quarry_sql::statement_at(&text, self.editor.char_to_byte(cursor), self.db_kind);
-        self.typing = span.map(|s| (Instant::now(), self.byte_range_to_chars(s.range)));
+        self.typing = span.map(|s| {
+            let mut r = self.byte_range_to_chars(s.range);
+            // The cursor usually sits in whitespace typed after the statement's last token.
+            let len = self.editor.len_chars();
+            while r.end < len && self.editor.slice(r.end..r.end + 1).trim().is_empty() {
+                r.end += 1;
+            }
+            r
+        });
         self.typing_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(TYPING_IDLE).await;
             this.update(cx, |v, cx| {
@@ -696,7 +703,7 @@ impl EditorView {
 
     /// Whether `d` is an "unfinished statement" complaint about the statement still being typed.
     fn held_back(&self, d: &Diag) -> bool {
-        let Some((_, stmt)) = &self.typing else { return false };
+        let Some(stmt) = &self.typing else { return false };
         let cursor = self.primary_cursor();
         matches!(self.editor.mode(), Mode::Insert | Mode::Standard)
             && cursor >= stmt.start
