@@ -807,3 +807,11 @@ fn cursor_on_the_last_line_is_painted_away_from_column_zero(cx: &mut TestAppCont
         assert!(f32::from(b.origin.x) > 100.0, "{keymap:?}: cursor at x={:?}", b.origin.x);
     }
 }
+
+#[gpui_kit::test]
+fn enter_after_a_table_alias_does_not_accept_a_keyword_suggestion(cx: &mut TestAppContext) {
+    let f = setup(cx, "", Keymap::Standard);
+    shop_completion(&f, cx);
+    f.keys(cx, "select * from customers c<ret>where 1 = 1");
+    assert_eq!(f.text(cx), "select * from customers c\nwhere 1 = 1");
+}

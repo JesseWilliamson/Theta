@@ -571,7 +571,7 @@ impl EditorView {
                 let noop = self.completion.as_ref().and_then(|c| c.selected_item()).is_some_and(|i| {
                     current.as_deref().is_some_and(|cur| is_noop_accept(&i.insert_text, cur))
                 });
-                if noop {
+                if noop || self.completion.as_ref().is_some_and(|c| c.enter_means_newline()) {
                     self.completion = None;
                     cx.notify();
                     return false;

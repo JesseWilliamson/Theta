@@ -21,6 +21,8 @@ pub struct CompletionState {
     /// Opened by an explicit request (ctrl-space) rather than by typing: it may offer
     /// suggestions for an empty word (`JOIN |`) and is not subject to the typing gate.
     pub manual: bool,
+    /// The user moved the selection (arrows, wheel hover, click): from then on Enter accepts.
+    pub navigated: bool,
 }
 
 impl CompletionState {
@@ -29,7 +31,7 @@ impl CompletionState {
         if list.items.is_empty() {
             return None;
         }
-        Some(CompletionState { items: list.items, selected: 0, top: 0, replace, prefix, manual: false })
+        Some(CompletionState { items: list.items, selected: 0, top: 0, replace, prefix, manual: false, navigated: false })
     }
 
     pub fn len(&self) -> usize {
@@ -38,6 +40,15 @@ impl CompletionState {
 
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+
+    /// Whether Enter should leave the popup alone and insert a newline: the popup was opened by
+    /// typing, nothing was picked, and the top suggestion is only a keyword. Typing an alias
+    /// (`FROM customers c`) suggests `CROSS JOIN`; Enter must not turn the alias into that.
+    pub fn enter_means_newline(&self) -> bool {
+        !self.manual
+            && !self.navigated
+            && self.selected_item().is_some_and(|i| i.kind == CompletionKind::Keyword)
     }
 
     pub fn selected_item(&self) -> Option<&CompletionItem> {
@@ -55,12 +66,14 @@ impl CompletionState {
             return;
         }
         self.selected = (self.selected as isize + delta).rem_euclid(n) as usize;
+        self.navigated = true;
         self.ensure_visible();
     }
 
     pub fn select(&mut self, index: usize) {
         if index < self.items.len() {
             self.selected = index;
+            self.navigated = true;
             self.ensure_visible();
         }
     }
@@ -288,6 +301,27 @@ mod tests {
         assert_eq!(segs.iter().filter(|(_, m)| *m).map(|(s, _)| s.as_str()).collect::<String>(), "oi");
         assert_eq!(highlight_segments("abc", ""), vec![("abc".to_string(), false)]);
         assert_eq!(highlight_segments("abc", "zzz"), vec![("abc".to_string(), false)]);
+    }
+
+    #[test]
+    fn enter_after_an_alias_is_a_newline_unless_the_user_picked_something() {
+        let kw = |l: &str| CompletionItem {
+            label: l.into(),
+            kind: CompletionKind::Keyword,
+            detail: None,
+            insert_text: l.into(),
+            score: 0,
+        };
+        let list = CompletionList { replace_range: 0..1, items: vec![kw("CROSS JOIN"), kw("CASE")] };
+        let mut s = CompletionState::new(list, 0..1, "c".into()).unwrap();
+        assert!(s.enter_means_newline());
+        s.move_selection(1);
+        assert!(!s.enter_means_newline(), "after an explicit choice Enter accepts");
+        // A table or column is accepted by Enter right away.
+        let mut t = state(2);
+        assert!(!t.enter_means_newline());
+        t.manual = true;
+        assert!(!t.enter_means_newline());
     }
 
     #[test]
