@@ -168,7 +168,8 @@ pub async fn introspect(client: &Client, kind: DatabaseKind) -> Result<Catalog> 
     }
 
     // `attgenerated` exists from PostgreSQL 12; older servers simply have no generated columns.
-    let generated = match q(client, "SELECT current_setting('server_version_num')::int").await?.first() {
+    // The casts say int4, not int: CockroachDB's `int` is 64-bit and would not decode as i32.
+    let generated = match q(client, "SELECT current_setting('server_version_num')::int4").await?.first() {
         Some(r) if r.get::<_, i32>(0) >= 120000 => "a.attgenerated::text",
         _ => "''::text",
     };
@@ -287,7 +288,7 @@ pub async fn introspect(client: &Client, kind: DatabaseKind) -> Result<Catalog> 
                     pg_get_indexdef(i.indexrelid), \
                (SELECT array_agg(CASE WHEN k.attnum > 0 \
                           THEN (SELECT a.attname::text FROM pg_attribute a WHERE a.attrelid = i.indrelid AND a.attnum = k.attnum) \
-                          ELSE pg_get_indexdef(i.indexrelid, k.ord::int, true) END ORDER BY k.ord) \
+                          ELSE pg_get_indexdef(i.indexrelid, k.ord::int4, true) END ORDER BY k.ord) \
                   FROM unnest(i.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord) \
                  WHERE k.ord <= i.indnkeyatts), \
                     pg_get_expr(i.indpred, i.indrelid), i.indexprs IS NOT NULL \

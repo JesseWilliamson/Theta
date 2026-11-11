@@ -554,7 +554,12 @@ impl SqlServerConnection {
         match r {
             // The cancel killed the session: the statement ended with a transport error. Drop the
             // session so the next statement opens a new one.
+            // (Error 596, "the session is in the kill state", is the same event seen from the server.)
             Err(Error::Closed | Error::Other(_)) if cancelled => {
+                *guard = None;
+                Err(Error::Cancelled)
+            }
+            Err(Error::Query { code: Some(c), .. }) if cancelled && c == "596" => {
                 *guard = None;
                 Err(Error::Cancelled)
             }
