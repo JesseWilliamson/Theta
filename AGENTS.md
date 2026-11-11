@@ -42,6 +42,9 @@ Do not push, do not rebase, do not touch other agents' uncommitted files, never 
 
 ## Local test services (already running)
 
+The database, schema and MariaDB user are still called `quarry_demo` / `quarry` from before the rename to Theta:
+renaming them would mean recreating the live local databases, so treat it as a legacy test-database name.
+
 - PostgreSQL 16 + PostGIS: `postgres://postgres:postgres@127.0.0.1:5432/quarry_demo`
 - MariaDB 10.11: `mysql://quarry:quarry@127.0.0.1:3306/quarry_demo`
 

@@ -390,7 +390,8 @@ script/shot /tmp/shots/main.png -- --demo                                # headl
 ```
 
 Test databases: PostgreSQL 16 with PostGIS at `postgres://postgres:postgres@127.0.0.1:5432/quarry_demo`
-and MariaDB 10.11 at `mysql://quarry:quarry@127.0.0.1:3306/quarry_demo`; the CI workflow starts them as
+and MariaDB 10.11 at `mysql://quarry:quarry@127.0.0.1:3306/quarry_demo` (the name predates the rename to Theta and
+is kept so the existing databases keep working); the CI workflow starts them as
 service containers. [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) covers the details, including the
 screenshot harness, adding a database driver, adding a theme, and the CI and release process.
 [CONTRIBUTING.md](CONTRIBUTING.md) has the short version.
