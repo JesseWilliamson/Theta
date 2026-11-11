@@ -105,7 +105,8 @@ pub fn open(
     let title: SharedString = title.into();
     window.open_dialog(cx, move |dialog, _, _| {
         let default = default.clone();
-        dialog.title(title.clone()).w(px(640.)).child(view.clone()).on_ok(move |_, window, cx| match &default {
+        dialog.title(title.clone()).w(px(640.)).child(view.clone()).on_ok(move |_, window, cx| match &default
+        {
             Some(run) => {
                 run(window, cx);
                 true
