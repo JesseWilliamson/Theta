@@ -1,7 +1,7 @@
 //! Default key bindings and the macOS application menu.
 //!
 //! `cmd` on macOS, `ctrl` elsewhere. Contexts: "Explorer" is set on the tree;
-//! the extra "helix" identifier is added there while the Helix keymap is
+//! the extra "modal" identifier is added there while a modal keymap (Helix or Vim) is
 //! selected, enabling `j/k/h/l`.
 //!
 //! # Who wins a key: the precedence rule
@@ -14,8 +14,9 @@
 //! > and prompt/popup state always win. Application bindings on the same keystroke apply only
 //! > outside the editor, or in the editor states where the engine does not use the key.
 //!
-//! The editor publishes its state as key context (`QuarryEditor`, `keymap=helix|standard`,
-//! `mode=normal|insert|select|standard`, `prompt`, `completion`; see
+//! The editor publishes its state as key context (`QuarryEditor`, `keymap=helix|vim|standard`,
+//! `mode=normal|insert|select|visual|visual-line|visual-block|replace|standard`, `prompt`,
+//! `completion`, `pending`; see
 //! `quarry_editor_view::key_context`). [`ownership`] asks the engine, the prompt bar and the
 //! completion popup which keystrokes they use in which state, and [`bind`] appends
 //! `!(QuarryEditor && <states that own it>)` to every global binding on such a keystroke.
@@ -176,10 +177,10 @@ pub fn explorer_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("escape", ExplorerBack, Some("Explorer")),
         KeyBinding::new("ctrl-n", ExplorerNext, Some("Explorer")),
         KeyBinding::new("ctrl-p", ExplorerPrevious, Some("Explorer")),
-        KeyBinding::new("j", ExplorerNext, Some("Explorer && helix")),
-        KeyBinding::new("k", ExplorerPrevious, Some("Explorer && helix")),
-        KeyBinding::new("l", ExplorerExpand, Some("Explorer && helix")),
-        KeyBinding::new("h", ExplorerCollapse, Some("Explorer && helix")),
+        KeyBinding::new("j", ExplorerNext, Some("Explorer && modal")),
+        KeyBinding::new("k", ExplorerPrevious, Some("Explorer && modal")),
+        KeyBinding::new("l", ExplorerExpand, Some("Explorer && modal")),
+        KeyBinding::new("h", ExplorerCollapse, Some("Explorer && modal")),
     ]
 }
 
@@ -256,7 +257,7 @@ pub fn set_menus(cx: &mut App) {
                 MenuItem::action("Toggle Bottom Panel", ToggleBottomPanel),
                 MenuItem::separator(),
                 MenuItem::action("Select Theme…", SelectTheme),
-                MenuItem::action("Toggle Keymap", ToggleKeymap),
+                MenuItem::action("Select Keymap…", SelectKeymap),
                 MenuItem::action("Import Zed Theme…", ImportZedTheme),
                 MenuItem::separator(),
                 MenuItem::action("Increase Editor Font Size", ZoomIn),

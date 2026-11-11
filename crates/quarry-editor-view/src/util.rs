@@ -1,7 +1,7 @@
 //! Grapheme helpers shared by the controller and the painter.
 
 use crate::display::DisplayLine;
-use quarry_editor::{Editor, Keymap, Selection};
+use quarry_editor::{Editor, Keymap, Mode, Selection};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// Chars in the first grapheme cluster of `s` (0 for an empty string).
@@ -17,6 +17,8 @@ pub fn selection_is_real(editor: &Editor, s: &Selection) -> bool {
     }
     match editor.keymap() {
         Keymap::Standard => true,
+        // Vim's Normal-mode cursor is a point; only the Visual modes select.
+        Keymap::Vim => matches!(editor.mode(), Mode::Visual | Mode::VisualLine | Mode::VisualBlock),
         Keymap::Helix => {
             let end = (s.from() + 64).min(editor.len_chars());
             s.len() > first_grapheme_chars(&editor.slice(s.from()..end)).max(1)

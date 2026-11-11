@@ -24,7 +24,6 @@ use gpui_kit::{
     px,
 };
 use quarry_geo::{Coord, Feature, Geometry, describe, to_wkt};
-use quarry_ui::settings::KeymapMode;
 use quarry_ui::{CHROME_TEXT_SIZE, EmptyState, PANEL_HEADER_HEIGHT, Settings, tool_button};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -172,7 +171,7 @@ impl MapPanel {
         if k.modifiers.control || k.modifiers.alt || k.modifiers.platform {
             return;
         }
-        let helix = Settings::get(cx).keymap == KeymapMode::Helix;
+        let modal = Settings::get(cx).keymap.is_modal();
         let key = k.key.as_str();
         let ch = k.key_char.as_deref().unwrap_or("");
         let handled = match key {
@@ -184,10 +183,10 @@ impl MapPanel {
             "right" => self.pan_key(KEY_PAN_PX, 0.0),
             "up" => self.pan_key(0.0, -KEY_PAN_PX),
             "down" => self.pan_key(0.0, KEY_PAN_PX),
-            "h" if helix => self.pan_key(-KEY_PAN_PX, 0.0),
-            "l" if helix => self.pan_key(KEY_PAN_PX, 0.0),
-            "k" if helix => self.pan_key(0.0, -KEY_PAN_PX),
-            "j" if helix => self.pan_key(0.0, KEY_PAN_PX),
+            "h" if modal => self.pan_key(-KEY_PAN_PX, 0.0),
+            "l" if modal => self.pan_key(KEY_PAN_PX, 0.0),
+            "k" if modal => self.pan_key(0.0, -KEY_PAN_PX),
+            "j" if modal => self.pan_key(0.0, KEY_PAN_PX),
             "0" => {
                 self.core.borrow_mut().fit_all();
                 true
@@ -988,8 +987,6 @@ impl Render for MapPanel {
 
         let empty = self.core.borrow().is_empty();
         let size = self.core.borrow().camera.size();
-        let helix_hint = Settings::get(cx).keymap;
-        let _ = helix_hint;
 
         let root = v_flex()
             .id("quarry-map")

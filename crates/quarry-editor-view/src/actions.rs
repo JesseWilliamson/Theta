@@ -9,12 +9,13 @@ pub const KEY_CONTEXT: &str = "QuarryEditor";
 
 /// The key context of the editor element for the editor's current state.
 ///
-/// Besides the `QuarryEditor` identifier it carries `keymap=helix|standard`,
-/// `mode=normal|insert|select|standard`, `prompt` while the `:` / `/` prompt bar is open and
-/// `completion` while the completion popup is open. Application bindings use these in
+/// Besides the `QuarryEditor` identifier it carries `keymap=helix|vim|standard`,
+/// `mode=normal|insert|select|visual|visual-line|visual-block|replace|standard`, `prompt` while the `:` / `/` prompt bar is open and
+/// `completion` while the completion popup is open and `pending` (Vim only) while a
+/// multi-key command such as an operator (`d`), `g` or a register prefix waits for its rest. Application bindings use these in
 /// predicates (`!(QuarryEditor && keymap == helix && mode == insert)`) to stay out of the way
 /// of keys the editor owns; see `docs/KEYBINDINGS.md`.
-pub fn key_context(keymap: Keymap, mode: Mode, prompt: bool, completion: bool) -> KeyContext {
+pub fn key_context(keymap: Keymap, mode: Mode, prompt: bool, completion: bool, pending: bool) -> KeyContext {
     let mut ctx = KeyContext::default();
     ctx.add(KEY_CONTEXT);
     ctx.set("keymap", keymap_name(keymap));
@@ -25,6 +26,9 @@ pub fn key_context(keymap: Keymap, mode: Mode, prompt: bool, completion: bool) -
     if completion {
         ctx.add("completion");
     }
+    if pending {
+        ctx.add("pending");
+    }
     ctx
 }
 
@@ -33,6 +37,7 @@ pub fn keymap_name(keymap: Keymap) -> &'static str {
     match keymap {
         Keymap::Helix => "helix",
         Keymap::Standard => "standard",
+        Keymap::Vim => "vim",
     }
 }
 
@@ -43,6 +48,10 @@ pub fn mode_name(mode: Mode) -> &'static str {
         Mode::Insert => "insert",
         Mode::Select => "select",
         Mode::Standard => "standard",
+        Mode::Visual => "visual",
+        Mode::VisualLine => "visual-line",
+        Mode::VisualBlock => "visual-block",
+        Mode::Replace => "replace",
     }
 }
 

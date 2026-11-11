@@ -191,6 +191,9 @@ impl Render for EditorView {
                 self.editor.mode(),
                 self.editor.prompt().is_some(),
                 self.completion.is_some(),
+                self.editor.keymap() == quarry_editor::Keymap::Vim
+                    && self.editor.prompt().is_none()
+                    && !self.editor.pending_keys().is_empty(),
             ))
             .track_focus(&self.focus_handle)
             .size_full()
@@ -199,7 +202,7 @@ impl Render for EditorView {
             .bg(colors.background)
             .on_key_down(cx.listener(|this, ev, window, cx| this.on_key_down(ev, window, cx)))
             .on_action(cx.listener(|this, _: &EditorCopy, _, cx| this.copy_selection(cx)))
-            .on_action(cx.listener(|this, _: &EditorCut, _, cx| this.cut_selection(cx)))
+            .on_action(cx.listener(|this, _: &EditorCut, window, cx| this.cut_selection(window, cx)))
             .on_action(cx.listener(|this, _: &EditorPaste, window, cx| this.paste_clipboard(window, cx)))
             .on_action(cx.listener(|this, _: &EditorRunStatement, _, cx| {
                 this.emit_effect(Effect::RunStatementAtCursor, cx)

@@ -18,7 +18,7 @@ use gpui_kit::{
 };
 use quarry_core::{DatabaseKind, Plan};
 use quarry_sql::{Insight, PlanSummary, Severity};
-use quarry_ui::{EmptyState, KeyHint, KeymapMode, Settings, tool_button};
+use quarry_ui::{EmptyState, KeyHint, Settings, tool_button};
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -330,9 +330,9 @@ impl PlanPanel {
         if m.control || m.alt || m.platform || self.loaded.is_none() || self.view == ViewMode::Raw {
             return;
         }
-        let helix = Settings::get(cx).keymap == KeymapMode::Helix;
+        let modal = Settings::get(cx).keymap.is_modal();
         let key = ev.keystroke.key.as_str();
-        let key = match (helix, key) {
+        let key = match (modal, key) {
             (true, "j") => "down",
             (true, "k") => "up",
             (true, "h") => "left",

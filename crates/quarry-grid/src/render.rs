@@ -366,7 +366,7 @@ impl ResultGrid {
                     .items_center()
                     .flex_shrink_0()
                     .text_color(p.muted)
-                    .when(self.helix_visual, |d| d.child(div().text_color(p.accent).child("VISUAL")))
+                    .when(self.modal_visual, |d| d.child(div().text_color(p.accent).child("VISUAL")))
                     .children(self.summary.clone().map(|s| div().child(s)))
                     .children(lock),
             )

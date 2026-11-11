@@ -69,13 +69,24 @@ pub struct SettingsView {
     bm_dark: bool,
     bm_error: Option<String>,
     filter: Entity<InputState>,
-    /// (section, label, keys) rows of the app and editor key reference.
+    /// (section, label, keys) rows of the application's actions.
     rows: Vec<(String, String, String)>,
+    /// The editor key reference of the active keymap, re-read when the keymap changes.
+    editor_rows: (KeymapMode, Vec<(String, String, String)>),
     _subs: Vec<Subscription>,
 }
 
 pub fn open(window: &mut Window, cx: &mut App) {
-    let view = cx.new(|cx| SettingsView::new(window, cx));
+    open_at(Section::Appearance, window, cx)
+}
+
+/// Open Settings on `section` (the Vim `:help` command lands on the key reference).
+pub fn open_at(section: Section, window: &mut Window, cx: &mut App) {
+    let view = cx.new(|cx| {
+        let mut v = SettingsView::new(window, cx);
+        v.section = section;
+        v
+    });
     window.open_dialog(cx, move |dialog, _, _| dialog.title("Settings").w(px(820.)).child(view.clone()));
 }
 
@@ -102,6 +113,10 @@ fn font_select(
     cx.new(|cx| SelectState::new(SearchableVec::new(names), ix, window, cx).searchable(true))
 }
 
+fn editor_reference(mode: KeymapMode) -> Vec<(String, String, String)> {
+    keyref::editor_keys(mode).into_iter().map(|k| (format!("Editor · {}", k.section), k.action, k.keys)).collect()
+}
+
 impl SettingsView {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let s = Settings::get(cx).clone();
@@ -115,13 +130,8 @@ impl SettingsView {
             cx.new(|cx| InputState::new(window, cx).placeholder("\u{a9} the provider and OpenStreetMap"));
         let bm_zoom = cx.new(|cx| InputState::new(window, cx).default_value("19"));
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search actions and keys"));
-        let mut rows: Vec<(String, String, String)> = crate::palette::command_list(window);
-        let mode = s.keymap;
-        rows.extend(
-            keyref::editor_keys(mode)
-                .into_iter()
-                .map(|k| (format!("Editor · {}", k.section), k.action, k.keys)),
-        );
+        let rows: Vec<(String, String, String)> = crate::palette::command_list(window);
+        let editor_rows = (s.keymap, editor_reference(s.keymap));
         let subs = vec![
             cx.subscribe_in(&ui_font, window, |_, _, e: &SelectEvent<SearchableVec<&'static str>>, _, cx| {
                 if let SelectEvent::Confirm(Some(name)) = e {
@@ -155,7 +165,13 @@ impl SettingsView {
                     cx.notify();
                 }
             }),
-            cx.observe_global::<quarry_ui::settings::SettingsStore>(|_, cx| cx.notify()),
+            cx.observe_global::<quarry_ui::settings::SettingsStore>(|this, cx| {
+                let mode = Settings::get(cx).keymap;
+                if this.editor_rows.0 != mode {
+                    this.editor_rows = (mode, editor_reference(mode));
+                }
+                cx.notify()
+            }),
         ];
         Self {
             section: Section::Appearance,
@@ -170,6 +186,7 @@ impl SettingsView {
             bm_error: None,
             filter,
             rows,
+            editor_rows,
             _subs: subs,
         }
     }
@@ -289,14 +306,26 @@ impl SettingsView {
             .child(
                 self.row(
                     "Keymap",
-                    Some("Helix is modal; Standard behaves like a conventional editor"),
+                    Some("Helix and Vim are modal; Standard behaves like a conventional editor"),
                     h_flex()
                         .gap_1()
                         .child(seg("km-helix", KeymapMode::Helix))
+                        .child(seg("km-vim", KeymapMode::Vim))
                         .child(seg("km-std", KeymapMode::Standard)),
                     cx,
                 ),
             )
+            .when(s.keymap == KeymapMode::Vim, |d| {
+                d.child(self.row(
+                    "Vim: share the clipboard",
+                    Some("Yanks and deletes go to the system clipboard and p pastes from it (clipboard=unnamedplus)"),
+                    Switch::new("vim-clipboard").checked(s.vim.clipboard_unnamed).on_change(|v, _, cx| {
+                        let v = *v;
+                        Settings::update(cx, |s| s.vim.clipboard_unnamed = v)
+                    }),
+                    cx,
+                ))
+            })
             .child(self.row(
                 "Format: indent width",
                 None,
@@ -476,6 +505,7 @@ impl SettingsView {
         let rows: Vec<&(String, String, String)> = self
             .rows
             .iter()
+            .chain(self.editor_rows.1.iter())
             .filter(|(s, a, k)| q.is_empty() || [s, a, k].iter().any(|t| t.to_lowercase().contains(&q)))
             .collect();
         let mode = Settings::get(cx).keymap;
@@ -484,15 +514,15 @@ impl SettingsView {
             .child(Input::new(&self.filter).small().cleanable(true))
             .child(
                 div().text_size(CHROME_TEXT_SIZE).text_color(theme.muted_foreground).child(format!(
-                    "{} actions and {} editor keys ({} rows shown). Switch keymaps in Editor settings; reopen to refresh editor keys.",
-                    self.rows.iter().filter(|r| !r.0.starts_with("Editor")).count(),
+                    "{} actions and {} editor keys ({} rows shown). Switch keymaps in Editor settings.",
+                    self.rows.len(),
                     mode.label(),
                     rows.len()
                 )),
             )
             .child(
                 div().id("keymap-rows").h(px(380.)).overflow_y_scroll().child(v_flex().children(
-                    rows.into_iter().take(400).map(|(section, action, keys)| {
+                    rows.into_iter().take(600).map(|(section, action, keys)| {
                         h_flex()
                             .py_1()
                             .gap_3()

@@ -7,7 +7,9 @@ use crate::workspace::Workspace;
 use gpui_kit::assets::IconName;
 use gpui_kit::{Action, App, Entity, SharedString, WeakEntity, Window};
 use quarry_ui::picker::{PickerDelegate, PickerItem};
+use quarry_ui::settings::KeymapMode;
 use quarry_ui::themes;
+use quarry_ui::Settings;
 
 struct Command {
     label: &'static str,
@@ -51,7 +53,10 @@ fn commands() -> Vec<Command> {
         cmd!("Reopen Closed Tab", "View", IconName::Undo2, ReopenClosedTab),
         cmd!("Select Theme…", "Appearance", IconName::Palette, SelectTheme),
         cmd!("Import Zed Theme…", "Appearance", IconName::FileDown, ImportZedTheme),
-        cmd!("Toggle Keymap (Helix / Standard)", "Appearance", IconName::Keyboard, ToggleKeymap),
+        cmd!("Select Keymap…", "Appearance", IconName::Keyboard, SelectKeymap),
+        cmd!("Use Helix Keymap", "Appearance", IconName::Keyboard, UseHelixKeymap),
+        cmd!("Use Vim Keymap", "Appearance", IconName::Keyboard, UseVimKeymap),
+        cmd!("Use Standard Keymap", "Appearance", IconName::Keyboard, UseStandardKeymap),
         cmd!("Increase Editor Font Size", "Appearance", IconName::ZoomIn, ZoomIn),
         cmd!("Decrease Editor Font Size", "Appearance", IconName::ZoomOut, ZoomOut),
         cmd!("Reset Editor Font Size", "Appearance", IconName::Search, ZoomReset),
@@ -178,6 +183,44 @@ impl PickerDelegate for ThemePicker {
         if !confirmed && !self.confirmed {
             themes::preview(&self.original, cx);
         }
+    }
+}
+
+/// Picks the editing keymap. Confirming applies it at once (every editor observes the settings).
+pub struct KeymapPicker {
+    workspace: WeakEntity<Workspace>,
+}
+
+impl KeymapPicker {
+    pub fn new(workspace: WeakEntity<Workspace>) -> Self {
+        Self { workspace }
+    }
+}
+
+impl PickerDelegate for KeymapPicker {
+    fn placeholder(&self) -> SharedString {
+        "Select a keymap…".into()
+    }
+    fn items(&mut self, cx: &mut App) -> Vec<PickerItem> {
+        let current = Settings::get(cx).keymap;
+        KeymapMode::ALL
+            .into_iter()
+            .map(|k| {
+                let detail = match k {
+                    KeymapMode::Helix => "select, then act; multiple selections",
+                    KeymapMode::Vim => "verb, then motion; registers and macros",
+                    KeymapMode::Standard => "a conventional editor",
+                };
+                PickerItem::new(k.label(), k.label()).detail(detail).icon(IconName::Keyboard).checked(k == current)
+            })
+            .collect()
+    }
+    fn initial_selection(&self, items: &[PickerItem]) -> Option<usize> {
+        items.iter().position(|i| i.checked)
+    }
+    fn confirm(&mut self, item: &PickerItem, window: &mut Window, cx: &mut App) {
+        let Some(keymap) = KeymapMode::ALL.into_iter().find(|k| k.label() == item.id.as_ref()) else { return };
+        let _ = self.workspace.update(cx, |ws, cx| ws.set_keymap(keymap, window, cx));
     }
 }
 

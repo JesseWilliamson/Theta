@@ -674,6 +674,16 @@ fn settings_changes_reach_open_editors(cx: &mut TestAppContext) {
         assert_eq!(v.editor().keymap(), Keymap::Standard);
         assert_eq!(v.font_size, 18.0);
     });
+    // Vim joins the cycle: Standard -> Vim -> Helix, live, in the same editor.
+    for (mode, want) in [
+        (quarry_ui::KeymapMode::Vim, Keymap::Vim),
+        (quarry_ui::KeymapMode::Helix, Keymap::Helix),
+        (quarry_ui::KeymapMode::Vim, Keymap::Vim),
+    ] {
+        cx.update(|cx| quarry_ui::Settings::update(cx, |s| s.keymap = mode));
+        cx.run_until_parked();
+        assert_eq!(view.read_with(cx, |v, _| v.editor().keymap()), want);
+    }
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -876,4 +886,243 @@ fn platform_text_insertion_scrolls_to_the_caret(cx: &mut TestAppContext) {
     })
     .unwrap();
     assert_caret_visible(&f, cx);
+}
+
+// ---- Vim keymap ----------------------------------------------------------------------------------------------
+
+#[gpui_kit::test]
+fn vim_typing_round_trip_and_status_labels(cx: &mut TestAppContext) {
+    let f = setup(cx, "", Keymap::Vim);
+    assert_eq!(f.mode(cx), Mode::Normal);
+    f.keys(cx, "ihello<esc>");
+    assert_eq!((f.mode(cx), f.text(cx).as_str()), (Mode::Normal, "hello"));
+    let label = |f: &Fixture, cx: &mut TestAppContext| f.view.read_with(cx, |v, _| v.status().mode_label());
+    assert_eq!(label(&f, cx), "NORMAL");
+    for (keys, want) in [
+        ("i", "INSERT"),
+        ("<esc>R", "REPLACE"),
+        ("<esc>v", "VISUAL"),
+        ("<esc>V", "V-LINE"),
+        ("<esc><C-v>", "V-BLOCK"),
+        ("<esc>", "NORMAL"),
+    ] {
+        f.keys(cx, keys);
+        assert_eq!(label(&f, cx), want, "after {keys}");
+    }
+}
+
+#[gpui_kit::test]
+fn vim_dd_p_visual_delete_and_substitute(cx: &mut TestAppContext) {
+    let f = setup(cx, "one\ntwo\nthree\n", Keymap::Vim);
+    f.keys(cx, "ddp");
+    assert_eq!(f.text(cx), "two\none\nthree\n");
+    f.keys(cx, "gg");
+    f.keys(cx, "vld");
+    assert_eq!(f.text(cx), "o\none\nthree\n");
+    f.keys(cx, ":%s/o/0/g<ret>");
+    assert_eq!(f.text(cx), "0\n0ne\nthree\n");
+    // `u` goes back one command at a time
+    f.keys(cx, "u");
+    assert_eq!(f.text(cx), "o\none\nthree\n");
+}
+
+#[gpui_kit::test]
+fn vim_ciw_never_opens_completion_in_normal_mode_and_escape_closes_the_popup_first(cx: &mut TestAppContext) {
+    let f = setup(cx, "select * from cu", Keymap::Vim);
+    shop_completion(&f, cx);
+    let open = |f: &Fixture, cx: &mut TestAppContext| f.view.read_with(cx, |v, _| v.completion_open());
+    // Normal-mode commands (even ones that start inserting) must not pop the list up by themselves.
+    f.keys(cx, "$");
+    assert!(!open(&f, cx));
+    f.keys(cx, "ciw");
+    assert_eq!(f.mode(cx), Mode::Insert);
+    assert!(!open(&f, cx), "the change itself is not a trigger");
+    f.keys(cx, "ord");
+    assert!(open(&f, cx), "typing an identifier opens it, exactly as in Helix Insert");
+    f.keys(cx, "<esc>");
+    assert_eq!((f.mode(cx), open(&f, cx)), (Mode::Insert, false), "first escape closes the popup only");
+    f.keys(cx, "<esc>");
+    assert_eq!(f.mode(cx), Mode::Normal);
+    assert_eq!(f.text(cx), "select * from ord");
+    // and in Normal mode motions never open it
+    f.keys(cx, "bb");
+    assert!(!open(&f, cx));
+}
+
+#[gpui_kit::test]
+fn vim_insert_ctrl_n_opens_the_popup_then_navigates(cx: &mut TestAppContext) {
+    let f = setup(cx, "", Keymap::Vim);
+    shop_completion(&f, cx);
+    f.keys(cx, "iselect * from o<esc>");
+    let sel = |f: &Fixture, cx: &mut TestAppContext| f.view.read_with(cx, |v, _| v.completion_selected());
+    assert_eq!(sel(&f, cx), None, "closed by the first escape");
+    f.keys(cx, "<C-n>");
+    assert_eq!(sel(&f, cx), Some(0), "the first ctrl-n only opens it");
+    f.keys(cx, "<C-n>");
+    assert_eq!(sel(&f, cx), Some(1));
+    f.keys(cx, "<C-p>");
+    assert_eq!(sel(&f, cx), Some(0));
+    f.keys(cx, "<tab>");
+    assert!(f.text(cx).starts_with("select * from order"), "{}", f.text(cx));
+    assert_eq!(f.mode(cx), Mode::Insert);
+}
+
+#[gpui_kit::test]
+fn vim_ctrl_enter_in_every_mode(cx: &mut TestAppContext) {
+    for (keys, want) in [
+        ("", Effect::RunStatementAtCursor),
+        ("i", Effect::RunStatementAtCursor),
+        ("R", Effect::RunStatementAtCursor),
+        // `$` in Visual mode includes the line break, as in Vim
+        ("v$", Effect::RunSelection("select 1;\n".into())),
+        ("V", Effect::RunSelection("select 1;\n".into())),
+    ] {
+        let f = setup(cx, "select 1;\nselect 2;", Keymap::Vim);
+        f.keys(cx, keys);
+        f.keys(cx, "<C-ret>");
+        assert!(f.effects().contains(&want), "after {keys:?}: {:?}", f.effects());
+    }
+}
+
+#[gpui_kit::test]
+fn vim_effects_reach_the_host(cx: &mut TestAppContext) {
+    let f = setup(cx, "select  1;\nselect  2;\nselect  3;", Keymap::Vim);
+    f.keys(cx, "Vj=");
+    assert!(f.effects().contains(&Effect::FormatSelection), "{:?}", f.effects());
+    // the engine leaves the formatted lines selected for the host to take
+    assert_eq!(f.view.read_with(cx, |v, _| v.editor().primary().len()), "select  1;\nselect  2;\n".len());
+    f.keys(cx, "<esc>ggVG=");
+    assert!(f.effects().contains(&Effect::FormatDocument), "{:?}", f.effects());
+    f.keys(cx, ":help<ret>");
+    assert!(f.effects().iter().any(|e| matches!(e, Effect::HostCommand(c) if c.starts_with("help"))));
+    f.keys(cx, ":set bogus<ret>");
+    assert!(f.effects().iter().any(|e| matches!(e, Effect::HostCommand(c) if c == "set bogus")), "{:?}", f.effects());
+    f.keys(cx, " r");
+    assert!(f.effects().contains(&Effect::RunStatementAtCursor), "space r runs the statement");
+}
+
+#[gpui_kit::test]
+fn vim_yank_and_put_share_the_system_clipboard(cx: &mut TestAppContext) {
+    let f = setup(cx, "alpha beta\n", Keymap::Vim);
+    f.keys(cx, "yiw");
+    let clip = cx.update(|cx| cx.read_from_clipboard().and_then(|i| i.text()));
+    assert_eq!(clip.as_deref(), Some("alpha"), "a plain yank reaches the clipboard (clipboard_unnamed)");
+    cx.update(|cx| cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string("from outside".into())));
+    f.keys(cx, "$p");
+    assert_eq!(f.text(cx), "alpha betafrom outside\n", "p pastes what another application copied");
+    // the option can be turned off: yanks stay inside the editor again
+    f.view.update(cx, |v, cx| v.update_editor(cx, |e| e.set_vim_clipboard_unnamed(false)));
+    cx.update(|cx| cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string("untouched".into())));
+    f.keys(cx, "0yiw");
+    let clip = cx.update(|cx| cx.read_from_clipboard().and_then(|i| i.text()));
+    assert_eq!(clip.as_deref(), Some("untouched"));
+}
+
+#[gpui_kit::test]
+fn vim_scroll_commands_and_exact_h_m_l(cx: &mut TestAppContext) {
+    let f = setup(cx, numbered_lines(500), Keymap::Vim);
+    f.render(cx);
+    let (first, visible) = f.view.read_with(cx, |v, _| v.last_viewport);
+    assert!(visible > 5, "the viewport size reached the engine: {visible}");
+    assert_eq!(first, 0);
+    let line = |f: &Fixture, cx: &mut TestAppContext| f.view.read_with(cx, |v, _| v.status().line);
+    f.keys(cx, "L");
+    assert_eq!(line(&f, cx), visible, "L is the last fully visible line");
+    // The view may scroll to reveal the cursor; H / L / M always follow the window as painted.
+    for key in ["H", "L", "H", "L"] {
+        f.render(cx);
+        let (first, visible) = f.view.read_with(cx, |v, _| v.last_viewport);
+        f.keys(cx, key);
+        let want = if key == "H" { first + 1 } else { first + visible };
+        assert_eq!(line(&f, cx), want, "{key} with the window at {first}+{visible}");
+    }
+    f.render(cx);
+    let (first, visible) = f.view.read_with(cx, |v, _| v.last_viewport);
+    f.keys(cx, "M");
+    let m = line(&f, cx);
+    assert!(m > first + 1 && m < first + visible, "M is in the middle of the window: {m} in {first}+{visible}");
+    // ctrl-d scrolls the view and moves the cursor half a page
+    let sy = |f: &Fixture, cx: &mut TestAppContext| f.view.read_with(cx, |v, _| v.scroll_y);
+    f.keys(cx, "gg<C-d>");
+    f.render(cx);
+    assert!(sy(&f, cx) > 0.0, "the view scrolled");
+    assert!(line(&f, cx) > 1);
+    // zt puts the cursor line at the top
+    f.keys(cx, "50Gzt");
+    f.render(cx);
+    let (top, lh) = f.view.read_with(cx, |v, _| (v.scroll_y, v.layout.clone().unwrap().line_h));
+    assert_eq!((top / lh).round() as usize, 49, "line 50 is the first visible line");
+    f.keys(cx, "<C-e>");
+    f.render(cx);
+    assert_eq!(f.view.read_with(cx, |v, _| (v.scroll_y / lh).round() as usize), 50);
+}
+
+#[gpui_kit::test]
+fn vim_mouse_click_drag_and_double_click(cx: &mut TestAppContext) {
+    use gpui_kit::MouseButton;
+    use gpui_kit::test::TestEventExt as _;
+    let f = setup(cx, "select name from users", Keymap::Vim);
+    f.render(cx);
+    let (at, cw) = f.view.read_with(cx, |v, _| {
+        let l = v.layout.clone().unwrap();
+        (Point::new(l.bounds.origin.x + px(l.gutter_w), l.bounds.origin.y + px(l.line_h / 2.0)), l.cell_w)
+    });
+    let col = |n: f32| Point::new(at.x + px(cw * n + cw * 0.3), at.y);
+    cx.update_window(f.window, |_, window, cx| {
+        window.pointer_down(col(7.0), MouseButton::Left, cx);
+        window.pointer_up(col(7.0), MouseButton::Left, cx);
+    })
+    .unwrap();
+    assert_eq!((f.mode(cx), f.view.read_with(cx, |v, _| v.status().column)), (Mode::Normal, 8));
+    // dragging starts Visual mode
+    cx.update_window(f.window, |_, window, cx| {
+        window.pointer_down(col(2.0), MouseButton::Left, cx);
+        window.pointer_move(col(6.0), Some(MouseButton::Left), cx);
+        window.pointer_up(col(6.0), MouseButton::Left, cx);
+    })
+    .unwrap();
+    assert_eq!(f.mode(cx), Mode::Visual);
+    assert_eq!(f.view.read_with(cx, |v, _| v.editor().selected_text()).as_deref(), Some("lect "));
+    f.keys(cx, "<esc>");
+    assert_eq!(f.mode(cx), Mode::Normal);
+}
+
+#[gpui_kit::test]
+fn vim_cursor_style_and_ime_anchor_follow_the_mode(cx: &mut TestAppContext) {
+    let f = setup(cx, "abc", Keymap::Vim);
+    f.render(cx);
+    let style = |f: &Fixture, cx: &mut TestAppContext| f.view.read_with(cx, |v, _| v.editor().cursor_style());
+    let width = |f: &Fixture, cx: &mut TestAppContext| {
+        f.render(cx);
+        f32::from(f.view.read_with(cx, |v, _| v.ime_anchor).expect("painted").size.width)
+    };
+    let cell = f.view.read_with(cx, |v, _| v.layout.clone().unwrap().cell_w);
+    assert_eq!(style(&f, cx), quarry_editor::CursorStyle::Block);
+    assert!((width(&f, cx) - cell).abs() < 1.0, "block: one cell wide");
+    f.keys(cx, "A");
+    assert_eq!(style(&f, cx), quarry_editor::CursorStyle::Bar);
+    assert!((width(&f, cx) - 2.0).abs() < 0.5, "bar: 2px");
+    f.keys(cx, "<esc>R");
+    assert_eq!(style(&f, cx), quarry_editor::CursorStyle::Underline);
+    // The Helix and Standard keymaps use the same rule.
+    let h = setup(cx, "abc", Keymap::Helix);
+    assert_eq!(h.view.read_with(cx, |v, _| v.editor().cursor_style()), quarry_editor::CursorStyle::Block);
+    h.keys(cx, "i");
+    assert_eq!(h.view.read_with(cx, |v, _| v.editor().cursor_style()), quarry_editor::CursorStyle::Bar);
+}
+
+#[gpui_kit::test]
+fn vim_pending_keys_registers_and_recording_show_in_the_status(cx: &mut TestAppContext) {
+    let f = setup(cx, "one two\n", Keymap::Vim);
+    let st = |f: &Fixture, cx: &mut TestAppContext| f.view.read_with(cx, |v, _| v.status());
+    f.keys(cx, "\"a2d");
+    assert_eq!(st(&f, cx).pending_keys, "\"a2d");
+    f.keys(cx, "<esc>qa");
+    assert_eq!(st(&f, cx).recording, Some('a'));
+    f.keys(cx, "xq");
+    assert_eq!(st(&f, cx).recording, None);
+    f.keys(cx, "<space>");
+    assert_eq!(st(&f, cx).pending_keys, "space");
+    assert!(f.view.read_with(cx, |v, _| v.editor().key_hints().is_some()), "the leader menu has hints");
+    f.keys(cx, "<esc>");
 }

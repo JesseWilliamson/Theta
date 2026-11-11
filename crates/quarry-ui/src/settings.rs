@@ -16,21 +16,41 @@ use std::path::{Path, PathBuf};
 pub enum KeymapMode {
     #[default]
     Helix,
+    Vim,
     Standard,
 }
 
 impl KeymapMode {
+    pub const ALL: [KeymapMode; 3] = [KeymapMode::Helix, KeymapMode::Vim, KeymapMode::Standard];
+
     pub fn label(self) -> &'static str {
         match self {
             KeymapMode::Helix => "Helix",
+            KeymapMode::Vim => "Vim",
             KeymapMode::Standard => "Standard",
         }
     }
-    pub fn toggled(self) -> Self {
-        match self {
-            KeymapMode::Helix => KeymapMode::Standard,
-            KeymapMode::Standard => KeymapMode::Helix,
-        }
+
+    /// Whether this keymap is modal (Helix, Vim). Panels that offer "vim-style" navigation
+    /// (h j k l, gg/G ...) check this rather than a specific keymap, because every modal user
+    /// expects those keys outside the editor too.
+    pub fn is_modal(self) -> bool {
+        matches!(self, KeymapMode::Helix | KeymapMode::Vim)
+    }
+}
+
+/// Settings of the Vim keymap.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VimSettings {
+    /// Like `set clipboard=unnamedplus`: yanks and deletes go to the system clipboard and `p`
+    /// pastes what other applications copied.
+    pub clipboard_unnamed: bool,
+}
+
+impl Default for VimSettings {
+    fn default() -> Self {
+        Self { clipboard_unnamed: true }
     }
 }
 
@@ -55,6 +75,7 @@ pub struct Settings {
     pub light_theme: String,
     pub dark_theme: String,
     pub keymap: KeymapMode,
+    pub vim: VimSettings,
     pub ui_font_family: String,
     pub ui_font_size: f32,
     pub buffer_font_family: String,
@@ -121,6 +142,7 @@ impl Default for Settings {
             light_theme: "Quarry Light".into(),
             dark_theme: "Quarry Dark".into(),
             keymap: KeymapMode::Helix,
+            vim: VimSettings::default(),
             ui_font_family: DEFAULT_UI_FONT.into(),
             ui_font_size: 14.0,
             buffer_font_family: DEFAULT_BUFFER_FONT.into(),
@@ -340,7 +362,7 @@ mod tests {
     #[test]
     fn wrong_type_only_resets_that_key() {
         let (s, w) =
-            Settings::parse_lenient(r#"{ "keymap": "vim", "row_limit": 50, "ui_font_size": "big" }"#);
+            Settings::parse_lenient(r#"{ "keymap": "emacs", "row_limit": 50, "ui_font_size": "big" }"#);
         assert_eq!(s.keymap, KeymapMode::Helix);
         assert_eq!(s.row_limit, 50);
         assert_eq!(s.ui_font_size, 14.0);
@@ -384,6 +406,17 @@ mod tests {
         );
         assert_eq!(s.map_custom_basemaps.len(), 1);
         assert_eq!(s.map_custom_basemaps[0].max_zoom, 22);
+    }
+
+    #[test]
+    fn vim_keymap_and_clipboard_setting_round_trip() {
+        let (s, w) = Settings::parse_lenient(r#"{ "keymap": "vim", "vim": { "clipboard_unnamed": false } }"#);
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(s.keymap, KeymapMode::Vim);
+        assert!(!s.vim.clipboard_unnamed);
+        assert!(Settings::default().vim.clipboard_unnamed, "on by default, like unnamedplus");
+        assert!(s.to_pretty_json().contains("\"keymap\": \"vim\""));
+        assert!(KeymapMode::Vim.is_modal() && KeymapMode::Helix.is_modal() && !KeymapMode::Standard.is_modal());
     }
 
     #[test]

@@ -115,15 +115,15 @@ fn enter(f: &Fixture, vcx: &mut VisualTestContext, state: EditorState, text: &st
             let press = |e: &mut quarry_editor::Editor, k: &str| {
                 e.handle_key(&quarry_editor::KeyInput::parse(k).unwrap());
             };
-            match (state.keymap, state.mode) {
-                (Keymap::Helix, Mode::Insert) => press(e, "i"),
-                (Keymap::Helix, Mode::Select) => press(e, "v"),
-                _ => {}
+            crate::keymap::ownership::enter_mode(e, state.keymap, state.mode);
+            if state.pending {
+                press(e, if state.mode == Mode::Normal { "d" } else { "g" });
             }
             if state.prompt {
                 match (state.keymap, state.mode) {
                     (Keymap::Standard, _) => press(e, "ctrl-f"),
-                    (_, Mode::Select) => press(e, "/"),
+                    (Keymap::Helix, Mode::Select) => press(e, "/"),
+                    (Keymap::Vim, m) if m != Mode::Normal => press(e, "/"),
                     _ => press(e, ":"),
                 }
             }
@@ -252,11 +252,11 @@ fn every_global_binding_is_handled_by_exactly_one_side(cx: &mut TestAppContext) 
 }
 
 fn helix(mode: Mode) -> EditorState {
-    EditorState { keymap: Keymap::Helix, mode, prompt: false, completion: false }
+    EditorState { keymap: Keymap::Helix, mode, prompt: false, completion: false, pending: false }
 }
 
 fn standard() -> EditorState {
-    EditorState { keymap: Keymap::Standard, mode: Mode::Standard, prompt: false, completion: false }
+    EditorState { keymap: Keymap::Standard, mode: Mode::Standard, prompt: false, completion: false, pending: false }
 }
 
 #[gpui_kit::test]
@@ -294,10 +294,11 @@ fn helix_normal_ctrl_b_pages_up_and_ctrl_o_jumps_instead_of_app_actions(cx: &mut
 }
 
 #[gpui_kit::test]
-fn completion_popup_owns_ctrl_n_and_ctrl_p_in_both_keymaps(cx: &mut TestAppContext) {
+fn completion_popup_owns_ctrl_n_and_ctrl_p_in_every_keymap(cx: &mut TestAppContext) {
     let (f, vcx) = setup(cx);
     for state in [
         EditorState { completion: true, ..helix(Mode::Insert) },
+        EditorState { completion: true, ..vim(Mode::Insert) },
         EditorState { completion: true, ..standard() },
     ] {
         enter(&f, vcx, state, "s", 1);
@@ -680,4 +681,134 @@ fn disconnecting_while_a_query_runs_does_not_reconnect(cx: &mut TestAppContext) 
         ),
         "the connection stays disconnected"
     );
+}
+
+// ---- Vim keymap ----------------------------------------------------------------------------------------
+
+fn vim(mode: Mode) -> EditorState {
+    EditorState { keymap: Keymap::Vim, mode, prompt: false, completion: false, pending: false }
+}
+
+/// The first cell of the results grid as text.
+fn first_cell(f: &Fixture, vcx: &mut VisualTestContext) -> Option<String> {
+    f.ws.read_with(vcx, |ws, cx| {
+        ws.results.read(cx).grid.read(cx).result().and_then(|r| r.rows.first()?.first().map(|v| format!("{v:?}")))
+    })
+}
+
+fn keys(f: &Fixture, vcx: &mut VisualTestContext, keys: &[&str]) {
+    editor_of(f, vcx).update_in(vcx, |v, _, cx| {
+        v.update_editor(cx, |e| {
+            for k in keys {
+                e.handle_key(&quarry_editor::KeyInput::parse(k).unwrap());
+            }
+        })
+    });
+}
+
+#[gpui_kit::test]
+fn ctrl_enter_runs_in_every_vim_mode_and_runs_the_selection_in_visual(cx: &mut TestAppContext) {
+    let (f, vcx) = setup(cx);
+    // (state, extra keys to select the first line, which cell the run must produce)
+    let cases: [(EditorState, &[&str], &str); 6] = [
+        (vim(Mode::Normal), &[], "22"),
+        (vim(Mode::Insert), &[], "22"),
+        (vim(Mode::Replace), &[], "22"),
+        (vim(Mode::Visual), &["$"], "11"),
+        (vim(Mode::VisualLine), &[], "11"),
+        (vim(Mode::VisualBlock), &["$"], "11"),
+    ];
+    for (n, (state, extra, want)) in cases.into_iter().enumerate() {
+        let text = "select 11 as v;\nselect 22 as v;\n";
+        // Cursor on the second line unless the case selects the first line.
+        let cursor = if want == "22" { 20 } else { 0 };
+        enter(&f, vcx, state, text, cursor);
+        keys(&f, vcx, extra);
+        f.ws.update(vcx, |ws, cx| ws.results.update(cx, |r, cx| r.grid.update(cx, |g, cx| g.clear(cx))));
+        let tabs = tab_count(&f, vcx);
+        f.fired.borrow_mut().clear();
+        press(vcx, &primary("enter"));
+        assert_eq!(f.fired.borrow().last().cloned().flatten(), None, "the engine owns ctrl-enter ({})", state.describe());
+        wait_for(vcx, "the result", |vcx| first_cell(&f, vcx).is_some());
+        let cell = first_cell(&f, vcx).unwrap();
+        assert!(cell.contains(want), "{}: expected {want}, got {cell} (case {n})", state.describe());
+        assert_eq!(tab_count(&f, vcx), tabs);
+    }
+}
+
+#[gpui_kit::test]
+fn vim_ctrl_w_never_closes_the_console_and_ctrl_shift_chords_stay_the_applications(cx: &mut TestAppContext) {
+    let (f, vcx) = setup(cx);
+    for mode in [Mode::Normal, Mode::Insert, Mode::Visual, Mode::VisualBlock] {
+        enter(&f, vcx, vim(mode), "select foo bar;", 14);
+        let tabs = tab_count(&f, vcx);
+        // The literal chord: ctrl-w is the engine's (window prefix, delete word) on every platform.
+        press(vcx, "ctrl-w");
+        // Insert mode deletes the word; the other modes have nothing bound. Never a tab close.
+        assert_eq!(tab_count(&f, vcx), tabs, "{mode:?}");
+    }
+    // ctrl-shift-f is Format Document, not ctrl-f (page down): the application's in every mode.
+    for mode in [Mode::Normal, Mode::Insert, Mode::Visual] {
+        enter(&f, vcx, vim(mode), "select 1", 0);
+        f.fired.borrow_mut().clear();
+        press(vcx, &primary("shift-f"));
+        assert_eq!(
+            f.fired.borrow().last().cloned().flatten().as_deref(),
+            Some("quarry::FormatDocument"),
+            "{mode:?}"
+        );
+    }
+}
+
+#[gpui_kit::test]
+fn vim_ctrl_keys_are_the_editors_while_the_app_keeps_its_own(cx: &mut TestAppContext) {
+    let (f, vcx) = setup(cx);
+    let many: String = (0..200).map(|i| format!("select {i};\n")).collect();
+    enter(&f, vcx, vim(Mode::Normal), &many, many.len() - 1);
+    let explorer = f.ws.read_with(vcx, |ws, _| ws.state.explorer_open);
+    let line = |vcx: &mut VisualTestContext| editor_of(&f, vcx).read_with(vcx, |v, _| v.status().line);
+    let before = line(vcx);
+    press(vcx, "ctrl-b");
+    assert!(line(vcx) < before, "ctrl-b pages up in Vim");
+    assert_eq!(f.ws.read_with(vcx, |ws, _| ws.state.explorer_open), explorer, "the explorer must not toggle");
+    // ctrl-o is the jumplist, not "open file"; ctrl-r redoes
+    press(vcx, "ctrl-o");
+    assert!(f.ws.read_with(vcx, |ws, _| ws.modal.is_none()));
+}
+
+#[gpui_kit::test]
+fn the_keymap_switches_live_helix_vim_standard(cx: &mut TestAppContext) {
+    let (f, vcx) = setup(cx);
+    let editor = editor_of(&f, vcx);
+    let km = |vcx: &mut VisualTestContext| editor.read_with(vcx, |v, _| (v.editor().keymap(), v.editor().mode()));
+    assert_eq!(km(vcx), (Keymap::Helix, Mode::Normal));
+    for (mode, want) in [
+        (quarry_ui::KeymapMode::Vim, (Keymap::Vim, Mode::Normal)),
+        (quarry_ui::KeymapMode::Standard, (Keymap::Standard, Mode::Standard)),
+        (quarry_ui::KeymapMode::Helix, (Keymap::Helix, Mode::Normal)),
+    ] {
+        f.ws.update_in(vcx, |ws, window, cx| ws.set_keymap(mode, window, cx));
+        vcx.run_until_parked();
+        assert_eq!(km(vcx), want);
+    }
+    // The pickers' quick actions go through the same path.
+    f.ws.update_in(vcx, |_, window, cx| window.dispatch_action(Box::new(crate::actions::UseVimKeymap), cx));
+    vcx.run_until_parked();
+    assert_eq!(km(vcx), (Keymap::Vim, Mode::Normal));
+}
+
+#[gpui_kit::test]
+fn vim_equals_formats_only_the_selected_lines(cx: &mut TestAppContext) {
+    let (f, vcx) = setup(cx);
+    let text = "select  1  from a;\nselect  2  from b;\nselect  3  from c;\n";
+    enter(&f, vcx, vim(Mode::Normal), text, 0);
+    for c in ["V", "j", "="] {
+        // Typed like a user would: the effect the engine returns must reach the workspace.
+        vcx.update(|window, cx| window.input(c, cx));
+        vcx.run_until_parked();
+    }
+    let out = editor_text(&f, vcx);
+    assert!(out.ends_with("select  3  from c;\n"), "the third line is untouched:\n{out}");
+    assert_ne!(out, text, "the first two lines were formatted");
+    assert!(!out.contains("select  1  from a;"), "{out}");
 }

@@ -10,6 +10,20 @@ use gpui_kit::{
 };
 use quarry_ui::{CHROME_TEXT_SIZE, STATUS_BAR_HEIGHT, tool_button};
 
+/// Colour of the mode chip. Helix and Vim share the scale: Normal is the accent, Insert is green,
+/// selecting modes are warm (Visual yellow, V-LINE magenta, V-BLOCK cyan) and Replace is red.
+fn mode_chip_color(mode: quarry_editor::Mode, theme: &gpui_kit::component::Theme) -> gpui_kit::Hsla {
+    use quarry_editor::Mode;
+    match mode {
+        Mode::Insert => theme.success,
+        Mode::Select | Mode::Visual => theme.warning,
+        Mode::VisualLine => theme.magenta,
+        Mode::VisualBlock => theme.cyan,
+        Mode::Replace => theme.danger,
+        Mode::Normal | Mode::Standard => theme.primary,
+    }
+}
+
 impl Workspace {
     pub(super) fn render_status_bar(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
@@ -63,12 +77,19 @@ impl Workspace {
                         .into_any_element(),
                 );
             }
-            if st.keymap == quarry_editor::Keymap::Helix {
-                let color = match st.mode {
-                    quarry_editor::Mode::Insert => theme.success,
-                    quarry_editor::Mode::Select => theme.warning,
-                    _ => theme.primary,
-                };
+            if let Some(reg) = st.recording {
+                right.push(
+                    div()
+                        .px_2()
+                        .text_size(CHROME_TEXT_SIZE)
+                        .text_color(theme.danger)
+                        .whitespace_nowrap()
+                        .child(format!("recording @{reg}"))
+                        .into_any_element(),
+                );
+            }
+            if st.keymap != quarry_editor::Keymap::Standard {
+                let color = mode_chip_color(st.mode, &theme);
                 right.push(
                     div()
                         .mx_1()

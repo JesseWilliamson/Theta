@@ -405,6 +405,19 @@ impl Workspace {
             "run" => self.run_request(self.active_tab.unwrap_or(0), RunReq::Statement, window, cx),
             "format" | "fmt" => self.format_console(self.active_tab.unwrap_or(0), false, window, cx),
             "open" | "e" => self.open_sql_file(window, cx),
+            // Vim `:help`: the key reference of the active keymap is the nearest thing to it.
+            "help" | "h" => crate::dialogs::settings::open_at(crate::dialogs::settings::Section::Keymap, window, cx),
+            // The Vim engine handles its own options (ignorecase, smartcase, hlsearch) and passes
+            // the rest on: say so instead of pretending it worked.
+            "set" | "se" => self.notify(
+                NoticeKind::Error,
+                format!(
+                    "Unknown option: {} (supported: ignorecase, smartcase, hlsearch; keymap and editor settings are in Settings)",
+                    shorten(arg)
+                ),
+                window,
+                cx,
+            ),
             _ => self.notify(NoticeKind::Info, format!("Unknown command: {}", shorten(cmd)), window, cx),
         }
     }
@@ -1644,7 +1657,11 @@ impl Workspace {
         c.editor.update(cx, |e, cx| {
             e.update_editor(cx, |ed| {
                 let sel = ed.primary();
-                if selection && ed.selected_text().is_some() {
+                // Vim's `=` hands over the lines it formats as an ordinary (Normal mode) selection,
+                // which `selected_text` does not report: there the range itself is the request.
+                let has_selection = ed.selected_text().is_some()
+                    || (ed.keymap() == quarry_editor::Keymap::Vim && !sel.is_empty());
+                if selection && has_selection {
                     let (from, to) = (sel.from(), sel.to());
                     let src = ed.slice(from..to);
                     let out = quarry_sql::format(&src, kind, &opts);

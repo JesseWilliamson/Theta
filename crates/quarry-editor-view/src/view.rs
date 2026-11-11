@@ -192,6 +192,7 @@ impl Focusable for EditorView {
 fn keymap_of(mode: KeymapMode) -> Keymap {
     match mode {
         KeymapMode::Helix => Keymap::Helix,
+        KeymapMode::Vim => Keymap::Vim,
         KeymapMode::Standard => Keymap::Standard,
     }
 }
@@ -203,7 +204,8 @@ fn read_settings(cx: &App) -> Settings {
 impl EditorView {
     pub fn new(text: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let settings = read_settings(cx);
-        let editor = Editor::new(text, keymap_of(settings.keymap));
+        let mut editor = Editor::new(text, keymap_of(settings.keymap));
+        editor.set_vim_clipboard_unnamed(settings.vim.clipboard_unnamed);
         let focus_handle = cx.focus_handle();
         let mut subscriptions = Vec::new();
         subscriptions.push(cx.on_focus(&focus_handle, window, |this, _window, cx| this.on_focus(cx)));
@@ -396,6 +398,7 @@ impl EditorView {
             selected_chars,
             message: self.message.as_ref().map(|(m, _)| m.clone()),
             modified: self.editor.is_modified(),
+            recording: self.editor.recording_register(),
         }
     }
 
@@ -528,6 +531,7 @@ impl EditorView {
         self.font_family = s.buffer_font_family.clone().into();
         self.font_size = s.buffer_font_size;
         self.line_height_mult = s.buffer_line_height;
+        self.editor.set_vim_clipboard_unnamed(s.vim.clipboard_unnamed);
         let km = keymap_of(s.keymap);
         if km != self.editor.keymap() {
             self.editor.set_keymap(km);
@@ -929,18 +933,33 @@ impl EditorView {
 
     // ---- context-menu commands ----------------------------------------------------------------
 
+    /// The selected text as the context menu should copy it: Vim's block-wise Visual mode is one
+    /// selection per line, joined here by newlines like a blockwise yank.
+    fn menu_selection_text(&self) -> Option<String> {
+        if self.editor.keymap() == Keymap::Vim && self.editor.mode() == Mode::VisualBlock {
+            let rows: Vec<String> = self.editor.selections().iter().map(|s| self.editor.slice(s.range())).collect();
+            return (!rows.is_empty()).then(|| rows.join("\n"));
+        }
+        self.editor.selected_text()
+    }
+
     pub(crate) fn copy_selection(&mut self, cx: &mut Context<Self>) {
-        if let Some(text) = self.editor.selected_text() {
+        if let Some(text) = self.menu_selection_text() {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
     }
 
-    pub(crate) fn cut_selection(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn cut_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.read_only {
             return;
         }
-        let Some(text) = self.editor.selected_text() else { return };
+        let Some(text) = self.menu_selection_text() else { return };
         cx.write_to_clipboard(ClipboardItem::new_string(text));
+        if self.editor.keymap() == Keymap::Vim {
+            // `d` removes the Visual area the way Vim does (all rows of a block, registers updated).
+            self.handle_input(&KeyInput::ch('d'), window, cx);
+            return;
+        }
         let r = self.editor.primary().range();
         self.editor.replace_range(r, "");
         self.pending_reveal = true;
@@ -954,8 +973,9 @@ impl EditorView {
         }
         let Some(text) = cx.read_from_clipboard().and_then(|i| i.text()) else { return };
         match (self.editor.keymap(), self.editor.mode()) {
-            (Keymap::Helix, Mode::Normal | Mode::Select) => {
-                // Helix has no "paste" command that reads the system clipboard but `space p`.
+            (Keymap::Helix, Mode::Normal | Mode::Select)
+            | (Keymap::Vim, Mode::Normal | Mode::Visual | Mode::VisualLine | Mode::VisualBlock) => {
+                // Neither modal keymap has a "paste" command that reads the system clipboard other than `space p`.
                 self.handle_input(&KeyInput::ch(' '), window, cx);
                 self.handle_input(&KeyInput::ch('p'), window, cx);
             }

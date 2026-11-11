@@ -186,7 +186,7 @@ impl Workspace {
                             |menu, _, _| {
                                 menu.menu("Settings…", Box::new(OpenSettings))
                                     .menu("Select Theme…", Box::new(SelectTheme))
-                                    .menu("Toggle Keymap (Helix / Standard)", Box::new(ToggleKeymap))
+                                    .menu("Select Keymap…", Box::new(SelectKeymap))
                                     .menu("Import Zed Theme…", Box::new(ImportZedTheme))
                                     .separator()
                                     .menu("Increase Editor Font Size", Box::new(ZoomIn))

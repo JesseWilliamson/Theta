@@ -734,10 +734,13 @@ impl Workspace {
         });
     }
 
-    fn toggle_keymap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let next = Settings::get(cx).keymap.toggled();
-        Settings::update(cx, |s| s.keymap = next);
-        self.notify(NoticeKind::Info, format!("Keymap: {}", next.label()), window, cx);
+    pub fn set_keymap(&mut self, keymap: quarry_ui::KeymapMode, window: &mut Window, cx: &mut Context<Self>) {
+        Settings::update(cx, |s| s.keymap = keymap);
+        self.notify(NoticeKind::Info, format!("Keymap: {}", keymap.label()), window, cx);
+    }
+
+    fn open_keymap_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_picker(palette::KeymapPicker::new(cx.entity().downgrade()), window, cx);
     }
 
     fn open_settings_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -921,7 +924,16 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &FocusEditor, window, cx| this.focus_editor(window, cx)))
             .on_action(cx.listener(|this, _: &FocusResults, window, cx| this.focus_results(window, cx)))
-            .on_action(cx.listener(|this, _: &ToggleKeymap, window, cx| this.toggle_keymap(window, cx)))
+            .on_action(cx.listener(|this, _: &SelectKeymap, window, cx| this.open_keymap_picker(window, cx)))
+            .on_action(cx.listener(|this, _: &UseHelixKeymap, window, cx| {
+                this.set_keymap(quarry_ui::KeymapMode::Helix, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &UseVimKeymap, window, cx| {
+                this.set_keymap(quarry_ui::KeymapMode::Vim, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &UseStandardKeymap, window, cx| {
+                this.set_keymap(quarry_ui::KeymapMode::Standard, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &ImportZedTheme, window, cx| this.import_zed_theme(window, cx)))
             .on_action(
                 cx.listener(|this, _: &OpenSettingsFile, window, cx| this.open_settings_file(window, cx)),

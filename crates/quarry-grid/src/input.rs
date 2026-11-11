@@ -8,7 +8,7 @@ use gpui_kit::{
     Context, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
     ScrollEvent, Window, px,
 };
-use quarry_ui::{KeymapMode, Settings};
+use quarry_ui::Settings;
 
 /// The ctrl/cmd chords the grid handles itself while it has focus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,7 +27,7 @@ enum Chord {
 
 /// The single table of the grid's primary-modifier chords. `key` is the key name without
 /// modifiers (`"a"`, `"enter"`, `"0"`); shift only changes what `Copy` does.
-fn chord(key: &str, helix: bool) -> Option<Chord> {
+fn chord(key: &str, modal: bool) -> Option<Chord> {
     Some(match key {
         "a" => Chord::SelectAll,
         "c" => Chord::Copy,
@@ -37,8 +37,8 @@ fn chord(key: &str, helix: bool) -> Option<Chord> {
         "enter" => Chord::Submit,
         "home" => Chord::Top,
         "end" => Chord::Bottom,
-        "d" if helix => Chord::HalfPageDown,
-        "u" if helix => Chord::HalfPageUp,
+        "d" if modal => Chord::HalfPageDown,
+        "u" if modal => Chord::HalfPageUp,
         _ => return None,
     })
 }
@@ -62,12 +62,12 @@ impl ResultGrid {
         let m = ks.modifiers;
         let key = ks.key.as_str();
         let secondary = m.control || m.platform;
-        let helix = Settings::get(cx).keymap == KeymapMode::Helix;
-        let extend = m.shift || self.helix_visual;
+        let modal = Settings::get(cx).keymap.is_modal();
+        let extend = m.shift || self.modal_visual;
         let page = self.page_rows();
 
         let handled = if secondary && !m.alt {
-            match chord(key, helix) {
+            match chord(key, modal) {
                 Some(Chord::SelectAll) => {
                     self.select_all(cx);
                     true
@@ -111,7 +111,7 @@ impl ResultGrid {
                 None => false,
             }
         } else if !m.alt {
-            self.plain_key(key, m.shift, extend, helix, page, ks.key_char.as_deref(), window, cx)
+            self.plain_key(key, m.shift, extend, modal, page, ks.key_char.as_deref(), window, cx)
         } else {
             false
         };
@@ -126,13 +126,13 @@ impl ResultGrid {
         key: &str,
         shift: bool,
         extend: bool,
-        helix: bool,
+        modal: bool,
         page: usize,
         key_char: Option<&str>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let was_g = std::mem::take(&mut self.helix_g);
+        let was_g = std::mem::take(&mut self.modal_g);
         let motion = match key {
             "up" => Some(Motion::Up),
             "down" => Some(Motion::Down),
@@ -143,12 +143,12 @@ impl ResultGrid {
             "pageup" => Some(Motion::PageUp(page)),
             "pagedown" => Some(Motion::PageDown(page)),
             "tab" => Some(if shift { Motion::Prev } else { Motion::Next }),
-            "k" if helix => Some(Motion::Up),
-            "j" if helix => Some(Motion::Down),
-            "h" if helix => Some(Motion::Left),
-            "l" if helix => Some(Motion::Right),
-            "g" if helix && shift => Some(Motion::PageDown(usize::MAX / 2)),
-            "g" if helix && was_g => Some(Motion::PageUp(usize::MAX / 2)),
+            "k" if modal => Some(Motion::Up),
+            "j" if modal => Some(Motion::Down),
+            "h" if modal => Some(Motion::Left),
+            "l" if modal => Some(Motion::Right),
+            "g" if modal && shift => Some(Motion::PageDown(usize::MAX / 2)),
+            "g" if modal && was_g => Some(Motion::PageUp(usize::MAX / 2)),
             _ => None,
         };
         // Tab never extends: shift-tab means "previous cell".
@@ -158,21 +158,21 @@ impl ResultGrid {
             return true;
         }
         match key {
-            "g" if helix => {
-                self.helix_g = true;
+            "g" if modal => {
+                self.modal_g = true;
                 true
             }
-            "v" if helix => {
-                self.helix_visual = !self.helix_visual;
+            "v" if modal => {
+                self.modal_visual = !self.modal_visual;
                 cx.notify();
                 true
             }
-            "y" if helix => {
+            "y" if modal => {
                 self.copy_selection(false, cx);
-                self.helix_visual = false;
+                self.modal_visual = false;
                 true
             }
-            "x" if helix => {
+            "x" if modal => {
                 if let Some(s) = self.sel {
                     let nc = self.n_cols();
                     self.set_selection(
@@ -183,15 +183,15 @@ impl ResultGrid {
                 }
                 true
             }
-            "u" if helix => {
+            "u" if modal => {
                 self.undo_edit(cx);
                 true
             }
-            "i" if helix && self.can_edit_cursor() => {
+            "i" if modal && self.can_edit_cursor() => {
                 self.start_edit(None, window, cx);
                 true
             }
-            "5" if helix && shift => {
+            "5" if modal && shift => {
                 self.select_all(cx);
                 true
             }
@@ -200,7 +200,7 @@ impl ResultGrid {
                 true
             }
             "escape" => {
-                let was_visual = std::mem::take(&mut self.helix_visual);
+                let was_visual = std::mem::take(&mut self.modal_visual);
                 let widened = self.sel.is_some() && !self.current_range().is_some_and(|r| r.is_single());
                 if let Some(s) = self.sel
                     && widened
@@ -231,7 +231,7 @@ impl ResultGrid {
             }
             _ => {
                 // Type-to-edit, only where letters are not commands.
-                if !helix
+                if !modal
                     && let Some(ch) = key_char
                     && ch.chars().count() == 1
                     && !ch.chars().all(char::is_control)

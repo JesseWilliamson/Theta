@@ -24,6 +24,7 @@ fn strip_ticks(s: &str) -> String {
 pub fn parse(readme: &str, mode: KeymapMode) -> Vec<KeyRef> {
     let want = match mode {
         KeymapMode::Helix => "Helix keymap",
+        KeymapMode::Vim => "Vim keymap",
         KeymapMode::Standard => "Standard keymap",
     };
     let mut in_part = false;
@@ -94,6 +95,20 @@ mod tests {
         let helix = editor_keys(KeymapMode::Helix);
         assert!(!std.is_empty());
         assert_ne!(std.first(), helix.first());
+    }
+
+    #[test]
+    fn vim_table_is_read_from_its_own_section() {
+        let rows = editor_keys(KeymapMode::Vim);
+        assert!(rows.len() > 80, "{}", rows.len());
+        assert!(rows.iter().any(|r| r.section.starts_with("Operators")), "sections: {:?}", rows.first());
+        let dd = rows.iter().find(|r| r.keys.contains("dd")).expect("an operator row mentioning dd");
+        assert!(!dd.action.is_empty());
+        let sections: std::collections::HashSet<_> = rows.iter().map(|r| r.section.as_str()).collect();
+        assert!(!sections.contains("Standard keymap") && !sections.contains("Helix keymap"));
+        // `|` is escaped as `\|` in table cells and must come out as a pipe.
+        assert!(rows.iter().all(|r| !r.keys.contains("\\|")));
+        assert_ne!(rows.first(), editor_keys(KeymapMode::Helix).first());
     }
 
     #[test]

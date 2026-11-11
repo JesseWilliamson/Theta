@@ -285,6 +285,39 @@ mod tests {
     }
 
     #[test]
+    fn a_visual_block_over_short_and_empty_lines_is_one_outline() {
+        // Vim's block rows: full width, a short line, an empty line (only the newline stub), full width.
+        let cell = 8.0;
+        let stub = cell * 0.35;
+        let spans = [
+            Span { x0: 0.0, x1: 3.0 * cell },
+            Span { x0: 0.0, x1: 2.0 * cell },
+            Span { x0: 0.0, x1: stub },
+            Span { x0: 0.0, x1: 3.0 * cell },
+        ];
+        let shapes = outline(&spans, 0.0, 20.0, 3.0);
+        assert_eq!(shapes.len(), 1, "rows that overlap the stub stay connected");
+        // A rectangle of equal rows is exactly four corners.
+        let full = outline(&[spans[0]; 4], 0.0, 20.0, 3.0);
+        assert_eq!(full[0].iter().filter(|c| matches!(c, PathCmd::Curve(..))).count(), 4);
+    }
+
+    #[test]
+    fn vline_over_an_empty_line_keeps_a_stub_and_whole_lines() {
+        // `Vjj` over "select 1", "", "from users u": lines 0..=2, the empty line is a newline stub only.
+        let to = starts(&lines())[3];
+        let r = run(0, to, 0..4);
+        assert_eq!(
+            r,
+            vec![
+                LineSel { line: 0, col_start: 0, col_end: 8, newline: true },
+                LineSel { line: 1, col_start: 0, col_end: 0, newline: true },
+                LineSel { line: 2, col_start: 0, col_end: 12, newline: true },
+            ]
+        );
+    }
+
+    #[test]
     fn disjoint_rows_split_into_two_shapes() {
         let shapes = outline(&[Span { x0: 50.0, x1: 90.0 }, Span { x0: 0.0, x1: 30.0 }], 0.0, 20.0, 3.0);
         assert_eq!(shapes.len(), 2);

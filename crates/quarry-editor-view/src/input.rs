@@ -6,7 +6,7 @@ use quarry_editor::{Keymap, Mode};
 use std::ops::Range;
 
 impl EditorView {
-    /// May text be inserted right now? Helix Normal/Select mode only takes commands.
+    /// May text be inserted right now? Normal / Select / Visual modes only take commands.
     fn text_input_active(&self) -> bool {
         if self.read_only {
             return false;
@@ -14,6 +14,9 @@ impl EditorView {
         match self.editor.keymap() {
             Keymap::Standard => true,
             Keymap::Helix => self.editor.mode() == Mode::Insert || self.editor.prompt().is_some(),
+            Keymap::Vim => {
+                matches!(self.editor.mode(), Mode::Insert | Mode::Replace) || self.editor.prompt().is_some()
+            }
         }
     }
 

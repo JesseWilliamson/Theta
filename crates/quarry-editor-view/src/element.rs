@@ -26,7 +26,7 @@ use gpui_kit::{
     Point, ScrollDelta, ScrollEvent, ShapedLine, SharedString, Style, TextAlign, TextRun, UnderlineStyle,
     Window, fill, point, px, relative, size,
 };
-use quarry_editor::{Keymap, Mode};
+use quarry_editor::{CursorStyle as EdCursor, Keymap, Mode};
 use quarry_sql::Severity;
 use quarry_ui::{EditorColors, SyntaxColors};
 use std::collections::HashMap;
@@ -105,6 +105,8 @@ pub(crate) struct VLine {
 pub(crate) enum CursorShape {
     Block { glyph: Option<Box<ShapedLine>> },
     Bar,
+    /// A 2px line under the cell (Vim Replace mode).
+    Underline,
 }
 
 pub(crate) struct CursorDraw {
@@ -669,7 +671,12 @@ impl EditorView {
         let keymap = self.editor.keymap();
         let mode = self.editor.mode();
         let prompt_open = self.editor.prompt().is_some();
-        let block_mode = keymap == Keymap::Helix && matches!(mode, Mode::Normal | Mode::Select);
+        // The engine decides how its cursor looks (block / bar / underline) for every keymap.
+        let cursor_style = self.editor.cursor_style();
+        // Vim's block-wise Visual mode is one selection per line, but there is only one cursor.
+        let single_cursor = keymap == Keymap::Vim && matches!(mode, Mode::Visual | Mode::VisualLine | Mode::VisualBlock);
+        let block_visual = keymap == Keymap::Vim && mode == Mode::VisualBlock;
+        let mut block_rows: Vec<(usize, Span)> = Vec::new();
         let first_char = self.editor.line_to_char(vis.start);
         // `line_to_char` clamps to the last line's start, so "past the last line" must be spelled out:
         // otherwise the cursor and selections of the final line are culled unless they start at column 0.
@@ -713,21 +720,44 @@ impl EditorView {
                         Some(Span { x0: text_left + x0, x1: text_left + x1.max(x0 + 1.0) })
                     })
                     .collect();
-                if let (Some(first), false) = (parts.first(), spans.is_empty()) {
+                if block_visual {
+                    // Rows of a rectangular block are separate selections; they are outlined
+                    // together below so the corners of the rectangle are rounded, not each row's.
+                    block_rows.extend(parts.iter().filter_map(|p| by_line.get(&p.line).map(|_| p.line)).zip(spans));
+                } else if let (Some(first), false) = (parts.first(), spans.is_empty()) {
                     let y0 = line_top(first.line);
                     let shapes = selection_geom::outline(&spans, y0, line_h, CORNER);
                     selection_paths.push((shapes, if primary { sel_color } else { sel_secondary }));
                 }
             }
             // Cursor
+            if single_cursor && !primary {
+                continue;
+            }
             let idx = self.editor.cursor_of(s);
             let cl = self.editor.char_to_line(idx);
             let Some(v) = by_line.get(&cl) else { continue };
             let col = idx - self.editor.line_to_char(cl);
             let x0 = f32::from(v.entry.x_of_col(col));
             let y = line_top(cl);
-            let bar_like = !block_mode;
-            if bar_like {
+            if cursor_style == EdCursor::Underline {
+                let (end_col, _) = grapheme_extent(&v.entry.display, col);
+                let at_eol = col >= v.entry.display.char_count() || end_col == col;
+                let (xa, xb) = (x0, if at_eol { x0 + cell_w } else { f32::from(v.entry.x_of_col(end_col)) });
+                if primary {
+                    ime_cursor =
+                        Some(Bounds::new(point(px(text_left + xa), px(y)), size(px(xb - xa), px(line_h))));
+                }
+                cursors.push(CursorDraw {
+                    bounds: Bounds::new(
+                        point(px(text_left + xa), px(y + line_h - 3.0)),
+                        size(px((xb - xa).max(cell_w * 0.5)), px(2.)),
+                    ),
+                    shape: CursorShape::Underline,
+                    primary,
+                    inactive: !focused || prompt_open,
+                });
+            } else if cursor_style == EdCursor::Bar {
                 let draw = if focused && !prompt_open { self.blink_visible } else { true };
                 let dim = !focused || prompt_open;
                 // The primary caret's bounds feed the IME candidate window.
@@ -787,10 +817,26 @@ impl EditorView {
             }
         }
 
+        // Block-visual rows: one outline per run of consecutive lines.
+        let mut i = 0;
+        while i < block_rows.len() {
+            let mut j = i + 1;
+            while j < block_rows.len() && block_rows[j].0 == block_rows[j - 1].0 + 1 {
+                j += 1;
+            }
+            let spans: Vec<Span> = block_rows[i..j].iter().map(|r| r.1).collect();
+            let shapes = selection_geom::outline(&spans, line_top(block_rows[i].0), line_h, CORNER);
+            selection_paths.push((shapes, sel_color));
+            i = j;
+        }
+
         // ---- search matches and matching bracket
         let mut rects: Vec<(Bounds<Pixels>, Hsla)> = Vec::new();
         let mut outlines: Vec<(Bounds<Pixels>, Hsla)> = Vec::new();
-        let searching = self.editor.prompt().is_some_and(|p| matches!(p.prefix, "/" | "?" | "find:"));
+        // Vim's `hlsearch` keeps the matches painted after the prompt closes (`:noh` clears them
+        // inside the engine, which then reports none).
+        let searching =
+            self.editor.prompt().is_some_and(|p| matches!(p.prefix, "/" | "?" | "find:")) || keymap == Keymap::Vim;
         let push_range = |this: &EditorView,
                           from: usize,
                           to: usize,
@@ -814,8 +860,9 @@ impl EditorView {
             let matches = self.editor.search_matches();
             let start = matches.partition_point(|m| m.end <= first_char);
             let cur = self.editor.primary();
+            let cur_from = if keymap == Keymap::Vim { self.primary_cursor() } else { cur.from() };
             for m in matches[start..].iter().take_while(|m| m.start < last_char) {
-                let is_cur = m.start == cur.from();
+                let is_cur = m.start == cur_from;
                 push_range(self, m.start, m.end, colors.search_match, false, &mut rects, &mut outlines);
                 if is_cur {
                     push_range(self, m.start, m.end, pal.warning, true, &mut rects, &mut outlines);
@@ -1141,7 +1188,7 @@ fn paint_frame(f: &Frame, window: &mut Window, cx: &mut App) {
         for c in &f.cursors {
             let base = if c.primary { f.colors.cursor } else { f.colors.cursor.opacity(0.6) };
             match &c.shape {
-                CursorShape::Bar => {
+                CursorShape::Bar | CursorShape::Underline => {
                     let color = if c.inactive { base.opacity(0.5) } else { base };
                     window.paint_quad(fill(c.bounds, color).corner_radii(px(0.5)));
                 }

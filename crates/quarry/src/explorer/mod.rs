@@ -110,7 +110,7 @@ impl Explorer {
                 _ => {}
             }),
         ];
-        // Re-render when the keymap setting changes (helix keys on/off).
+        // Re-render when the keymap setting changes (modal keys on/off).
         subscriptions.push(cx.observe_global::<quarry_ui::settings::SettingsStore>(|_, cx| cx.notify()));
         let mut explorer = Self {
             store,
@@ -917,11 +917,11 @@ impl Render for Explorer {
         let theme = cx.theme().clone();
         let has_connections = !self.store.read(cx).configs().is_empty();
         let count = self.rows.len();
-        let helix = Settings::get(cx).keymap == quarry_ui::KeymapMode::Helix;
+        let modal = Settings::get(cx).keymap.is_modal();
         let mut context = KeyContext::new_with_defaults(quarry_ui::host_os());
         context.add("Explorer");
-        if helix {
-            context.add("helix");
+        if modal {
+            context.add("modal");
         }
         let filtering = !self.filter_text.trim().is_empty();
 

@@ -108,8 +108,8 @@ pub struct ResultGrid {
     /// Body width before an inspector toggle; the cursor is re-revealed once the
     /// measured width differs.
     pub(crate) reveal_pending: Option<f32>,
-    pub(crate) helix_g: bool,
-    pub(crate) helix_visual: bool,
+    pub(crate) modal_g: bool,
+    pub(crate) modal_visual: bool,
     pub(crate) resize: Option<Resize>,
     pub(crate) stats: RenderStats,
     pub(crate) _subs: Vec<Subscription>,
@@ -162,8 +162,8 @@ impl ResultGrid {
             cache: HashMap::new(),
             loading: false,
             reveal_pending: None,
-            helix_g: false,
-            helix_visual: false,
+            modal_g: false,
+            modal_visual: false,
             resize: None,
             stats: RenderStats {
                 enabled: std::env::var_os("QUARRY_GRID_TIMING").is_some(),
@@ -198,8 +198,8 @@ impl ResultGrid {
         self.summary = None;
         self.editor = None;
         self.submit_error = None;
-        self.helix_g = false;
-        self.helix_visual = false;
+        self.modal_g = false;
+        self.modal_visual = false;
         self.cache.clear();
         self.pending = meta.editable.clone().map(|t| Pending::new(t, result.columns.len()));
         self.cols = ColumnLayout::new(self.initial_widths(&result, &meta));
