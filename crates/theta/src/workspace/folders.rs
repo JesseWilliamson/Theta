@@ -14,10 +14,7 @@ impl Workspace {
         let store = self.store.clone();
         let for_validate = store.clone();
         name::open(
-            "New Folder",
-            "Folder name",
-            "",
-            "Create",
+            name::Prompt { title: "New Folder", label: "Folder name", initial: "", submit: "Create" },
             Rc::new(move |text, cx| {
                 if for_validate.read(cx).layout().name_is_free(text, None) {
                     Ok(())
@@ -44,10 +41,12 @@ impl Workspace {
         let Some(current) = self.store.read(cx).layout().folder(&id).map(|f| f.name.clone()) else { return };
         let (store, for_validate, fid) = (self.store.clone(), self.store.clone(), id.clone());
         name::open(
-            "Rename Folder",
-            "Folder name",
-            &current,
-            "Rename",
+            name::Prompt {
+                title: "Rename Folder",
+                label: "Folder name",
+                initial: &current,
+                submit: "Rename",
+            },
             Rc::new(move |text, cx| {
                 if for_validate.read(cx).layout().name_is_free(text, Some(&id)) {
                     Ok(())

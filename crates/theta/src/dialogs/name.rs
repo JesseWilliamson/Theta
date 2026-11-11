@@ -25,18 +25,18 @@ struct NameForm {
     _sub: Subscription,
 }
 
-pub fn open(
-    title: impl Into<SharedString>,
-    label: impl Into<SharedString>,
-    initial: &str,
-    submit_label: impl Into<SharedString>,
-    validate: Validate,
-    submit: Submit,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    let initial = initial.to_string();
-    let (label, submit_label) = (label.into(), submit_label.into());
+/// What the dialog says: its title, the field label, the starting text and the confirm button.
+pub struct Prompt<'a> {
+    pub title: &'a str,
+    pub label: &'a str,
+    pub initial: &'a str,
+    pub submit: &'a str,
+}
+
+pub fn open(prompt: Prompt, validate: Validate, submit: Submit, window: &mut Window, cx: &mut App) {
+    let initial = prompt.initial.to_string();
+    let (label, submit_label): (SharedString, SharedString) =
+        (prompt.label.to_string().into(), prompt.submit.to_string().into());
     let form = cx.new(|cx| {
         let input = cx.new(|cx| InputState::new(window, cx).default_value(initial));
         let sub =
@@ -47,7 +47,7 @@ pub fn open(
             });
         NameForm { input, label, submit_label, validate, submit, error: None, _sub: sub }
     });
-    let title: SharedString = title.into();
+    let title: SharedString = prompt.title.to_string().into();
     let shown = form.clone();
     window.open_dialog(cx, move |dialog, _, cx| {
         dialog.bg(cx.theme().popover).title(title.clone()).w(px(420.)).child(shown.clone())
