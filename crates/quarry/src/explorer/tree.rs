@@ -56,6 +56,8 @@ pub enum NodeKey {
     Connection(String),
     /// Status line under a connection (connecting, failed, loading, empty).
     Status(String),
+    /// One wrapped line of a long status message (a connection error), under its `Status` row.
+    Detail(String, usize),
     Schema(String, String),
     Group(String, String, GroupKind),
     Table(String, String, String),
@@ -71,6 +73,7 @@ impl NodeKey {
         match self {
             NodeKey::Connection(c)
             | NodeKey::Status(c)
+            | NodeKey::Detail(c, _)
             | NodeKey::Schema(c, _)
             | NodeKey::Group(c, _, _)
             | NodeKey::Table(c, _, _)
@@ -105,6 +108,8 @@ pub enum RowIcon {
     Spinner,
     Error,
     Info,
+    /// No icon: continuation lines of a message.
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,15 +261,98 @@ impl Filter<'_> {
 /// Flatten everything visible. With a non-empty `filter`, only branches that
 /// contain matches are kept and they are expanded automatically.
 pub fn flatten(conns: &[ConnView], expanded: &HashSet<NodeKey>, filter: &str) -> Vec<Row> {
+    flatten_wrapped(conns, expanded, filter, DEFAULT_WRAP_COLS)
+}
+
+/// Characters per detail line when the explorer width is not known.
+pub const DEFAULT_WRAP_COLS: usize = 36;
+/// Error detail blocks stop here; the rest is behind the tooltip / "Copy Error".
+const MAX_DETAIL_LINES: usize = 8;
+
+/// [`flatten`] with long status messages wrapped to `wrap_cols` characters per line.
+pub fn flatten_wrapped(
+    conns: &[ConnView],
+    expanded: &HashSet<NodeKey>,
+    filter: &str,
+    wrap_cols: usize,
+) -> Vec<Row> {
     let filter = Filter { query: filter.to_string(), inferred: &[] };
     let mut rows = Vec::new();
     for c in conns {
-        flatten_connection(c, expanded, &filter, &mut rows);
+        flatten_connection(c, expanded, &filter, wrap_cols, &mut rows);
     }
     rows
 }
 
-fn flatten_connection(c: &ConnView, expanded: &HashSet<NodeKey>, filter: &Filter, rows: &mut Vec<Row>) {
+/// Greedy word wrap to `cols` characters; words longer than a line are split. Blank lines in
+/// the input are dropped, the output never has more than `max_lines` lines (the last one ends
+/// in an ellipsis when text was cut).
+pub fn wrap_text(text: &str, cols: usize, max_lines: usize) -> Vec<String> {
+    let cols = cols.max(8);
+    let mut lines: Vec<String> = Vec::new();
+    for para in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let mut cur = String::new();
+        for word in para.split_whitespace() {
+            let mut word: Vec<char> = word.chars().collect();
+            while word.len() > cols {
+                if !cur.is_empty() {
+                    lines.push(std::mem::take(&mut cur));
+                }
+                lines.push(word.drain(..cols).collect());
+            }
+            let w: String = word.into_iter().collect();
+            if w.is_empty() {
+                continue;
+            }
+            if cur.is_empty() {
+                cur = w;
+            } else if cur.chars().count() + 1 + w.chars().count() <= cols {
+                cur.push(' ');
+                cur.push_str(&w);
+            } else {
+                lines.push(std::mem::replace(&mut cur, w));
+            }
+        }
+        if !cur.is_empty() {
+            lines.push(cur);
+        }
+    }
+    if lines.len() > max_lines {
+        lines.truncate(max_lines);
+        if let Some(last) = lines.last_mut() {
+            let keep = cols.saturating_sub(1);
+            *last = format!("{}…", last.chars().take(keep).collect::<String>().trim_end());
+        }
+    }
+    lines
+}
+
+/// An error under a connection: the first line on the status row, the whole text wrapped in
+/// detail rows below it when it does not fit on that one line.
+fn push_error(conn: &str, message: &str, wrap_cols: usize, children: &mut Vec<Row>) {
+    let first = message.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(message).to_string();
+    let mut r = Row::new(NodeKey::Status(conn.to_string()), 1, RowIcon::Error, first.clone());
+    r.is_error = true;
+    r.retry = true;
+    r.tooltip = Some(message.to_string());
+    children.push(r);
+    let multi_line = message.lines().filter(|l| !l.trim().is_empty()).count() > 1;
+    if multi_line || first.chars().count() > wrap_cols {
+        for (i, line) in wrap_text(message, wrap_cols, MAX_DETAIL_LINES).into_iter().enumerate() {
+            let mut d = Row::new(NodeKey::Detail(conn.to_string(), i), 1, RowIcon::None, line);
+            d.is_error = true;
+            children.push(d);
+        }
+    }
+}
+
+fn flatten_connection(
+    c: &ConnView,
+    expanded: &HashSet<NodeKey>,
+    filter: &Filter,
+    wrap_cols: usize,
+    rows: &mut Vec<Row>,
+) {
     let local = Filter { query: filter.query.clone(), inferred: c.inferred };
     let filter = &local;
     let key = NodeKey::Connection(c.id.to_string());
@@ -279,19 +367,10 @@ fn flatten_connection(c: &ConnView, expanded: &HashSet<NodeKey>, filter: &Filter
             r.type_text = None;
             children.push(r);
         }
-        Phase::Failed(message) => {
-            let mut r = Row::new(NodeKey::Status(c.id.to_string()), 1, RowIcon::Error, message.clone());
-            r.is_error = true;
-            r.retry = true;
-            r.tooltip = Some(message.clone());
-            children.push(r);
-        }
+        Phase::Failed(message) => push_error(c.id, message, wrap_cols, &mut children),
         Phase::Connected { catalog: None, loading, catalog_error } => {
             if let Some(e) = catalog_error {
-                let mut r = Row::new(NodeKey::Status(c.id.to_string()), 1, RowIcon::Error, e.clone());
-                r.is_error = true;
-                r.retry = true;
-                children.push(r);
+                push_error(c.id, e, wrap_cols, &mut children);
             } else if *loading {
                 children.push(Row::new(
                     NodeKey::Status(c.id.to_string()),
@@ -554,11 +633,9 @@ fn flatten_table(
                         } else {
                             format!("{}.{}", v.referenced_schema, v.referenced_table)
                         };
-                        r.type_text = Some(format!(
-                            "→ {target}.{} · {:.0}%",
-                            v.referenced_column,
-                            v.confidence * 100.0
-                        ));
+                        // Two parts so a narrow explorer cuts the target (middle), never the confidence.
+                        r.type_text = Some(format!("→ {target}.{}", v.referenced_column));
+                        r.detail = Some(format!("{:.0}%", v.confidence * 100.0));
                         r.tooltip = Some(v.reason.clone());
                         r.muted = true;
                         out.push(r);
@@ -712,10 +789,37 @@ mod tests {
         assert_eq!(group.detail.as_deref(), Some("1"));
         assert_eq!(group.icon, RowIcon::SuggestedForeignKey);
         let leaf = rows.iter().find(|r| r.label == "region_id").expect("suggested leaf");
-        assert!(leaf.muted && leaf.type_text.as_deref().unwrap().contains("80%"));
+        assert!(leaf.muted && leaf.detail.as_deref() == Some("80%"));
+        assert_eq!(leaf.type_text.as_deref(), Some("→ customers.id"));
         assert!(leaf.tooltip.as_deref().unwrap().contains("customers.id"));
         let fk = rows.iter().find(|r| r.label == "Foreign Keys").unwrap();
         assert_eq!(fk.detail.as_deref(), Some("2"), "one declared plus one suggested");
+    }
+
+    #[test]
+    fn wrapping_splits_on_words_and_hard_splits_long_tokens() {
+        assert_eq!(wrap_text("connection refused (os error 111)", 16, 8), vec!["connection", "refused (os", "error 111)"]);
+        assert_eq!(wrap_text("aaaaaaaaaaaaaaaaaaaa", 8, 8), vec!["aaaaaaaa", "aaaaaaaa", "aaaa"]);
+        assert_eq!(wrap_text("a\n\n b", 8, 8), vec!["a", "b"]);
+        let cut = wrap_text(&"word ".repeat(40), 10, 3);
+        assert_eq!(cut.len(), 3);
+        assert!(cut[2].ends_with('…'));
+    }
+
+    #[test]
+    fn long_connection_errors_get_an_inline_detail_block() {
+        let c = catalog();
+        let long = "could not connect: error connecting to server: Connection refused (os error 111) at 127.0.0.1:5999";
+        let r = flatten_wrapped(&[ConnView { phase: Phase::Failed(long.into()), ..view(&c).remove(0) }], &set(vec![NodeKey::Connection("c1".into())]), "", 30);
+        assert!(r[1].is_error && r[1].retry && r[1].icon == RowIcon::Error);
+        let details: Vec<_> = r.iter().filter(|x| matches!(x.key, NodeKey::Detail(..))).collect();
+        assert!(details.len() >= 3);
+        assert!(details.iter().all(|d| d.label.chars().count() <= 30 && d.icon == RowIcon::None));
+        let joined = details.iter().map(|d| d.label.as_str()).collect::<Vec<_>>().join(" ");
+        assert_eq!(joined, long);
+        // A short one-liner needs no block.
+        let r = flatten_wrapped(&[ConnView { phase: Phase::Failed("refused".into()), ..view(&c).remove(0) }], &set(vec![NodeKey::Connection("c1".into())]), "", 30);
+        assert_eq!(r.len(), 2);
     }
 
     fn set(keys: Vec<NodeKey>) -> HashSet<NodeKey> {

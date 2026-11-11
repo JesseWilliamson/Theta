@@ -812,6 +812,8 @@ impl Render for Workspace {
         let explorer_open = self.state.explorer_open;
         let bottom_open = self.state.bottom_open;
         let bottom_height = self.state.bottom_height.min(self.max_bottom_height(window));
+        let explorer_width = self.state.explorer_width;
+        self.explorer.update(cx, |e, cx| e.set_width(explorer_width, cx));
         let title_bar = self.render_title_bar(window, cx);
         let tab_bar = self.render_tab_bar(window, cx);
         let console = self.render_console_area(window, cx);

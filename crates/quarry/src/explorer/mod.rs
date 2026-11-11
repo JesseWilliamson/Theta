@@ -70,6 +70,10 @@ pub struct Explorer {
     inferred: HashMap<String, (usize, Arc<Vec<VirtualForeignKey>>)>,
     filter_text: String,
     scroll: UniformListScrollHandle,
+    /// Panel width in px, used to wrap long error messages into detail rows.
+    width: f32,
+    /// A row context menu is open: tooltips would cover it, so rows render without them.
+    menu_open: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -121,6 +125,8 @@ impl Explorer {
             selected: None,
             filter_text: String::new(),
             scroll: UniformListScrollHandle::new(),
+            width: 280.0,
+            menu_open: false,
             _subscriptions: subscriptions,
         };
         explorer.rebuild(cx);
@@ -160,6 +166,26 @@ impl Explorer {
             StoreEvent::Notice { .. } => return,
         }
         self.rebuild(cx);
+    }
+
+    fn set_menu_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        if self.menu_open != open {
+            self.menu_open = open;
+            cx.notify();
+        }
+    }
+
+    /// Tell the explorer how wide it is drawn so error text can be wrapped to fit.
+    pub fn set_width(&mut self, width: f32, cx: &mut Context<Self>) {
+        if (self.width - width).abs() >= 4.0 {
+            self.width = width;
+            self.rebuild(cx);
+        }
+    }
+
+    /// Characters of 12 px text that fit beside the status-row icon (text starts 60 px in).
+    fn wrap_cols(&self) -> usize {
+        (((self.width - 60.0 - 12.0) / 6.3).floor().max(12.0)) as usize
     }
 
     /// Recompute the flat row list. Called on every model change; cheap because
@@ -204,7 +230,7 @@ impl Explorer {
                 },
             })
             .collect();
-        self.rows = flatten(&views, &self.expanded, &self.filter_text);
+        self.rows = flatten_wrapped(&views, &self.expanded, &self.filter_text, self.wrap_cols());
         if self.selected.as_ref().is_none_or(|k| !self.rows.iter().any(|r| &r.key == k)) {
             self.selected = self.rows.first().map(|r| r.key.clone());
         }
@@ -535,7 +561,28 @@ impl Explorer {
                     this.copy(name.clone(), cx)
                 }))
             }
+            NodeKey::Status(id) | NodeKey::Detail(id, _) => {
+                let (i1, i2, i3) = (id.clone(), id.clone(), id.clone());
+                menu.item(item(&explorer, "Retry", IconName::RefreshCw, move |this, cx| this.retry(&i1, cx)))
+                    .item(item(&explorer, "Edit Connection…", IconName::Settings2, move |_, cx| {
+                        cx.emit(ExplorerEvent::EditConnection(i2.clone()));
+                    }))
+                    .item(item(&explorer, "Copy Error", IconName::Copy, move |this, cx| {
+                        if let Some(text) = this.error_text(&i3, cx) {
+                            this.copy(text, cx);
+                        }
+                    }))
+            }
             _ => menu,
+        }
+    }
+
+    /// The full error of a connection that failed to connect or to load its schema.
+    fn error_text(&self, id: &str, cx: &App) -> Option<String> {
+        let store = self.store.read(cx);
+        match store.state(id) {
+            ConnState::Failed(e) => Some(e.to_string()),
+            _ => store.catalog_error(id).map(|e| e.to_string()),
         }
     }
 
@@ -557,6 +604,37 @@ impl Explorer {
         let depth = row.depth as f32;
         const INDENT: f32 = 14.0;
         const BASE: f32 = 8.0;
+
+        if let NodeKey::Detail(..) = row.key {
+            // Continuation line of an error: aligned with the text of the status row above it.
+            let menu_key = row.key.clone();
+            let explorer = cx.entity().downgrade();
+            let state = None;
+            return h_flex()
+                .id(SharedString::from(format!("row-{ix}")))
+                .h(ROW_HEIGHT)
+                .w_full()
+                .flex_shrink_0()
+                .pl(px(BASE + depth * INDENT + 38.))
+                .pr_2()
+                .items_center()
+                .cursor_default()
+                .bg(theme.danger.opacity(0.06))
+                .child(
+                    div()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_size(px(12.))
+                        .text_color(theme.danger.opacity(0.9))
+                        .child(row.label.clone()),
+                )
+                .context_menu(move |menu, window, cx| {
+                    Explorer::context_menu_for(explorer.clone(), menu_key.clone(), state.clone(), menu, window, cx)
+                })
+                .into_any_element();
+        }
 
         let label_color = match (&row.icon, row.is_error) {
             (_, true) => theme.danger,
@@ -634,7 +712,7 @@ impl Explorer {
                     RowIcon::Sequence => (IconName::ListOrdered, theme.muted_foreground),
                     RowIcon::Error => (IconName::CircleAlert, theme.danger),
                     RowIcon::Info => (IconName::Info, theme.muted_foreground),
-                    RowIcon::Connection(_) | RowIcon::Spinner => unreachable!(),
+                    RowIcon::Connection(_) | RowIcon::Spinner | RowIcon::None => unreachable!(),
                 };
                 Icon::new(name).size(px(14.)).text_color(color).into_any_element()
             }
@@ -665,7 +743,7 @@ impl Explorer {
                 this.bg(if focused { theme.list_active } else { theme.list_active.opacity(0.55) })
             })
             .when(!selected, |this| this.hover(|s| s.bg(theme.list_hover)))
-            .when_some(row.tooltip.clone(), |this, t| {
+            .when_some(row.tooltip.clone().filter(|_| !self.menu_open), |this, t| {
                 this.tooltip(move |window, cx| {
                     gpui_kit::component::tooltip::Tooltip::new(t.clone()).build(window, cx)
                 })
@@ -777,6 +855,13 @@ impl Explorer {
                 })
             })
             .context_menu(move |menu, window, cx| {
+                // Hide tooltips while the menu is up (they would be drawn over it).
+                let menu_owner = explorer.clone();
+                menu_owner.update(cx, |this, cx| this.set_menu_open(true, cx)).ok();
+                cx.subscribe(&cx.entity(), move |_, _, _: &gpui_kit::DismissEvent, cx| {
+                    menu_owner.update(cx, |this, cx| this.set_menu_open(false, cx)).ok();
+                })
+                .detach();
                 Explorer::context_menu_for(
                     explorer.clone(),
                     menu_key.clone(),
