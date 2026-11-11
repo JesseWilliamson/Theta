@@ -48,7 +48,8 @@ that runs it with fake data) and means exactly one place, the workspace, decides
 ```text
 crates/
   theta-core         contracts: Value, ResultSet, Catalog, Plan, ConnectionConfig, Driver/Connection traits
-  theta-drivers      PostgreSQL, MySQL/MariaDB, SQLite, SSH tunnels, demo-data seeder (Tokio)
+  theta-drivers      PostgreSQL (+CockroachDB, Redshift, TimescaleDB, YugabyteDB), MySQL/MariaDB (+TiDB), SQLite, DuckDB,
+                      SQL Server, ClickHouse, SSH tunnels, demo-data seeder (Tokio)
   theta-sql          statement splitting and classification, formatter, completion, FK joins and
                       inference, plan analysis, lint, SQL generation, export, DDL engine
   theta-import       CSV/TSV parsing, sniffing, type inference, import and whole-table export pipelines
@@ -368,12 +369,84 @@ one handler per action in `Workspace::render` (`crates/theta/src/workspace/mod.r
   partial and expression indexes, deferrable foreign keys, view definitions, MySQL table options; filled by the
   three introspection modules and covered by `crates/theta-drivers/tests/catalog_extras.rs`.
 
+### Added in 0.1.0-alpha.7 (part 1): more databases
+
+Theta now has eleven `DatabaseKind`s. Five of them (CockroachDB, Amazon Redshift, TimescaleDB, YugabyteDB,
+TiDB) reuse the PostgreSQL and MySQL drivers; three (DuckDB, SQL Server, ClickHouse) have drivers of their
+own. What makes that cheap is that a *kind* and a *dialect* are different things:
+
+- `DatabaseKind` (`crates/theta-core/src/config.rs`) is the product the user chose. It owns the
+  descriptor (`KindInfo`: label, icon key, port, URL schemes, which form sections apply, how the TLS
+  dropdown is worded) and the **capability table** `Features`.
+- `Family` is the SQL dialect (`kind.family()`): Postgres, MySql, Sqlite, DuckDb, SqlServer, ClickHouse. The
+  lexer, formatter, completion, quoting and SQL generation switch on the family, so CockroachDB gets
+  PostgreSQL's lexing for free and TiDB gets MySQL's. Code that must tell two products of one family apart
+  (a catalog query, an EXPLAIN format, a DDL restriction) matches on the kind itself.
+- `Feature` and `DatabaseKind::unsupported(feature)` answer "can this product do X, and if not, why". The
+  explorer menu, the palette, `--modify`, the grid and the EXPLAIN button all ask it and show the reason
+  instead of sending SQL the server would reject (`Workspace::refuse_unsupported`,
+  `exec::editable::grid_meta`, `explain_console`). The reason text lives once, in the descriptor.
+- `DatabaseKind::detect(banner)` and `mismatch(banner)` compare `version()` with the chosen kind on connect
+  (`ServerInfo::banner`), and the store warns once when they disagree.
+
+#### How to add a database kind
+
+1. **Core.** Add the variant to `DatabaseKind` and to `DatabaseKind::ALL`; add a `KindInfo` static (scheme(s),
+   port, sections, `ssl_labels`, `Features`) and the arm in `info()`. If its SQL is a dialect nobody has
+   written yet, add a `Family` variant; if it is a PostgreSQL or MySQL derivative, point `family` at the
+   existing one. `config.rs`'s unit tests check that schemes are unique and the sections are consistent.
+   Write down in `Features` everything the product cannot do, with the reason as a sentence a user can act on.
+2. **Driver.** Implement `Driver` and `Connection` in `crates/theta-drivers/src/<name>.rs` and add it to
+   `driver_for`. Reusing a driver means giving it the kind (`PostgresDriver { kind }`) and branching where the
+   product differs. The contract that tests check: `execute` honours `ExecOptions::row_limit` on the server,
+   `cancel` makes `execute` return `Error::Cancelled`, errors become `Error::Query` with a code and, if the
+   server gives one, a byte offset, `introspect` fills the `Catalog`, `explain` returns a `Plan` (or
+   `Error::Unsupported` for `analyze`), `server_info().banner` is the server's own version text. Network
+   kinds also get an arm in `connect_with_notices` so SSH tunnelling works.
+3. **Parsers are pure.** A product's EXPLAIN, constraint text or result format is parsed by a function from
+   text to values (`plan_text.rs`, `plan_mssql.rs`, `plan_ch.rs`, `redshift::parse_constraint_def`) with unit
+   tests. Say in a comment where each fixture came from: output captured from a server is stronger evidence
+   than text copied from documentation.
+4. **SQL dialect.** In `theta-sql`: the lexer if quoting or comments differ (`lexer.rs`), reserved words,
+   functions and statement starters (`keywords.rs`), literals (`generate.rs`), templates, type suggestions
+   for the table editor (`ddl::type_suggestions`) and the statement splitter if the product has a batch
+   separator (T-SQL's `GO`, `script.rs`). `tests/dialects.rs` is where these are pinned.
+5. **Application.** The connection dialog is driven by the descriptor, so a new kind usually needs nothing;
+   an icon goes in `theta-ui` (`DbIcon`, an SVG under `assets/icons`), URL parameters in
+   `connections/url.rs`. Decide for the table editor (`Feature::ModifyTable`, `CreateTable`), CSV import
+   (`Feature::Import`) and row editing (`Feature::EditRows`) whether they work, and if not, say why in the
+   descriptor.
+6. **Tests.** A live test per kind (`crates/theta-drivers/tests/kinds_live.rs` for servers that speak an
+   existing wire protocol or need the generic run, a file of its own when the product needs different
+   checks, as `clickhouse.rs` does). Servers that cannot run everywhere read their URL from an environment
+   variable and skip with a printed message; add the service to `.github/workflows/ci.yml`. Never claim a
+   product is verified that no test has been run against.
+
+#### Where products differ, and how it is handled
+
+- **CockroachDB**: PostgreSQL wire; its EXPLAIN is a text tree of `• node` lines (`plan_text::parse_cockroach`)
+  with no BUFFERS and no JSON; routines come from `information_schema.routines`; `crdb_internal` is hidden.
+- **Amazon Redshift**: PostgreSQL 8.0 inside. Introspection is rewritten from `information_schema`,
+  `SVV_TABLE_INFO` and `pg_constraint` (`postgres/redshift.rs`); EXPLAIN is plain text; there is no ANALYZE,
+  no savepoint and no useful ALTER, so ANALYZE, import and the table editor are disabled with a reason;
+  constraints are informational, so the grid is read-only.
+- **TimescaleDB**: stock PostgreSQL plus the extension; hypertables are listed and the internal schemas hidden.
+- **YugabyteDB**: PostgreSQL wire (YSQL); EXPLAIN without BUFFERS; the table editor is disabled.
+- **TiDB**: MySQL wire; EXPLAIN is a table (`plan_text::parse_tidb`); `KILL QUERY` cancels.
+- **DuckDB**: embedded (`duck.rs`), one connection on a blocking thread, cancel through the interrupt handle;
+  a feature of `theta-drivers` (`duckdb`, default on; `theta` forwards it) because the bundled C++ build dominates a clean build. Measured on the 4-core development machine with the workspace release profile (thin LTO, stripped): a program that only opens an in-memory DuckDB takes 14 min 49 s to build clean (48 min of CPU) and is 56.3 MB; the `parquet` and `json` extensions are linked in, nothing is downloaded at run time. Auto-install and auto-load of extensions are switched off on every connection. The dev profile sets `debug = false` for `libduckdb-sys`, because its C++ objects with line tables took 6.5 GB of disk.
+- **SQL Server**: TDS through `tiberius` (`mssql.rs`); no attention packet, so cancel kills the session and
+  the next statement reconnects; CLR spatial types need a rewrite (`spatial_retry`); showplan XML in
+  `plan_mssql.rs`.
+- **ClickHouse**: the HTTP interface through `ureq` (`clickhouse.rs`); results are
+  `TabSeparatedWithNamesAndTypes` parsed by type; sessions make `SET` stick; cancel is `KILL QUERY`.
+
 ## Status
 
 0.1.0-alpha.6 is the sixth pre-release (0.1.0-alpha.1 to -alpha.5 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
 that every crate in the workspace is wired into it and used:
 
-- All twelve crates exist and are used; the application runs against PostgreSQL, MySQL/MariaDB and SQLite.
+- All twelve crates exist and are used; the application runs against PostgreSQL, MySQL/MariaDB and SQLite, and (alpha.7, part 1) CockroachDB, Redshift, TimescaleDB, YugabyteDB, TiDB, DuckDB, SQL Server and ClickHouse, of which only DuckDB and ClickHouse (against an old server) have been run locally; see the README's table.
 - Editor (Helix, Vim and Standard keymaps), completion, formatting, diagnostics, explorer, consoles, results grid with editing,
   export, query plans with insights, map, history, transactions, themes and settings are in.
 - Verified by hand on Linux (X11). The macOS and Windows builds compile and pass the unit tests in CI but

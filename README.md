@@ -2,7 +2,8 @@
 
 Theta, a keyboard-first database IDE, is written in Rust on [GPUI](https://www.gpui.rs/) (through the
 [`gpui-kit`](https://github.com/longbridge/gpui-kit) component crate). It connects to PostgreSQL,
-MySQL/MariaDB and SQLite, gives you a SQL editor with Helix, Vim or standard key bindings, and shows results
+MySQL/MariaDB, SQLite and (see [Supported databases](#supported-databases) for how far each is tested)
+CockroachDB, Amazon Redshift, TimescaleDB, YugabyteDB, TiDB, DuckDB, SQL Server and ClickHouse, gives you a SQL editor with Helix, Vim or standard key bindings, and shows results
 as an editable grid, as a query plan, or on a map. The name comes from the theta join (θ-join) of relational
 algebra, the general form of JOIN: suggesting joins is what Theta is best at.
 
@@ -30,10 +31,38 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 | ![Import](docs/screenshots/14-import-csv.png) **CSV import: detected format, column mapping, sample values and type checks** | ![Modify table](docs/screenshots/15-modify-table.png) **Modify Table: a rename, an added column and a dropped one, with the exact SQL and its warnings** |
 | ![New table](docs/screenshots/16-new-table.png) **New Table: columns, a foreign key and the `CREATE TABLE` it makes** | |
 
+## Supported databases
+
+How each product is connected, and **what has actually been run against a real server**. "Live locally" means
+the driver's integration tests and the application were run against that server on the development machine;
+"CI, not yet run" means a test and a service container are in `.github/workflows/ci.yml` but nobody has seen
+them pass yet; "unverified" means no server of that product has been used at all (the parsers are unit-tested
+on text from the vendor's documentation, which is weaker evidence than captured output).
+
+| Database | Driver | Verified | Notes |
+| --- | --- | --- | --- |
+| PostgreSQL (PostGIS) | `tokio-postgres` | live locally (16 with PostGIS 3.4) and in CI | the reference implementation |
+| MySQL / MariaDB | `mysql_async` | live locally (MariaDB 10.11) and in CI; MySQL 8 plans from fixtures only | |
+| SQLite | `rusqlite` (bundled) | live locally | |
+| DuckDB | `duckdb` (bundled, cargo feature `duckdb`, default on) | live locally (DuckDB 2.0.0 via duckdb-rs 1.20000.1), in memory and file | no extension downloads, so no spatial functions; adds about 55 MB to the binary and 15 minutes to a clean build |
+| ClickHouse | HTTP (`ureq`, rustls) | live locally against ClickHouse 18.16.1 (the version Ubuntu packages): connect, typed values, introspection, row limit, cancel, errors, sessions; modern types and `EXPLAIN` not run locally; CI (24.8) not yet run | read-only grid |
+| CockroachDB | PostgreSQL driver | CI, not yet run | its own EXPLAIN parser |
+| TimescaleDB | PostgreSQL driver | CI, not yet run | hypertables listed |
+| TiDB | MySQL driver | CI, not yet run | its own EXPLAIN parser |
+| SQL Server | `tiberius` (rustls) | CI, not yet run; **never run against a server** | SQL authentication only; showplan XML parser unit-tested on a hand-written document |
+| Amazon Redshift | PostgreSQL driver | unverified | own introspection queries from the documented views; no CI service exists |
+| YugabyteDB | PostgreSQL driver | unverified | no CI service exists |
+
+Per-product behaviour (what is disabled and why) is in the [user guide](docs/USER_GUIDE.md#other-databases).
+
 ## Features
 
 **Connections**
-- PostgreSQL (PostGIS-aware), MySQL / MariaDB and SQLite. TLS modes: Disable, Prefer, Require, Verify full.
+- PostgreSQL (PostGIS-aware), MySQL / MariaDB, SQLite, CockroachDB, Amazon Redshift, TimescaleDB, YugabyteDB,
+  TiDB, DuckDB (a file or in memory), SQL Server and ClickHouse (over HTTP). TLS modes: Disable, Prefer, Require,
+  Verify full (SQL Server and ClickHouse word them as Encryption and Protocol). A feature a product cannot do
+  (EXPLAIN ANALYZE on Redshift, row editing on ClickHouse...) says so instead of sending SQL that fails, and a
+  connection set up as the wrong product is warned about on connect.
 - SSH tunnels with a private key file (optionally with a passphrase), a password, or ssh-agent. Host keys
   are checked against `~/.ssh/known_hosts`: an unknown host is recorded on first use, a changed key is
   refused.
@@ -357,6 +386,19 @@ The complete tables (and the `space` leader menu that reaches every application 
 | `ctrl-space` | completion |
 
 ## Known limitations
+
+Databases added in 0.1.0-alpha.7
+- Only DuckDB and (against a 2018 server) ClickHouse have been run. SQL Server, CockroachDB, TiDB and TimescaleDB
+  are covered by live tests that exist but have not been run yet; Redshift and YugabyteDB have no test server at
+  all. Read the table under [Supported databases](#supported-databases) before trusting a product.
+- SQL Server: SQL authentication only; cancelling a statement ends the session (temp tables and an open
+  transaction are lost); a result with several result sets shows the first; the table editor and CSV import are
+  disabled. ClickHouse: read-only grid, no transactions, no *Explain Analyze*. DuckDB: no row editing in the grid,
+  no table editor, no CSV import, no extensions. Amazon Redshift: no *Explain Analyze*, table editor or import.
+  A TLS-verified ClickHouse connection through an SSH tunnel checks the certificate against the tunnel's local
+  address (127.0.0.1) and fails; use *Require* there.
+- A DuckDB build adds about 55 MB to the binary and about 15 minutes to a clean build; `cargo build
+  --no-default-features` leaves it out.
 
 Editor
 - No soft wrap and no code folding. Long lines scroll horizontally.

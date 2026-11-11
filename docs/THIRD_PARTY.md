@@ -27,6 +27,8 @@ unmodified use as a dependency is unproblematic but its notices must travel with
 | async-trait | 0.1.92 | MIT OR Apache-2.0 | theta, theta-core, theta-drivers | https://github.com/dtolnay/async-trait |
 | chrono | 0.4.45 | MIT OR Apache-2.0 | theta | https://github.com/chronotope/chrono |
 | dirs | 6.0.0 | MIT OR Apache-2.0 | theta-map-view, theta-ui | https://github.com/soc/dirs-rs |
+| duckdb | 1.20000.1 | MIT | theta-drivers | https://github.com/duckdb/duckdb-rs |
+| encoding_rs | 0.8.44 | (Apache-2.0 OR MIT) AND BSD-3-Clause | theta-import | https://github.com/hsivonen/encoding_rs |
 | futures-util | 0.3.34 | MIT OR Apache-2.0 | theta-drivers | https://github.com/rust-lang/futures-rs |
 | gpui-kit | 0.9.1 | Apache-2.0 | theta, theta-editor-view, theta-grid, theta-map-view, theta-plan-view, theta-ui | https://github.com/longbridge/gpui-kit |
 | image | 0.25.10 | MIT OR Apache-2.0 | theta, theta-map-view | https://github.com/image-rs/image |
@@ -40,14 +42,16 @@ unmodified use as a dependency is unproblematic but its notices must travel with
 | rustls | 0.23.46 | Apache-2.0 OR ISC OR MIT | theta-drivers | https://github.com/rustls/rustls |
 | rustls-native-certs | 0.8.5 | Apache-2.0 OR ISC OR MIT | theta-drivers | https://github.com/rustls/rustls-native-certs |
 | serde | 1.0.229 | MIT OR Apache-2.0 | theta, theta-core, theta-sql, theta-ui | https://github.com/serde-rs/serde |
-| serde_json | 1.0.154 | MIT OR Apache-2.0 | theta, theta-core, theta-drivers, theta-geo, theta-grid, theta-map-view, theta-plan-view, theta-sql, theta-ui | https://github.com/serde-rs/json |
+| serde_json | 1.0.154 | MIT OR Apache-2.0 | theta, theta-core, theta-drivers, theta-geo, theta-grid, theta-import, theta-map-view, theta-plan-view, theta-sql, theta-ui | https://github.com/serde-rs/json |
 | tempfile | 3.27.0 | MIT OR Apache-2.0 | theta, theta-map-view, theta-ui | https://github.com/Stebalien/tempfile |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 | theta-core | https://github.com/dtolnay/thiserror |
-| tokio | 1.54.1 | MIT | theta, theta-drivers | https://github.com/tokio-rs/tokio |
+| tiberius | 0.12.3 | MIT OR Apache-2.0 | theta-drivers | https://github.com/prisma/tiberius |
+| tokio | 1.54.1 | MIT | theta, theta-drivers, theta-import | https://github.com/tokio-rs/tokio |
 | tokio-postgres | 0.7.18 | MIT OR Apache-2.0 | theta-drivers | https://github.com/rust-postgres/rust-postgres |
 | tokio-postgres-rustls | 0.14.0 | MIT | theta-drivers | https://github.com/jbg/tokio-postgres-rustls |
+| tokio-util | 0.7.20 | MIT | theta-drivers | https://github.com/tokio-rs/tokio |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | theta-editor, theta-editor-view | https://github.com/unicode-rs/unicode-segmentation |
-| ureq | 3.5.1 | MIT OR Apache-2.0 | theta-map-view | https://github.com/algesten/ureq |
-| url | 2.5.8 | MIT OR Apache-2.0 | theta | https://github.com/servo/rust-url |
+| ureq | 3.5.1 | MIT OR Apache-2.0 | theta-drivers, theta-map-view | https://github.com/algesten/ureq |
+| url | 2.5.8 | MIT OR Apache-2.0 | theta, theta-drivers | https://github.com/servo/rust-url |
 | uuid | 1.29.2 | Apache-2.0 OR MIT | theta | https://github.com/uuid-rs/uuid |
 | webpki-roots | 1.0.12 | CDLA-Permissive-2.0 | theta-drivers | https://github.com/rustls/webpki-roots |

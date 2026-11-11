@@ -64,7 +64,12 @@ is set, because shared runners are slow and noisy. They still catch an accidenta
 | PostgreSQL 16 + PostGIS | `postgres://postgres:postgres@127.0.0.1:5432/quarry_demo` | `theta-drivers`, `theta-geo` (`tests/postgis`) |
 | MariaDB 10.11 | `mysql://quarry:quarry@127.0.0.1:3306/quarry_demo` | `theta-drivers` |
 
-The URLs are hard-coded in `crates/theta-drivers/tests/common/mod.rs`. Tests create uniquely named
+The other products read their server from an environment variable and are skipped (with a printed
+`SKIPPED` line) when it is unset: `THETA_TEST_COCKROACH_URL`, `THETA_TEST_TIMESCALE_URL`,
+`THETA_TEST_YUGABYTE_URL`, `THETA_TEST_REDSHIFT_URL`, `THETA_TEST_TIDB_URL`, `THETA_TEST_SQLSERVER_URL` and
+`THETA_TEST_CLICKHOUSE_URL` (`crates/theta-drivers/tests/kinds_live.rs`, `clickhouse.rs`; the table of variables is
+at the top of the first). DuckDB is embedded and always runs. The PostgreSQL and MariaDB URLs are
+hard-coded in `crates/theta-drivers/tests/common/mod.rs`. Tests create uniquely named
 schemas and databases, so they can run concurrently, and drop them afterwards; the MariaDB user therefore
 needs global privileges (`GRANT ALL ON *.* TO 'quarry'@'%'`). One way to run both locally:
 

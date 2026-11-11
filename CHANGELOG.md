@@ -6,6 +6,43 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+### Added
+
+- **Eight more databases.** CockroachDB, Amazon Redshift, TimescaleDB, YugabyteDB and TiDB (they reuse the
+  PostgreSQL and MySQL drivers, each with its own descriptor, URL schemes, icon and the handling its
+  documentation calls for), plus DuckDB, SQL Server and ClickHouse with drivers of their own.
+  - `DatabaseKind` gained `family()` (the SQL dialect), `unsupported(Feature)` (a stated reason for what a product
+    cannot do; menus, palette, `--modify`, the grid and Explain show it instead of sending failing SQL) and
+    `detect()` / `mismatch()`, which compare `version()` with the chosen product on connect and warn once.
+  - **CockroachDB**: text-plan EXPLAIN (with ANALYZE) parser, routines from `information_schema`.
+    **Redshift**: introspection from `information_schema`, `SVV_TABLE_INFO` and `pg_constraint`, plain-text
+    EXPLAIN, no ANALYZE, import and table editor disabled with reasons. **TimescaleDB**: hypertables listed,
+    internal schemas hidden. **YugabyteDB**: EXPLAIN without BUFFERS. **TiDB**: tabular EXPLAIN parser, `KILL QUERY`.
+  - **DuckDB**: file or `:memory:`, introspection through the `duckdb_*()` functions, EXPLAIN / EXPLAIN ANALYZE as a
+    plan, cancel through the interrupt handle, DECIMAL, HUGEINT, temporal types and LIST / STRUCT / MAP (as JSON)
+    values, Parquet and CSV through plain SQL; extensions are never downloaded. Behind the default-on cargo
+    feature `duckdb` because it adds about 55 MB to the binary and about 15 minutes to a clean build.
+  - **SQL Server** (TDS via `tiberius` with rustls): SQL authentication, Encrypt off / on / trust certificate,
+    `sys.*` introspection (identity and computed columns, keys, checks, indexes, routines), `SET ROWCOUNT` row
+    limit, cancel by `KILL`, showplan XML for EXPLAIN (estimated) and STATISTICS XML (actual), `geometry` /
+    `geography` as EWKB, `[bracket]` quoting, `TOP`, `GO` batches and T-SQL keywords. Not yet run against a server.
+  - **ClickHouse** over HTTP: engine, sorting key, primary key and partition key in the explorer (*Storage*),
+    `KILL QUERY` cancel, `EXPLAIN json = 1`, Nullable / Array / Map / Tuple / LowCardinality / DateTime64 /
+    Decimal / UUID / IPv4 / IPv6 values, backtick quoting, ClickHouse functions; the grid is read-only with the
+    reason shown.
+  - The explorer shows a table's storage facts (engine, distribution style, hypertable) in a *Storage* section;
+    SQL Server's `TOP` in generated SELECTs; the connection dialog words TLS per product and follows ClickHouse's
+    HTTPS port; `--connect` and the URL field take `cockroachdb://`, `redshift://`, `timescaledb://`,
+    `yugabytedb://`, `tidb://`, `duckdb://`, `sqlserver://` (`encrypt`, `trustServerCertificate`), `clickhouse://`
+    and `clickhouses://`.
+  - `docs/ARCHITECTURE.md` has a walkthrough of how to add a database kind; the README lists, per product,
+    whether it has been run against a real server.
+
+### Changed
+
+- The statement splitter, formatter and parameter finder know T-SQL's `GO`, `BEGIN TRANSACTION` and `DECLARE`;
+  the formatter keeps `GO` on its own line.
+
 ## [0.1.0-alpha.6] - 2026-11-11
 
 ### Added

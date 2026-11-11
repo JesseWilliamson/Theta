@@ -51,20 +51,21 @@ Try it without a server first: `theta --demo` creates `demo.sqlite` in the confi
 it as *Demo (SQLite)* and connects to it.
 
 For your own database choose *New Connection…* (`mod-shift-n`, the command palette, or the **+** in the
-explorer header). Choose the **Database type** from the dropdown (*PostgreSQL*, *MySQL / MariaDB*, *SQLite*; arrow keys and
-`enter`, or type to filter), fill in the fields that type needs, then
+explorer header). Choose the **Database type** from the dropdown (*PostgreSQL*, *MySQL / MariaDB*, *SQLite*, *CockroachDB*, *Amazon
+Redshift*, *TimescaleDB*, *YugabyteDB*, *TiDB*, *DuckDB*, *SQL Server*, *ClickHouse*; arrow keys and `enter`, or
+type to filter; see [Other databases](#other-databases)), fill in the fields that type needs, then
 press *Test Connection*, *Save* or *Save & Connect*. A successful test reports the server version and the
 round-trip time ("Connection successful · PostgreSQL 16.15 · 53 ms").
 
 | Field | Notes |
 | --- | --- |
-| Connection URL | paste `postgres://user:pass@host:5432/db?sslmode=require`, `mysql://…`, `mariadb://…` or `sqlite:///path/to.db` to fill the other fields; the same parser serves `--connect` |
+| Connection URL | paste `postgres://user:pass@host:5432/db?sslmode=require`, `mysql://…`, `mariadb://…`, `sqlite:///path/to.db` or one of the schemes in [Other databases](#other-databases) to fill the other fields; the same parser serves `--connect` |
 | Name | shown in the explorer, the title bar and the pickers |
-| Host, Port | the port defaults to 5432 for PostgreSQL and 3306 for MySQL/MariaDB |
+| Host, Port | the port defaults to the product's own (5432 PostgreSQL and TimescaleDB, 3306 MySQL/MariaDB, 26257 CockroachDB, 5439 Redshift, 5433 YugabyteDB, 4000 TiDB, 1433 SQL Server, 8123 ClickHouse over HTTP and 8443 over HTTPS) |
 | User, Password | the eye button shows the password while you type |
 | Database | database name; empty means the server default |
-| SSL mode | *Disable*; *Prefer* (try TLS, fall back to plain); *Require* (TLS, certificate not verified); *Verify full* (TLS, certificate chain and host name verified) |
-| Database file (SQLite) | *Browse…*, or turn on *Create if missing* |
+| SSL mode | *Disable*; *Prefer* (try TLS, fall back to plain); *Require* (TLS, certificate not verified); *Verify full* (TLS, certificate chain and host name verified). SQL Server calls it *Encryption* (*Encrypt off*, *Encrypt on, trust server certificate*, *Encrypt on, verify certificate*) and ClickHouse *Protocol* (*HTTP*, *HTTPS*) |
+| Database file (SQLite, DuckDB) | *Browse…*, or turn on *Create if missing*; DuckDB also accepts `:memory:` |
 | SSH tunnel | see the next section |
 | Read-only | Theta refuses statements that change data or schema on this connection (see [Read-only connections](#read-only-connections)) |
 | Colour | none, red, orange, green, blue or purple; a coloured bar marks the connection in the title bar and explorer, handy for production |
@@ -90,6 +91,28 @@ theta --connect mysql://quarry:quarry@127.0.0.1:3306/quarry_demo --script report
 ```
 
 `--run SQL` and `--script FILE` open a console on the first start-up connection and run every statement in it.
+
+### Other databases
+
+Besides PostgreSQL, MySQL/MariaDB and SQLite, Theta connects to the products below. How far each has been
+tested is in the README's supported-databases table; this section says what behaves differently. Where a
+feature cannot work on a product, its menu entry or button says why instead of sending SQL the server would
+reject.
+
+| Product | URL schemes | Connects through | Different from the base product |
+| --- | --- | --- | --- |
+| CockroachDB | `cockroachdb://`, `cockroach://`, `crdb://` | the PostgreSQL driver | Explain is CockroachDB's text plan (and *Explain Analyze* works); *Modify Table* and *New Table* are disabled (schema changes run as online jobs that some ALTERs refuse inside a transaction) |
+| Amazon Redshift | `redshift://` | the PostgreSQL driver | catalogs are read from `information_schema`, `SVV_TABLE_INFO` and `pg_constraint` (no indexes, routines not listed); distribution style and sort key show under *Storage*; no *Explain Analyze*; *Modify Table*, *New Table* and CSV import are disabled (Redshift cannot alter types, has no savepoints and loads with `COPY`); the grid is read-only because primary keys are not enforced |
+| TimescaleDB | `timescaledb://`, `timescale://` | the PostgreSQL driver | hypertables are marked under *Storage* and the extension's internal schemas are hidden; everything else is PostgreSQL |
+| YugabyteDB | `yugabytedb://`, `yugabyte://`, `ysql://` | the PostgreSQL driver | *Modify Table* and *New Table* are disabled (YSQL does not support every ALTER the editor emits) |
+| TiDB | `tidb://` | the MySQL driver | Explain is TiDB's operator table; cancel uses `KILL QUERY` |
+| DuckDB | `duckdb:///path/to/file.duckdb`, `duckdb::memory:` | built in | a file or `:memory:`; plain SQL reads files (`SELECT * FROM 'data.parquet'`, `read_csv('x.csv')`); extensions are never downloaded, so the spatial extension's functions are not there; CSV import and the table editor are disabled (no savepoints; no identity columns), and result rows cannot be edited in the grid |
+| SQL Server | `sqlserver://`, `mssql://` (`?encrypt=true&trustServerCertificate=true`) | TDS, SQL authentication | `GO` on its own line separates batches; `TOP` instead of `LIMIT`; Explain is the estimated showplan and *Explain Analyze* the actual one; cancel ends the session (temp tables and an open transaction are lost; the next statement reconnects); `geometry` / `geography` columns arrive as geometry; the table editor and CSV import are disabled |
+| ClickHouse | `clickhouse://` (HTTP), `clickhouses://` (HTTPS), `?secure=true` | the HTTP interface | the grid is read-only (a table has no row identity; the reason is shown); no transactions; the explorer shows each table's engine, sorting key, primary key (not unique) and partition key under *Storage*; Explain works on servers that have `EXPLAIN json = 1` (21.x and later), there is no *Explain Analyze*; the table editor and CSV import are disabled |
+
+When the server's own `version()` text names a different product than the one the connection is set up as
+(a CockroachDB server saved as PostgreSQL, say), Theta says so in a warning when it connects; edit the
+connection and pick the right type.
 
 ### Read-only connections
 

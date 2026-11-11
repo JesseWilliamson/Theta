@@ -38,6 +38,8 @@ pub enum Section {
     /// Inferred foreign keys, nested under `ForeignKeys`.
     Suggested,
     Indexes,
+    /// Storage facts the product reports (ClickHouse engine and sorting key, Redshift distribution style).
+    Storage,
 }
 
 impl Section {
@@ -47,6 +49,7 @@ impl Section {
             Section::ForeignKeys => "Foreign Keys",
             Section::Suggested => "Suggested",
             Section::Indexes => "Indexes",
+            Section::Storage => "Storage",
         }
     }
 }
@@ -717,6 +720,23 @@ fn flatten_table(
                     info.push_str(" unique");
                 }
                 r.type_text = Some(info);
+                out.push(r);
+            }
+        }
+    }
+    // Engine, sorting key, distribution style...: what the product says about how the table is stored.
+    if !t.options.is_empty() {
+        let k = section_key(Section::Storage);
+        let open = expanded.contains(&k);
+        let mut s = Row::new(k, 4, RowIcon::Info, Section::Storage.label());
+        s.expandable = true;
+        s.expanded = open;
+        s.detail = Some(t.options.len().to_string());
+        out.push(s);
+        if open {
+            for o in &t.options {
+                let mut r = Row::new(leaf_key(Section::Storage, &o.name), 5, RowIcon::Info, o.name.clone());
+                r.type_text = Some(o.value.clone());
                 out.push(r);
             }
         }

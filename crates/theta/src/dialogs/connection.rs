@@ -985,24 +985,26 @@ impl Render for ConnectionForm {
                     .justify_between()
                     .items_center()
                     .gap_3()
-                    .child(
+                    // ClickHouse over HTTP has no transactions to make manual.
+                    .children(self.kind.unsupported(theta_core::Feature::Transactions).is_none().then(|| {
                         Switch::new("manual-txn")
                             .label("Manual transactions")
                             .checked(self.manual_txn)
                             .on_change(cx.listener(|this, v, _, cx| {
                                 this.manual_txn = *v;
                                 cx.notify();
-                            })),
-                    )
-                    .child(
+                            }))
+                    }))
+                    // A product with no isolation levels to choose (DuckDB, ClickHouse) shows no dropdown.
+                    .children((!level_labels(self.kind).is_empty()).then(|| {
                         h_flex()
                             .gap_2()
                             .items_center()
                             .child(div().text_size(px(12.)).text_color(theme.muted_foreground).child(
                                 if self.kind.family() == Family::Sqlite { "BEGIN mode" } else { "Isolation" },
                             ))
-                            .child(div().w(px(180.)).child(Select::new(&self.isolation))),
-                    ),
+                            .child(div().w(px(180.)).child(Select::new(&self.isolation)))
+                    })),
             )
             .when_some(test_row, |d, row| d.child(row));
 

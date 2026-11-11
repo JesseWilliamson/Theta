@@ -6,6 +6,13 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 
+[features]
+# DuckDB's bundled C++ build is by far the longest part of a clean build and adds roughly 55 MB to the binary
+# (measured: docs/ARCHITECTURE.md). `cargo build --no-default-features` leaves it out; a saved DuckDB
+# connection then says the build has no DuckDB support instead of vanishing.
+default = ["duckdb"]
+duckdb = ["theta-drivers/duckdb"]
+
 [dependencies]
 gpui-kit.workspace = true
 theta-ui.workspace = true
