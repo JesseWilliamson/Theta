@@ -13,6 +13,8 @@ pub mod parser;
 pub mod plan;
 pub mod run;
 pub mod scalar;
+pub mod scan;
+pub mod setup;
 pub mod sniff;
 
 pub use convert::{ConvertError, ConvertOptions, Target, convert};
