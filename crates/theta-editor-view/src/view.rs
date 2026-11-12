@@ -851,6 +851,8 @@ impl EditorView {
             cx.background_executor().timer(TYPING_IDLE).await;
             this.update(cx, |v, cx| {
                 v.typing = None;
+                // what was held back while typing is now due (the Problems tab lists it)
+                cx.emit(EditorEvent::DiagnosticsChanged);
                 cx.notify();
             })
             .ok();

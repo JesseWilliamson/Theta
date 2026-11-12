@@ -289,8 +289,23 @@ impl UsageEntry {
         let line = text[..r.start].matches('\n').count() + 1;
         let line_start = text[..r.start].rfind('\n').map_or(0, |i| i + 1);
         let line_end = text[r.start..].find('\n').map_or(text.len(), |i| r.start + i);
-        let shown = text[line_start..line_end].trim().to_string();
-        UsageEntry { console, byte: r.start, label: format!("{line}: {shown}"), tab }
+        // A one-line script makes every row's line identical, so show a window around the match
+        // (with its column) rather than the line's start; otherwise the rows cannot be told apart.
+        let col = text[line_start..r.start].chars().count() + 1;
+        const BEFORE: usize = 28;
+        const AFTER: usize = 36;
+        let mut from = r.start.saturating_sub(BEFORE).max(line_start);
+        while !text.is_char_boundary(from) {
+            from += 1;
+        }
+        let mut to = (r.end + AFTER).min(line_end);
+        while !text.is_char_boundary(to) {
+            to -= 1;
+        }
+        let lead = if from > line_start { "…" } else { "" };
+        let trail = if to < line_end { "…" } else { "" };
+        let shown = format!("{lead}{}{trail}", text[from..to].trim());
+        UsageEntry { console, byte: r.start, label: format!("{line}:{col}  {shown}"), tab }
     }
 }
 
@@ -356,7 +371,7 @@ impl PickerDelegate for ActionsPicker {
             .enumerate()
             .map(|(i, a)| {
                 let (section, icon) = match a.kind {
-                    FixKind::QuickFix => ("Quick fixes", IconName::Check),
+                    FixKind::QuickFix => ("Quick fixes", IconName::Lightbulb),
                     FixKind::Refactor => ("Refactor", IconName::Replace),
                     FixKind::Source => ("Source", IconName::CaseSensitive),
                 };
