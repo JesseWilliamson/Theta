@@ -41,6 +41,30 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 - A read-only connection is marked in the title-bar connection switcher, the status bar and the explorer row, not only after a write is refused.
 - A failed Submit in the grid was shown three times (footer, toast and Messages) without saying which row; it is now shown once in the footer, with the row (`id = 2`, `new row 1`), the cursor moves to it and the staged edits are kept.
 
+### Fixed (layout, states and consistency)
+
+- The welcome view lays out at any window size down to 900x600: the logo, title and key sheet scroll instead of overlapping the tab bar or being cut off by the results panel, which is hidden until the first connection exists. The key sheet shows the keys of the keymap you picked.
+- Every dialog has the same frame: the title and the buttons stay in view and the body scrolls when the window is short. The Export Database "does not contain" box sizes to its content, so its last bullet is no longer cut off.
+- New Connection: a Test Connection result is cleared as soon as you edit a field, and it has a fixed slot, so the buttons no longer move when a result appears. Typing a URL keeps the derived name in step until you write your own. File fields show an "e.g." hint.
+- Button order is the same everywhere: the primary action is rightmost, with Close or Cancel to its left (Export, Copy Table, Import, Run SQL Script, Run on Several Connections, Compare).
+- Run and Stop are greyed out when they cannot do anything, with a tooltip that says why; the title-bar buttons show their key.
+- One empty-state pattern: "No commands match “xyz”" in the palette and every picker, "No objects match “xyz”" with a Clear Filter button in the explorer, and a New Connection button in the connection picker when there is none.
+- Result sets: the strip scrolls (wheel, or the arrow at its right end lists every set), the active set is always in view, and `mod-alt-]` / `mod-alt-[` move between sets. Long tab and result names are cut with an ellipsis and have a tooltip.
+- Commands of the tab in front (ER diagram, Compare, Sessions, Roles) are palette commands too: "Mermaid" finds *Diagram: Copy as Mermaid*.
+- ER diagram: the schema picker counts tables (and says how many views are not drawn), so it agrees with the diagram; the key hint gives way before the counts.
+- New Table reacts while the name is typed (preview, toolbar and duplicate check); the Options tab no longer carries a red dot for a missing name, and a dot has a tooltip saying what it is about; one focus ring at a time; "Column will be dropped…" goes away after Undo.
+- Compare: no error before you have chosen anything (a neutral hint says a second schema, table or connection is needed); Compare Table Data starts on the same table in another schema, keeps the table when the schema changes, and does not offer "primary key" for a table without one.
+- Two connections with the same name are told apart (product, then address, then user) in the pickers, Copy Table, Run on Several Connections and the compare dialogs.
+- Import: the preview header shows the inferred types and right-aligns numbers; the "Import into" caption lines up with "New table name". History rows are selected across the whole row. The Parameters dialog no longer draws its caret over a placeholder.
+- The website's download table no longer shows a build-system note, and file names do not wrap mid-name. "Catalogue" is used throughout the prose.
+
+### Changed (layout, states and consistency)
+
+- The ☰ menu is the application menu (File, Edit, View, Connection, Query, Tools, Help); the gear holds settings and appearance only. Both are generated from one list, which the macOS menu bar uses too.
+- One name per command: *Export Table Data…*, *Import Data…*, *Import Data as New Table…*, *Copy Table…*, *New Table…* in the palette, the explorer menus, dialog titles and tab titles (`theta::names`).
+- Settings: the editor font, size and line height and the row limit moved to the Editor page (Data is gone); the dialog sizes itself to the window. About has the version with the build commit and date, the MIT licence and copyright, links, the settings and log folders with an Open button and the third-party notices.
+- New commands: *About Theta*, *Open Website*, *Open User Guide*, *Open Key Reference*, *Open Changelog*, *Report an Issue…*, *Open Config Folder*, *Next Result Set*, *Previous Result Set*.
+
 ### Changed
 
 - Confirmation buttons are Title Case ("Apply 2 Changes").

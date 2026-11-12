@@ -25,13 +25,15 @@ Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH
 └ status bar:  [explorer] [bottom panel]          Running 1.5 s · 200 rows · 0.2 ms · Ln 1, Col 1 · NOR · ● Demo (SQLite) · SQLite 3.54.1 ┘
 ```
 
-- **Title bar.** The menu button (☰) has *New Console*, *New Connection…*, *Command Palette…*, *Go to
-  Table…* and *Quit*. The connection switcher shows the active connection with a status dot (green:
+- **Title bar.** The menu button (☰) is the application menu and has every command in seven groups: *File*,
+  *Edit*, *View*, *Connection*, *Query*, *Tools* and *Help*, each with the key the command palette shows for it.
+  The connection switcher shows the active connection with a status dot (green:
   connected, amber: connecting, red: failed) and opens the connection picker. **Run** runs the statement
-  under the cursor; the square button cancels the running query. **TXN open**, *Commit* and *Roll Back*
-  appear only while a transaction is open. The gear opens a menu with *Settings…*, *Select Theme…*,
+  under the cursor and the square button cancels the running query; both are greyed out, with a tooltip that
+  says why, while there is no console (Run) or nothing is running (Stop). **TXN open**, *Commit* and *Roll Back*
+  appear only while a transaction is open. The gear is for settings and appearance only: *Settings…*, *Select Theme…*,
   *Select Keymap…*, *Import Zed Theme…*, the font-size items and *Open Settings File*.
-  On macOS the same actions are also in the menu bar.
+  On macOS the same groups are in the menu bar.
 - **Explorer** (left): `mod-b` shows or hides it. Drag its right edge to resize.
 - **Console tabs**: one SQL editor per tab. A dot on a tab marks text that changed since the console was
   opened or saved to a file (the text is kept for the next start either way).
@@ -216,7 +218,7 @@ opened it; the title-bar switcher (or `:connect NAME` in Helix) rebinds it. Cons
   *Messages* tab comes to the front with the error, its code, detail and hint.
 - One query runs at a time per connection. A second run is refused with "A query is already running on …
   Cancel it first". All consoles bound to the same connection share one server session.
-- **Row limit**: results stop at 1,000 rows by default (Settings › Data › *Row limit*). The server stops
+- **Row limit**: results stop at 1,000 rows by default (Settings › Editor › *Row limit*). The server stops
   producing rows at the limit, and *Messages* says "stopped at the row limit". The grid footer says
   "first 1,000 shown, limit reached" and offers **Load all** (see [Sort and filter a cut-off result](#sort-and-filter-a-cut-off-result)).
 - **A script that stops**: a script stops at its first error. The error's entry in *Messages* ends with "Stopped
@@ -1227,17 +1229,17 @@ a gpui-kit theme file into that folder yourself.
 
 ## Settings
 
-*Settings…* (`mod-,`, the gear menu, or the command palette) opens a dialog with six sections. Changes apply
+*Settings…* (`mod-,`, the gear menu, or the command palette) opens a dialog with six pages. Changes apply
 immediately and are written to `settings.json`.
 
 | Section | What it has |
 | --- | --- |
-| Appearance | *Theme* (opens the picker), *Follow system appearance*, *Interface font*, *Editor font*, *Editor font size*, *Editor line height* |
-| Editor | *Keymap* (*Helix*, *Vim* or *Standard*), *Vim: share the clipboard* (shown while Vim is selected), *Format: indent width*, *Format: uppercase keywords* |
-| Data | *Row limit*: 100, 500, 1,000, 5,000, 10,000, 50,000, 100,000 or No limit |
+| Appearance | *Theme* (opens the picker), *Follow system appearance*, *Interface font* |
+| Editor | *Keymap* (*Helix*, *Vim* or *Standard*), *Vim: share the clipboard* (shown while Vim is selected), *Editor font*, *Editor font size*, *Editor line height*, *Ask for query parameters*, *Row limit* (100, 500, 1,000, 5,000, 10,000, 50,000, 100,000 or No limit), *Format: indent width*, *Format: uppercase keywords* |
+| Templates | the live templates, built in and yours |
 | Map | *Basemap* and the list of *Custom basemaps* |
 | Keymap | a searchable list of every action with its key, plus the editor keys for the current key map |
-| About | version, repository link and the licences of the bundled fonts, themes and map data |
+| About | version (with the commit and date of the build when it was made from a git checkout), the MIT licence and copyright, links to the website, user guide, key reference, changelog, issue tracker and source, the settings and log folders with an *Open* button each, and the third-party notices |
 
 The file is also hand-editable (*Open Settings File* in the palette). Unknown keys are ignored and a key
 with a wrong type is ignored with a warning, so one typo never resets the rest.

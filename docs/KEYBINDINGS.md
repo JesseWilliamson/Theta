@@ -47,6 +47,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-alt-s` | Compare Schemas (asks for a source and a target schema; also from the explorer's context menu on a schema) |
 | `mod-alt-x` | Compare Table Data (asks for two tables and the key; also from the explorer's context menu on a table) |
 | `mod-alt-h` | Local History of the active console |
+| `mod-alt-]` / `mod-alt-[` | next / previous result set of the active console (wraps; the strip scrolls to it, and the arrow at its right end lists every set) |
 | `mod-shift-h` | History tab (focused): `up`/`down` (and `j`/`k` in Helix and Vim) move, `enter` loads the statement into the editor, `/` goes to the search box, `esc` returns to the editor |
 | `mod-alt-enter` | Run on Several Connections (the current statement or the script on every connection you tick). In the dialog: `up`/`down` or `j`/`k` move, `space` ticks, `a` ticks all or none, `enter` runs |
 | `F5` | refresh schema, only while the explorer has focus (in the editor `F5` is *run all*) |
