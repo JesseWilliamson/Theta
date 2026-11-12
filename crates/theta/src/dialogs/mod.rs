@@ -1,5 +1,6 @@
 pub mod confirm;
 pub mod connection;
+pub mod copy_table;
 pub mod dump;
 pub mod export;
 pub mod import;

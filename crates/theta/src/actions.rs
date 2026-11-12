@@ -65,6 +65,7 @@ actions!(
         ModifyTable,
         RenameTable,
         DuplicateTableStructure,
+        CopyTable,
         TruncateTable,
         DropTable,
         SaveConsole,

@@ -174,6 +174,26 @@ impl Workspace {
         dialogs::search::open(ws, self.store.clone(), conn_id, preselect, window, cx);
     }
 
+    /// Copy Table from the explorer or the table picker.
+    pub fn open_copy_dialog(
+        &mut self,
+        conn_id: String,
+        schema: String,
+        table: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.refuse_unsupported(&conn_id, Feature::CopyTable, window, cx) {
+            return;
+        }
+        // Headless test windows have no `Root` to host a dialog.
+        if self.quiet {
+            return;
+        }
+        let ws = cx.entity().downgrade();
+        dialogs::copy_table::open(ws, self.store.clone(), conn_id, schema, table, window, cx);
+    }
+
     pub(super) fn search_from_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.bulk_connection(cx) {
             Some(conn) => self.open_search_dialog(conn, None, window, cx),

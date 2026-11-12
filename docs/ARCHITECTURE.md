@@ -652,6 +652,24 @@ and `copy_cell_value` for the palette actions, the global chords and the `:cell`
 space menus use the new `FxKind::Host`, a generic "send this `:` command to the application", so a menu entry for
 an application feature needs no engine change beyond one line in each menu.
 
+#### Copy table
+
+`theta_sql::copy` (pure) decides, `theta_import::copy_table` does, `dialogs/copy_table.rs` shows. The type mapping
+never goes product to product: `canon_of` reads a source column into a canonical `Canon` (integer width, decimal
+with precision, text with or without a length, timestamp with or without a zone, array of ..., or `Other(name)`) by
+one table per source family (SQLite's free-text declared types go through its five affinity rules), and `render`
+writes a `Canon` in a target family's words, returning the reason when the result is not an exact equivalent;
+`plan_copy` collects those into `Substitution`s for the preview. Copies between two tables of the same product skip
+the mapping and copy the type text verbatim. `insert_statements` converts values the target column needs in another
+form (MySQL's `tinyint(1)` 0/1 into a real boolean for PostgreSQL, a geometry into bytes for a byte column, an
+offset timestamp into UTC wall time for MySQL, whose DATETIME has no zone and which MariaDB will not parse with
+one); the live tests found the first of these. The runner reuses the export's keyset pager (`export::page_query`)
+for the read side and wraps everything, `CREATE TABLE` included, in one transaction where the target has
+transactional DDL (`transactional_ddl`); where it has not (MySQL) a failed or cancelled copy `DROP`s the table it
+made, and `Cleanup` says which happened, including when the clean-up itself failed. Live tests in
+`crates/theta-import/tests/copy_live.rs` copy between PostgreSQL, MariaDB, SQLite and DuckDB, compare the rows,
+and prove the clean target after a cancel and after a row the target rejects.
+
 #### Charts
 
 `theta-chart` is a pure crate (it depends on `theta-core` only) holding everything about a chart that is not

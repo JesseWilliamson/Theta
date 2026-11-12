@@ -56,6 +56,7 @@ fn commands() -> Vec<Command> {
         cmd!("New Table…", "Table", IconName::Plus, NewTable),
         cmd!("Modify Table…", "Table", IconName::Settings2, ModifyTable),
         cmd!("Rename Table…", "Table", IconName::Pencil, RenameTable),
+        cmd!("Copy Table to…", "Table", IconName::Copy, CopyTable),
         cmd!("Duplicate Table Structure…", "Table", IconName::Copy, DuplicateTableStructure),
         cmd!("Truncate Table…", "Table", IconName::Eraser, TruncateTable),
         cmd!("Drop Table…", "Table", IconName::Trash, DropTable),
@@ -321,6 +322,7 @@ pub enum TablePurpose {
     Truncate,
     Drop,
     Duplicate,
+    Copy,
 }
 
 pub struct TablePicker {
@@ -356,6 +358,7 @@ impl PickerDelegate for TablePicker {
             TablePurpose::Truncate => "Truncate which table…",
             TablePurpose::Drop => "Drop which table…",
             TablePurpose::Duplicate => "Duplicate the structure of which table…",
+            TablePurpose::Copy => "Copy which table…",
         }
         .into()
     }
@@ -417,6 +420,7 @@ impl PickerDelegate for TablePicker {
                     TablePurpose::Truncate => ws.truncate_table_dialog(conn, schema, table, window, cx),
                     TablePurpose::Drop => ws.drop_table_dialog(conn, schema, table, window, cx),
                     TablePurpose::Duplicate => ws.duplicate_structure_dialog(conn, schema, table, window, cx),
+                    TablePurpose::Copy => ws.open_copy_dialog(conn, schema, table, window, cx),
                 })
                 .ok();
         });

@@ -155,7 +155,9 @@ Vim key maps, `:import` / `:export`), so they cannot conflict with an editor key
 | `enter` in a confirmation | confirm the primary action; destructive confirmations (Truncate, Drop, a table change that drops something) need a click, or `tab` to the button and `space` |
 
 Palette commands: *Import Data from CSV/TSV…*, *Import CSV/TSV as New Table…*, *Export Table Data…*,
-*New Table…*, *Modify Table…*, *Rename Table…*, *Duplicate Table Structure…*, *Truncate Table…*, *Drop Table…*.
+*New Table…*, *Modify Table…*, *Rename Table…*, *Copy Table to…*, *Duplicate Table Structure…*, *Truncate Table…*, *Drop Table…*.
+In the Helix and Vim key maps `:table copy [SCHEMA.]TABLE` opens Copy Table (a picker without an argument). Inside
+the Copy Table dialog: `enter` in the name box starts the copy, `esc` cancels a running copy and otherwise closes it.
 
 ## Chart tab
 

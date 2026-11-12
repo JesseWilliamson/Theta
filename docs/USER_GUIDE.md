@@ -698,6 +698,8 @@ Right-click a table (or use the palette's *Table* commands):
 - *Modify Table…* opens the editor in a tab (below). *New Table…* on the **Tables** group, or in the palette,
   opens it on a table that does not exist yet.
 - *Rename…* asks for the name, then shows the exact `ALTER TABLE … RENAME TO …` and runs it when you confirm.
+- *Copy Table to…* copies the table, with or without its rows, to another schema or another open connection (see
+  [Copy a table](#copy-a-table)).
 - *Duplicate Structure…* opens a console with the `CREATE TABLE` of a copy (columns, keys, indexes; no rows).
 - *Truncate…* shows `TRUNCATE TABLE` (`DELETE FROM` on SQLite) and asks.
 - *Drop…* shows `DROP TABLE` and lists any foreign keys elsewhere that reference the table.
@@ -706,6 +708,30 @@ Right-click a **column** for *Modify Column…* (the editor with the cursor on i
 dialog, then one `RENAME COLUMN`) and *Drop Column…* (the exact SQL, including any key or index that goes with
 it). Right-click the **Indexes** or **Foreign Keys** group for *New Index…* / *New Foreign Key…*, an index or
 key for *Drop Index…* / *Drop Foreign Key…*, and a **Suggested** key for *Add as Foreign Key…*.
+
+### Copy a table
+
+*Copy Table to…* (the table's context menu, the palette, or `:table copy [SCHEMA.]TABLE` in the Helix and Vim
+key maps) opens a dialog: choose the **connection** and **schema** to copy to (any open connection, of any
+product), the **name** of the new table (it must not exist yet), and whether to copy **structure and data** or
+**structure only**.
+
+Before anything runs the dialog shows the exact `CREATE TABLE` in the target's own syntax and quoting, and a
+list of every column whose type has no exact equivalent in the target, with the type it gets and why (a UUID
+becomes `char(36)` in MySQL, a boolean becomes 0 and 1 in SQLite, a `timestamptz` loses its zone in MySQL, an
+array becomes JSON text, a geometry is kept as its binary form). Between two tables of the same product the types
+are copied as they are, with no substitutions. The column names, NOT NULL and the primary key are copied; defaults,
+identity and generated columns, indexes, foreign keys, checks and comments are not (the values are), and the
+dialog says so. A primary key MySQL cannot create (a TEXT column needs a prefix length) is left out with a note.
+
+The rows are read in pages by primary key (offset paging when there is none) and written as multi-row `INSERT`s of
+500 rows. Where the target can roll back DDL (PostgreSQL, SQLite, DuckDB) the whole copy, the `CREATE TABLE`
+included, is one transaction: if a row is rejected or you cancel, nothing is left. MySQL and MariaDB commit a
+`CREATE TABLE` at once, so there the half-made table is dropped instead. The dialog and Messages say which
+happened and what failed (`writing rows 1–500 failed: …`). Progress shows the rows copied; `esc` or *Cancel Copy*
+stops at the end of the page being written. Server products use sessions of their own, so a console stays usable;
+a SQLite or DuckDB file is copied through its connection's own session, which is busy meanwhile. SQL Server and
+ClickHouse are off, and the dialog says why.
 
 ### The table editor
 

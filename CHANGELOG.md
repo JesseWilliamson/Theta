@@ -8,6 +8,12 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Added
 
+- **Copy Table to…** (explorer menu, palette, `:table copy`): copy a table, with or without its rows, to another
+  schema or to another open connection, including across products (PostgreSQL, MySQL and MariaDB, SQLite,
+  DuckDB). The column types go through an explicit mapping table; the dialog shows the `CREATE TABLE` and every
+  column whose type had to be substituted, with the reason, before anything runs. Rows are streamed in pages inside
+  one transaction (a dropped table where the target cannot roll back DDL, as in MySQL), with progress, cancel and a
+  report of what was cleaned up. `Feature::CopyTable` turns it off for SQL Server and ClickHouse.
 - **Charts**: a Chart tab next to Results (`mod-shift-g`, `space C`, `:chart`). Bar, line, area, scatter and pie
   charts of the active result; X, one or more Y columns, an optional series column and an aggregate (sum,
   average, count, min, max) for Y where X repeats; defaults chosen from the column types so a two-column result

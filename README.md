@@ -185,6 +185,9 @@ Per-product behaviour (what is disabled and why) is in the [user guide](docs/USE
   aggregation, calendar-aware time axes, a legend and a hover readout, in the theme's colours.
 - Search across tables: one query per table finds a text in every column of a connection, a schema or chosen
   tables, with bounded concurrency, a row limit and timeout per table, live hits and "open the matching rows".
+- Copy a table, with or without its rows, to another schema or connection, across products (PostgreSQL, MySQL
+  and MariaDB, SQLite, DuckDB): an explicit, tested type mapping, a preview of the DDL and of every inexact
+  type, batched inserts in one transaction, and a clean target after a failure or a cancel.
 - Export to CSV, TSV, JSON, Markdown or SQL `INSERT` statements, for the whole result or the selection, to a
   file or the clipboard.
 - **Record view** (one row as a list of fields: wrapped values, pretty JSON, editable in place, row navigation,

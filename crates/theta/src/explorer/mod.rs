@@ -95,6 +95,12 @@ pub enum ExplorerEvent {
         schema: String,
         table: String,
     },
+    /// Copy the table, with or without its rows, to another schema or connection.
+    CopyTable {
+        connection_id: String,
+        schema: String,
+        table: String,
+    },
     /// Open the editor on an existing table; `column` puts the cursor on it.
     ModifyTable {
         connection_id: String,
@@ -801,6 +807,16 @@ impl Explorer {
                     let (c, s, t) = (c.clone(), s.clone(), t.clone());
                     move |_, cx| {
                         cx.emit(ExplorerEvent::RenameTable {
+                            connection_id: c.clone(),
+                            schema: s.clone(),
+                            table: t.clone(),
+                        })
+                    }
+                }))
+                .item(item(&explorer, "Copy Table to…", IconName::Copy, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::CopyTable {
                             connection_id: c.clone(),
                             schema: s.clone(),
                             table: t.clone(),

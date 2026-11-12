@@ -858,6 +858,20 @@ impl Workspace {
                 let schema = (!name.is_empty()).then(|| name.to_string());
                 self.open_table_editor(conn, EditorTarget::New { schema }, window, cx);
             }
+            "copy" if name.is_empty() => self.pick_table_for(crate::palette::TablePurpose::Copy, window, cx),
+            "copy" => {
+                let found = self.store.read(cx).catalog(&conn).and_then(|c| {
+                    let (s, t) = match name.split_once('.') {
+                        Some((s, t)) => (Some(s), t),
+                        None => (None, name),
+                    };
+                    c.find_table(s, t).map(|(s, t)| (s.name.clone(), t.name.clone()))
+                });
+                match found {
+                    Some((schema, table)) => self.open_copy_dialog(conn, schema, table, window, cx),
+                    None => self.notify(NoticeKind::Error, format!("No table named {name}"), window, cx),
+                }
+            }
             "modify" | "edit" if name.is_empty() => {
                 self.pick_table_for(crate::palette::TablePurpose::Modify, window, cx)
             }
@@ -883,7 +897,7 @@ impl Workspace {
             }
             _ => self.notify(
                 NoticeKind::Info,
-                "Usage: :table new [SCHEMA]  or  :table modify [SCHEMA.]TABLE",
+                "Usage: :table new [SCHEMA], :table modify [SCHEMA.]TABLE or :table copy [SCHEMA.]TABLE",
                 window,
                 cx,
             ),
