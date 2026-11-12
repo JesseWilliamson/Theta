@@ -199,7 +199,7 @@ impl Render for MultiRunView {
                 .text_color(theme.muted_foreground)
                 .child(t)
         };
-        v_flex()
+        let body = v_flex()
             .gap_3()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _window, cx| {
@@ -271,18 +271,19 @@ impl Render for MultiRunView {
                     "This changes data. It will run on every chosen connection that allows writes, in that connection's transaction mode.",
                 ))
             })
-            .child(
+;
+        let footer = 
                 h_flex()
                     .justify_end()
                     .gap_2()
+                    .child(Button::new("multi-cancel").label("Cancel").on_click(|_, w, cx| w.close_dialog(cx)))
                     .child(
                         Button::new("multi-run")
                             .primary()
                             .label(if writes { "Run on All" } else { "Run" })
                             .disabled(!can_run)
                             .on_click(cx.listener(|this, _, w, cx| this.run(w, cx))),
-                    )
-                    .child(Button::new("multi-cancel").label("Cancel").on_click(|_, w, cx| w.close_dialog(cx))),
-            )
+                    );
+        super::framed(window, body, footer, 150.)
     }
 }

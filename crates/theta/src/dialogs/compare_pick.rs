@@ -471,7 +471,7 @@ impl Render for ComparePickView {
         } else {
             "up / down move · left / right change · / type a name · enter compares · esc closes"
         };
-        v_flex()
+        let body = v_flex()
             .gap_2()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -581,21 +581,22 @@ impl Render for ComparePickView {
             .when_some(self.error.clone().or(problem.clone()), |d, e| {
                 d.child(div().text_size(px(11.)).text_color(theme.danger).child(e))
             })
-            .child(
+;
+        let footer = 
                 h_flex()
                     .justify_end()
                     .gap_2()
+                    .child(
+                        Button::new("pick-cancel").label("Cancel").on_click(|_, w, cx| w.close_dialog(cx)),
+                    )
                     .child(
                         Button::new("pick-go")
                             .primary()
                             .label(self.action)
                             .disabled(problem.is_some())
                             .on_click(cx.listener(|this, _, w, cx| this.go(w, cx))),
-                    )
-                    .child(
-                        Button::new("pick-cancel").label("Cancel").on_click(|_, w, cx| w.close_dialog(cx)),
-                    ),
-            )
+                    );
+        super::framed(window, body, footer, 150.)
     }
 }
 

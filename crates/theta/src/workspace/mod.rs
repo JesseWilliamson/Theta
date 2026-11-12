@@ -1181,7 +1181,9 @@ impl Render for Workspace {
         let on_table = self.active_tab.is_some_and(|id| {
             self.is_table_tab(id) || self.admin_tab(id).is_some() || self.tool_tab(id).is_some()
         });
-        let bottom = (bottom_open && !on_table).then(|| self.render_bottom_panel(window, cx));
+        // Nothing to show in the results panel before the first connection: the welcome view takes the room.
+        let welcome = self.active_console().is_none() && self.store.read(cx).configs().is_empty();
+        let bottom = (bottom_open && !on_table && !welcome).then(|| self.render_bottom_panel(window, cx));
         let status = self.render_status_bar(window, cx);
 
         div()

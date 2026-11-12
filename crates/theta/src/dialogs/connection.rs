@@ -8,6 +8,7 @@ use crate::workspace::Workspace;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::select::{SearchableVec, Select, SelectState};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::switch::Switch;
@@ -72,6 +73,12 @@ fn url_placeholder(kind: DatabaseKind) -> String {
     }
     let port = info.default_port.map(|p| format!(":{p}")).unwrap_or_default();
     format!("Paste a connection URL, e.g. {scheme}://user:password@host{port}/database")
+}
+
+/// The file field's placeholder, marked as an example like the other fields' hints.
+fn path_hint(kind: DatabaseKind) -> String {
+    let p = kind.info().path_placeholder;
+    if p.is_empty() { String::new() } else { format!("e.g. {p}") }
 }
 
 const SSH_AUTH_LABELS: [&str; 3] = ["Key file", "Password", "SSH agent"];
@@ -210,6 +217,10 @@ pub struct ConnectionForm {
     test: TestState,
     keychain_ok: Option<bool>,
     test_epoch: u64,
+    /// The name this form filled in from a URL. While Name still holds it, a longer URL replaces it, so
+    /// typing `postgres://…` one character at a time ends with the final name, not `p`; once the user
+    /// writes their own name it stays.
+    auto_name: String,
     /// The last input event was a mouse press, so a focus change should place the caret rather
     /// than select the field (Tab selects, like every native form).
     pointer_focus: bool,
@@ -286,7 +297,7 @@ impl ConnectionForm {
         let user = input(window, cx, &format!("e.g. {}", info.user_placeholder), &c.user);
         let password = secret_input(window, cx, "Password", c.password.as_deref().unwrap_or(""));
         let database = input(window, cx, info.database_placeholder, &c.database);
-        let path = input(window, cx, info.path_placeholder, &c.path);
+        let path = input(window, cx, &path_hint(c.kind), &c.path);
         let ssh_host =
             input(window, cx, "bastion.example.com", ssh.as_ref().map(|s| s.host.as_str()).unwrap_or(""));
         let ssh_port =
@@ -320,6 +331,9 @@ impl ConnectionForm {
         let mut subscriptions = Vec::new();
         // Pasting a URL fills the form as soon as it parses.
         subscriptions.push(cx.subscribe_in(&url, window, |this, state, event: &InputEvent, window, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.forget_test(cx);
+            }
             if matches!(event, InputEvent::Change | InputEvent::PressEnter { .. }) {
                 let text = state.read(cx).value().to_string();
                 if text.contains("://") || text.starts_with("sqlite:") || text.starts_with("duckdb:") {
@@ -348,6 +362,8 @@ impl ConnectionForm {
                 |this, state, event: &InputEvent, window, cx| {
                     match event {
                         InputEvent::PressEnter { .. } => this.save(true, window, cx),
+                        // A test result describes the settings it was run with.
+                        InputEvent::Change => this.forget_test(cx),
                         // Tabbing into a field selects its text so typing replaces a default.
                         InputEvent::Focus if !this.pointer_focus => {
                             state.update(cx, |s, cx| s.select_all(window, cx))
@@ -436,6 +452,7 @@ impl ConnectionForm {
             pointer_focus: false,
             keychain_ok: None,
             test_epoch: 0,
+            auto_name: String::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -489,8 +506,11 @@ impl ConnectionForm {
                 Self::set_text(&self.password, p.password.as_deref().unwrap_or(""), window, cx);
                 Self::set_text(&self.database, &p.database, window, cx);
                 Self::set_text(&self.path, &p.path, window, cx);
-                if self.text(&self.name, cx).is_empty() {
-                    Self::set_text(&self.name, &p.suggested_name(), window, cx);
+                let current = self.text(&self.name, cx);
+                if current.is_empty() || current == self.auto_name {
+                    let suggested = p.suggested_name();
+                    Self::set_text(&self.name, &suggested, window, cx);
+                    self.auto_name = suggested;
                 }
                 if let Some(ssl) = p.ssl_mode {
                     let ix = ssl_index(p.kind, ssl);
@@ -529,7 +549,7 @@ impl ConnectionForm {
             (&self.host, info.host_placeholder.to_string()),
             (&self.user, format!("e.g. {}", info.user_placeholder)),
             (&self.database, info.database_placeholder.to_string()),
-            (&self.path, info.path_placeholder.to_string()),
+            (&self.path, path_hint(kind)),
         ] {
             state.update(cx, |s, cx| s.set_placeholder(hint, window, cx));
         }
@@ -545,6 +565,7 @@ impl ConnectionForm {
         // By value, not row: with a filter typed the rows of the dropdown are not `ALL`'s.
         self.kind_select.update(cx, |s, cx| s.set_selected_value(&kind, window, cx));
         self.errors.clear();
+        self.forget_test(cx);
         cx.notify();
     }
 
@@ -726,6 +747,15 @@ impl ConnectionForm {
         }
     }
 
+    /// Drop the banner (and ignore a test still running) when the settings it speaks about change.
+    fn forget_test(&mut self, cx: &mut Context<Self>) {
+        if !matches!(self.test, TestState::Idle) {
+            self.test_epoch += 1;
+            self.test = TestState::Idle;
+            cx.notify();
+        }
+    }
+
     fn run_test(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(config) = self.build(cx) else {
             self.focus_first_error(window, cx);
@@ -805,7 +835,8 @@ impl Render for ConnectionForm {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let sections = self.kind.info().sections;
-        let max_h = (f32::from(window.viewport_size().height) - 200.0).max(240.0);
+        // Header, the result slot and the footer stay; the fields scroll in what is left of the window.
+        let max_h = (f32::from(window.viewport_size().height) - 276.0).max(200.0);
 
         let test_row = match &self.test {
             TestState::Idle => None,
@@ -1098,14 +1129,24 @@ impl Render for ConnectionForm {
                             ))
                             .child(div().w(px(180.)).child(Select::new(&self.isolation)))
                     })),
-            )
-            .when_some(test_row, |d, row| d.child(row));
+            );
+        // A fixed slot: the result of a test appears in it without moving the buttons below, and an
+        // untouched form says what the button does instead of leaving a gap.
+        let result_slot = div().min_h(px(56.)).flex().items_center().child(div().w_full().child(test_row.unwrap_or_else(|| {
+            div()
+                .px_2()
+                .text_size(px(12.))
+                .text_color(theme.muted_foreground)
+                .child("Test Connection checks these settings without saving them.")
+                .into_any_element()
+        })));
 
         v_flex()
             .gap_3()
             .capture_any_mouse_down(cx.listener(|this, _, _, _| this.pointer_focus = true))
             .capture_key_down(cx.listener(|this, _, _, _| this.pointer_focus = false))
-            .child(div().id("connection-form-scroll").max_h(px(max_h)).overflow_y_scroll().child(body))
+            .child(div().max_h(px(max_h)).overflow_y_scrollbar().child(body))
+            .child(result_slot)
             .child(
                 h_flex()
                     .justify_between()

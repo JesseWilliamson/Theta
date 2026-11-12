@@ -521,7 +521,7 @@ fn human(b: u64) -> String {
 }
 
 impl Render for DumpView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let live = self.progress.lock().unwrap().clone();
         let caption = |t: &'static str| {
@@ -540,7 +540,7 @@ impl Render for DumpView {
             0.
         };
         let missing: Vec<String> = not_captured(self.kind).into_iter().map(|l| format!("• {l}")).collect();
-        v_flex()
+        let body = v_flex()
             .gap_3()
             .child(
                 h_flex()
@@ -619,7 +619,7 @@ impl Render for DumpView {
                     .border_1()
                     .border_color(theme.border)
                     .child(div().text_size(px(11.)).font_weight(FontWeight::MEDIUM).child("This dump does not contain:"))
-                    .child(div().id("dump-missing").max_h(px(104.)).overflow_y_scroll().text_size(px(11.)).text_color(theme.muted_foreground).child(v_flex().gap_0p5().children(missing.into_iter().map(|l| div().child(l))))),
+                    .child(div().text_size(px(11.)).text_color(theme.muted_foreground).child(v_flex().gap_0p5().children(missing.into_iter().map(|l| div().child(l))))),
             )
             .child(
                 v_flex()
@@ -669,27 +669,27 @@ impl Render for DumpView {
                         )
                     }),
             )
-            .child(
-                h_flex()
+            .when_some(unsupported.filter(|_| !self.use_native), |d, why| {
+                d.child(div().text_size(px(11.)).text_color(theme.warning).child(format!("The built-in dump is off for this product: {why}")))
+            });
+        let footer = h_flex()
                     .justify_end()
                     .gap_2()
-                    .child(
-                        Button::new("dump-go")
-                            .primary()
-                            .label("Export")
-                            .disabled(self.running || (unsupported.is_some() && !self.use_native))
-                            .on_click(cx.listener(|this, _, w, cx| this.start(w, cx))),
-                    )
                     .child(Button::new("dump-close").label(if self.running { "Cancel Run" } else { "Close" }).on_click(cx.listener(|this, _, w, cx| {
                         if this.running {
                             this.escape(cx);
                         } else {
                             w.close_dialog(cx);
                         }
-                    }))),
-            )
-            .when_some(unsupported.filter(|_| !self.use_native), |d, why| {
-                d.child(div().text_size(px(11.)).text_color(theme.warning).child(format!("The built-in dump is off for this product: {why}")))
-            })
+                    })))
+.child(
+                        Button::new("dump-go")
+                            .primary()
+                            .label("Export")
+                            .disabled(self.running || (unsupported.is_some() && !self.use_native))
+                            .on_click(cx.listener(|this, _, w, cx| this.start(w, cx))),
+                    )
+        ;
+        super::framed(window, body, footer, 150.)
     }
 }

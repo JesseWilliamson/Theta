@@ -5,33 +5,32 @@ use crate::actions::*;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
-use gpui_kit::{Context, FontWeight, IntoElement, ParentElement as _, Styled as _, div, px};
+use gpui_kit::{Context, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, StatefulInteractiveElement as _, Styled as _, div, px};
 use theta_ui::settings::KeymapMode;
 use theta_ui::{KeyHint, Settings};
 
 /// (label, key) pairs for the current keymap, in the order shown.
-pub fn key_list(keymap: KeymapMode) -> Vec<(&'static str, &'static str)> {
+pub fn key_list(keymap: KeymapMode) -> Vec<(&'static str, String)> {
     let m = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" };
-    let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
-    let mut v = vec![
-        ("Run statement", leak(format!("{m}-enter"))),
-        ("Run all statements", leak(format!("{m}-shift-enter"))),
-        ("Command palette", leak(format!("{m}-shift-p"))),
-        ("Go to table", leak(format!("{m}-p"))),
-        ("Explain", leak(format!("{m}-e"))),
+    let mut v: Vec<(&'static str, String)> = vec![
+        ("Run statement", format!("{m}-enter")),
+        ("Run all statements", format!("{m}-shift-enter")),
+        ("Command palette", format!("{m}-shift-p")),
+        ("Go to table", format!("{m}-p")),
+        ("Explain", format!("{m}-e")),
     ];
     if keymap.is_modal() {
-        v.push(("Insert mode / back to normal", "i  esc"));
+        v.push(("Insert mode / back to normal", "i  esc".into()));
         match keymap {
-            KeymapMode::Vim => v.push(("Visual: characters, lines, block", "v  shift-v  ctrl-v")),
-            _ => v.push(("Select mode", "v")),
+            KeymapMode::Vim => v.push(("Visual: characters, lines, block", "v  shift-v  ctrl-v".into())),
+            _ => v.push(("Select mode", "v".into())),
         }
-        v.push(("Command menu (which-key)", "space"));
-        v.push(("Save console to a file", ":w"));
+        v.push(("Command menu (which-key)", "space".into()));
+        v.push(("Save console to a file", ":w".into()));
     } else {
-        v.push(("Save console to a file", leak(format!("{m}-s"))));
+        v.push(("Save console to a file", format!("{m}-s")));
     }
-    v.push(("Settings", leak(format!("{m}-,"))));
+    v.push(("Settings", format!("{m}-,")));
     v
 }
 
@@ -40,11 +39,19 @@ impl Workspace {
         let theme = cx.theme().clone();
         let keymap = Settings::get(cx).keymap;
         let keys = key_list(keymap);
-        v_flex()
+        // The column is centred when there is room and scrolls when there is not; `min_h_full` instead of
+        // `size_full` is what stops it from overflowing both edges (the logo and the key sheet were cut).
+        div()
+            .id("welcome-scroll")
             .size_full()
+            .overflow_y_scroll()
+            .child(
+        v_flex()
+            .min_h_full()
             .items_center()
             .justify_center()
             .gap_5()
+            .py_6()
             .child(
                 v_flex()
                     .items_center()
@@ -105,6 +112,7 @@ impl Workspace {
                     // As tall as the longest sheet, so the keymap buttons above do not move when
                     // a shorter one is chosen.
                     .min_h(px(268.))
+                    .flex_shrink_0()
                     .gap_1p5()
                     .p_3()
                     .rounded_md()
@@ -115,9 +123,9 @@ impl Workspace {
                             .justify_between()
                             .items_center()
                             .child(div().text_size(px(12.5)).text_color(theme.muted_foreground).child(label))
-                            .child(KeyHint::new(key))
+                            .child(KeyHint::new(&key))
                     })),
-            )
+            ))
             .into_any_element()
     }
 }

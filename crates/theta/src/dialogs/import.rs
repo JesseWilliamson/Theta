@@ -1332,7 +1332,7 @@ impl Render for ImportView {
         } else {
             "Import"
         };
-        v_flex()
+        let body = v_flex()
             .gap_2()
             .child(
                 h_flex()
@@ -1458,10 +1458,22 @@ impl Render for ImportView {
                         )
                     }),
             )
-            .child(
+;
+        let footer = 
                 h_flex()
                     .justify_end()
                     .gap_2()
+                    .child(
+                        Button::new("import-close")
+                            .label(if busy { "Cancel Run" } else { "Close" })
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if busy_now(this.phase) {
+                                    this.escape(cx);
+                                } else {
+                                    window.close_dialog(cx);
+                                }
+                            })),
+                    )
                     .when(can_open, |d| {
                         d.child(
                             Button::new("open-table")
@@ -1481,19 +1493,8 @@ impl Render for ImportView {
                             .label(import_label)
                             .disabled(!can_import)
                             .on_click(cx.listener(|this, _, window, cx| this.start(true, window, cx))),
-                    )
-                    .child(
-                        Button::new("import-close")
-                            .label(if busy { "Cancel Run" } else { "Close" })
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                if busy_now(this.phase) {
-                                    this.escape(cx);
-                                } else {
-                                    window.close_dialog(cx);
-                                }
-                            })),
-                    ),
-            )
+                    );
+        super::framed(window, body, footer, 150.)
     }
 }
 

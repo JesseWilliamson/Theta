@@ -483,7 +483,7 @@ fn schema_names(t: Option<&Target>) -> Vec<String> {
 }
 
 impl Render for CopyView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let caption = |t: &'static str| {
             div()
@@ -496,7 +496,7 @@ impl Render for CopyView {
         let live = self.progress.lock().unwrap().clone();
         let src_label = qualified(&self.source.schema, &self.source.table.name);
         let can_run = plan.is_ok() && !self.running;
-        v_flex()
+        let body = v_flex()
             .gap_3()
             .child(
                 h_flex()
@@ -679,17 +679,11 @@ impl Render for CopyView {
                         )
                     }),
             )
-            .child(
+;
+        let footer = 
                 h_flex()
                     .justify_end()
                     .gap_2()
-                    .child(
-                        Button::new("copy-go")
-                            .primary()
-                            .label("Copy")
-                            .disabled(!can_run)
-                            .on_click(cx.listener(|this, _, w, cx| this.start(w, cx))),
-                    )
                     .child(
                         Button::new("copy-close")
                             .label(if self.running { "Cancel Copy" } else { "Close" })
@@ -700,7 +694,14 @@ impl Render for CopyView {
                                     w.close_dialog(cx);
                                 }
                             })),
-                    ),
-            )
+                    )
+                    .child(
+                        Button::new("copy-go")
+                            .primary()
+                            .label("Copy")
+                            .disabled(!can_run)
+                            .on_click(cx.listener(|this, _, w, cx| this.start(w, cx))),
+                    );
+        super::framed(window, body, footer, 150.)
     }
 }

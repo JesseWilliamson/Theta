@@ -266,7 +266,7 @@ impl ScriptView {
 }
 
 impl Render for ScriptView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let live = self.progress.lock().unwrap().clone();
         let txn_off = self.kind.unsupported(Feature::Transactions);
@@ -277,7 +277,7 @@ impl Render for ScriptView {
                 .text_color(theme.muted_foreground)
                 .child(t)
         };
-        v_flex()
+        let body = v_flex()
             .gap_3()
             .child(
                 h_flex()
@@ -316,7 +316,7 @@ impl Render for ScriptView {
                         d.child(div().text_size(px(11.)).text_color(theme.muted_foreground).child("MySQL and MariaDB commit each DDL statement on their own, so a transaction only covers the data statements."))
                     }),
             )
-            .child(div().text_size(px(11.)).text_color(theme.muted_foreground).child("The file is read in pieces, never loaded whole. COPY … FROM stdin (pg_dump's default format), DELIMITER blocks and /*! … */ executable comments are not supported; use pg_dump --inserts."))
+            .child(div().text_size(px(11.)).text_color(theme.muted_foreground).child("The file is read in pieces, never loaded whole. COPY … FROM stdin (pg_dump's default format), DELIMITER blocks and /*! … */ executable comments are not supported; use pg_dump --inserts."))
             .child(
                 v_flex()
                     .gap_1()
@@ -341,19 +341,20 @@ impl Render for ScriptView {
                     })
                     .child(div().id("script-errors").max_h(px(110.)).overflow_y_scroll().child(v_flex().gap_0p5().children(self.errors.iter().map(|e| div().text_size(px(11.)).text_color(theme.danger).child(e.clone()))))),
             )
-            .child(
+;
+        let footer = 
                 h_flex()
                     .justify_end()
                     .gap_2()
-                    .child(Button::new("script-go").primary().label("Run").disabled(self.running).on_click(cx.listener(|this, _, w, cx| this.start(w, cx))))
                     .child(Button::new("script-close").label(if self.running { "Cancel Run" } else { "Close" }).on_click(cx.listener(|this, _, w, cx| {
                         if this.running {
                             this.escape(cx);
                         } else {
                             w.close_dialog(cx);
                         }
-                    }))),
-            )
+                    })))
+                    .child(Button::new("script-go").primary().label("Run").disabled(self.running).on_click(cx.listener(|this, _, w, cx| this.start(w, cx))));
+        super::framed(window, body, footer, 150.)
     }
 }
 

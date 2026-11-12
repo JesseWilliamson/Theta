@@ -310,7 +310,7 @@ fn human(b: u64) -> String {
 }
 
 impl Render for ExportView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let live = self.progress.lock().unwrap().clone();
         let caption = |t: &'static str| {
@@ -321,7 +321,7 @@ impl Render for ExportView {
                 .child(t)
         };
         let fraction = live.fraction().map(|f| f * 100.).unwrap_or(0.);
-        v_flex()
+        let body = v_flex()
             .gap_3()
             .child(div().text_size(px(13.)).child(format!(
                 "{}{} · {}",
@@ -414,17 +414,11 @@ impl Render for ExportView {
                         )
                     }),
             )
-            .child(
+;
+        let footer = 
                 h_flex()
                     .justify_end()
                     .gap_2()
-                    .child(
-                        Button::new("export-go")
-                            .primary()
-                            .label("Export")
-                            .disabled(self.running)
-                            .on_click(cx.listener(|this, _, window, cx| this.start(window, cx))),
-                    )
                     .child(
                         Button::new("export-close")
                             .label(if self.running { "Cancel Run" } else { "Close" })
@@ -435,7 +429,14 @@ impl Render for ExportView {
                                     window.close_dialog(cx);
                                 }
                             })),
-                    ),
-            )
+                    )
+                    .child(
+                        Button::new("export-go")
+                            .primary()
+                            .label("Export")
+                            .disabled(self.running)
+                            .on_click(cx.listener(|this, _, window, cx| this.start(window, cx))),
+                    );
+        super::framed(window, body, footer, 150.)
     }
 }
