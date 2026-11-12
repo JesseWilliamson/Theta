@@ -89,7 +89,7 @@ pub fn open(
     cx: &mut App,
 ) {
     let Some(view) = CopyView::build(ws, store, conn_id, schema, table, window, cx) else { return };
-    let for_cancel = view.clone();
+    let (for_cancel, focus) = (view.clone(), view.clone());
     window.open_dialog(cx, move |dialog, _, cx| {
         let for_cancel = for_cancel.clone();
         dialog
@@ -100,6 +100,12 @@ pub fn open(
             .on_ok(|_, _, _| false)
             .on_cancel(move |_, _, cx| for_cancel.update(cx, |v, cx| v.escape(cx)))
             .child(view.clone())
+    });
+    // Opened from the palette, the picker hands the keyboard back to the editor after this dialog has
+    // opened; without a field in the dialog holding it, Escape and Tab would act on the editor behind.
+    window.defer(cx, move |window, cx| {
+        let input = focus.read(cx).name.clone();
+        input.update(cx, |s, cx| s.focus(window, cx));
     });
 }
 

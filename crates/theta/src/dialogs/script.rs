@@ -10,15 +10,15 @@ use crate::panels::messages::MessageKind;
 use crate::runtime;
 use crate::workspace::Workspace;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{ActiveTheme as _, Disableable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, PathPromptOptions, Render, StatefulInteractiveElement as _, Styled as _, WeakEntity,
-    Window, div, px,
+    ParentElement as _, PathPromptOptions, Render, StatefulInteractiveElement as _, Styled as _, Subscription,
+    WeakEntity, Window, div, px,
 };
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,6 +40,7 @@ pub struct ScriptView {
     progress: Arc<Mutex<ScriptProgress>>,
     status: Option<(bool, String)>,
     errors: Vec<String>,
+    _subs: Vec<Subscription>,
 }
 
 impl Drop for ScriptView {
@@ -63,6 +64,12 @@ pub fn open(
                 .default_value(initial.map(|p| p.display().to_string()).unwrap_or_default())
                 .placeholder("The .sql file to run")
         });
+        // Enter in the file field runs the script, as it does in the Import, Export and Copy Table dialogs.
+        let enter = cx.subscribe_in(&path, window, |this: &mut ScriptView, _, ev: &InputEvent, window, cx| {
+            if let InputEvent::PressEnter { .. } = ev {
+                this.start(window, cx);
+            }
+        });
         ScriptView {
             ws,
             store,
@@ -76,6 +83,7 @@ pub fn open(
             progress: Arc::new(Mutex::new(ScriptProgress::default())),
             status: None,
             errors: Vec::new(),
+            _subs: vec![enter],
         }
     });
     let for_cancel = view.clone();
@@ -137,6 +145,11 @@ impl ScriptView {
             return;
         }
         let path = PathBuf::from(self.path.read(cx).value().trim());
+        if path.as_os_str().is_empty() {
+            self.status = Some((false, "Choose the .sql file to run.".into()));
+            cx.notify();
+            return;
+        }
         let file = match std::fs::File::open(&path) {
             Ok(f) => f,
             Err(e) => {
