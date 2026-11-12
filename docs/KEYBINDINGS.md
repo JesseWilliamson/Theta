@@ -44,7 +44,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-alt-f` | Search Across Tables (also from the explorer's context menu) |
 | `mod-shift-g` | show the Chart tab for the active result (and focus it) |
 | `mod-alt-h` | Local History of the active console |
-| `mod-alt-enter` | Run on Several Connections (the current statement or the script on every connection you tick) |
+| `mod-alt-enter` | Run on Several Connections (the current statement or the script on every connection you tick). In the dialog: `up`/`down` or `j`/`k` move, `space` ticks, `a` ticks all or none, `enter` runs |
 | `F5` | refresh schema, only while the explorer has focus (in the editor `F5` is *run all*) |
 | `mod-alt-r` | refresh schema, from anywhere |
 | `mod-k mod-t` | select theme (a two-chord sequence) |

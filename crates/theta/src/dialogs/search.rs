@@ -616,11 +616,11 @@ impl SearchView {
                         cx.notify();
                     }))
                     .child(div().font_weight(FontWeight::MEDIUM).child(qualified(&res.schema, &res.table)))
-                    .child(
-                        div()
-                            .text_color(theme.muted_foreground)
-                            .child(format!("{} matching rows", c.matched_rows)),
-                    )
+                    .child(div().text_color(theme.muted_foreground).child(format!(
+                        "{} matching {}",
+                        c.matched_rows,
+                        if c.matched_rows == 1 { "row" } else { "rows" }
+                    )))
                     .when(!notes.is_empty(), |d| {
                         d.child(div().text_color(theme.warning).child(notes.join(" · ")))
                     })
@@ -641,7 +641,11 @@ impl SearchView {
                         cx.notify();
                     }))
                     .child(div().font_family("monospace").child(name.clone()))
-                    .child(div().text_color(theme.muted_foreground).child(format!("{n} rows")))
+                    .child(div().text_color(theme.muted_foreground).child(if *n == 1 {
+                        "1 row".to_string()
+                    } else {
+                        format!("{n} rows")
+                    }))
                     .into_any_element()
             }
             Row::Header(t) => h_flex()

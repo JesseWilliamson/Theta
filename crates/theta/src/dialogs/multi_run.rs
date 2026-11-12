@@ -12,9 +12,9 @@ use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::{ActiveTheme as _, Disableable as _, IndexPath, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Subscription, WeakEntity,
-    Window, div, px,
+    App, AppContext as _, Context, Entity, FocusHandle, FontWeight, InteractiveElement as _, IntoElement,
+    KeyDownEvent, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Subscription,
+    WeakEntity, Window, div, px,
 };
 
 const SCOPES: [&str; 2] = ["Current statement (or selection)", "Whole script"];
@@ -31,6 +31,9 @@ pub struct MultiRunView {
     ws: WeakEntity<Workspace>,
     console: u64,
     items: Vec<Item>,
+    /// The row the keyboard acts on. The list is a handful of rows, so a plain index is enough.
+    cursor: usize,
+    focus: FocusHandle,
     scope: Entity<SelectState<Vec<String>>>,
     /// For each scope, the first line of each picked statement and whether it writes, for the warnings.
     previews: [Vec<(String, bool)>; 2],
@@ -93,7 +96,9 @@ pub fn open(
         let mut v = MultiRunView {
             ws: ws.clone(),
             console,
+            cursor: items.iter().position(|i| i.checked).unwrap_or(0),
             items,
+            focus: cx.focus_handle(),
             scope,
             previews,
             preview: Vec::new(),
@@ -102,14 +107,28 @@ pub fn open(
         v.refresh_preview(cx);
         v
     });
+    let focus = view.clone();
     window.open_dialog(cx, move |dialog, _, cx| {
         dialog
             .bg(cx.theme().popover)
             .title("Run on Several Connections")
             .w(px(560.))
             .overlay_closable(true)
-            .on_ok(|_, _, _| false)
+            // Enter is the dialog's OK. `run` closes the dialog itself, and only when something ran, so
+            // the answer here is always "do not close".
+            .on_ok({
+                let view = view.clone();
+                move |_, window, cx| {
+                    view.update(cx, |v, cx| v.run(window, cx));
+                    false
+                }
+            })
             .child(view.clone())
+    });
+    // Without this the editor behind the dialog keeps the focus and the list cannot be reached by keys.
+    window.defer(cx, move |window, cx| {
+        let handle = focus.read(cx).focus.clone();
+        window.focus(&handle, cx);
     });
 }
 
@@ -129,7 +148,38 @@ impl MultiRunView {
         cx.notify();
     }
 
+    fn can_run(&self) -> bool {
+        self.items.iter().any(|i| i.checked) && !self.preview.is_empty()
+    }
+
+    fn step(&mut self, by: isize, cx: &mut Context<Self>) {
+        let last = self.items.len().saturating_sub(1) as isize;
+        self.cursor = (self.cursor as isize + by).clamp(0, last) as usize;
+        cx.notify();
+    }
+
+    fn toggle(&mut self, i: usize, cx: &mut Context<Self>) {
+        if let Some(it) = self.items.get_mut(i) {
+            it.checked = !it.checked;
+            self.cursor = i;
+            cx.notify();
+        }
+    }
+
+    /// Tick every connection, or untick them all when they are all ticked already.
+    fn toggle_all(&mut self, cx: &mut Context<Self>) {
+        let all = self.items.iter().all(|i| i.checked);
+        for it in &mut self.items {
+            it.checked = !all;
+        }
+        cx.notify();
+    }
+
     fn run(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Enter reaches here even while the Run button is disabled, so the same condition guards both.
+        if !self.can_run() {
+            return;
+        }
         let ids: Vec<String> = self.items.iter().filter(|i| i.checked).map(|i| i.id.clone()).collect();
         let scope = self.chosen_scope(cx);
         if let Some(ws) = self.ws.upgrade() {
@@ -141,11 +191,13 @@ impl MultiRunView {
 }
 
 impl Render for MultiRunView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let chosen = self.items.iter().filter(|i| i.checked).count();
         let writes = self.preview.iter().any(|(_, w)| *w);
-        let danger = self.preview.iter().any(|(_, w)| *w);
+        let can_run = self.can_run();
+        let focused = self.focus.is_focused(window);
+        let cursor = self.cursor;
         let n_read_only = self.items.iter().filter(|i| i.checked && i.read_only).count();
         let caption = |t: &'static str| {
             div()
@@ -156,6 +208,17 @@ impl Render for MultiRunView {
         };
         v_flex()
             .gap_3()
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _window, cx| {
+                match ev.keystroke.key.as_str() {
+                    "down" | "j" => this.step(1, cx),
+                    "up" | "k" => this.step(-1, cx),
+                    "space" | "x" => this.toggle(this.cursor, cx),
+                    "a" => this.toggle_all(cx),
+                    _ => return,
+                }
+                cx.stop_propagation();
+            }))
             .child(
                 h_flex()
                     .gap_2()
@@ -166,7 +229,10 @@ impl Render for MultiRunView {
                 v_flex()
                     .gap_1()
                     .child(h_flex().gap_2().child(caption("Connections")).child(
-                        div().text_size(px(11.)).text_color(theme.muted_foreground).child(format!("{chosen} chosen")),
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.muted_foreground)
+                            .child(format!("{chosen} chosen · up / down move, space ticks, a ticks all, enter runs")),
                     ))
                     .child(
                         v_flex().border_1().border_color(theme.border).rounded_md().children(
@@ -180,9 +246,11 @@ impl Render for MultiRunView {
                                     .cursor_pointer()
                                     .text_size(px(12.))
                                     .hover(|s| s.bg(theme.list_hover))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.items[i].checked = !this.items[i].checked;
-                                        cx.notify();
+                                    .when(focused && i == cursor, |d| d.bg(theme.list_active))
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        // A click on a row must not strand the keys on nothing.
+                                        window.focus(&this.focus, cx);
+                                        this.toggle(i, cx);
                                     }))
                                     .child(div().w(px(14.)).child(if it.checked { "☑" } else { "☐" }))
                                     .child(div().flex_1().truncate().child(it.name.clone()))
@@ -205,7 +273,7 @@ impl Render for MultiRunView {
                     "{n_read_only} of the chosen connections are read-only and will refuse this statement; the others will run it."
                 )))
             })
-            .when(danger, |d| {
+            .when(writes, |d| {
                 d.child(div().text_size(px(11.)).text_color(theme.warning).child(
                     "This changes data. It will run on every chosen connection that allows writes, in that connection's transaction mode.",
                 ))
@@ -217,8 +285,8 @@ impl Render for MultiRunView {
                     .child(
                         Button::new("multi-run")
                             .primary()
-                            .label(if danger { "Run on All" } else { "Run" })
-                            .disabled(chosen == 0 || self.preview.is_empty())
+                            .label(if writes { "Run on All" } else { "Run" })
+                            .disabled(!can_run)
                             .on_click(cx.listener(|this, _, w, cx| this.run(w, cx))),
                     )
                     .child(Button::new("multi-cancel").label("Cancel").on_click(|_, w, cx| w.close_dialog(cx))),
