@@ -238,6 +238,9 @@ pub struct Workspace {
     map_badge: Option<usize>,
     pub(crate) runs: HashMap<String, run::RunInfo>,
     txn: HashSet<String>,
+    /// Per connection with an open transaction: when its first write happened. Results fetched from then
+    /// on may hold uncommitted rows, which a rollback makes untrue (see `txn_ended`).
+    txn_writes: HashMap<String, std::time::Instant>,
     /// Subscriptions to the table editors of the open table tabs, by tab id.
     table_subs: HashMap<u64, Subscription>,
     /// Session-level transaction mode per connection id (see `txn.rs`); absent means the saved setting.
@@ -361,6 +364,7 @@ impl Workspace {
             map_badge: None,
             runs: HashMap::new(),
             txn: HashSet::new(),
+            txn_writes: HashMap::new(),
             table_subs: HashMap::new(),
             txn_prefs: Default::default(),
             awaiting_connection: HashSet::new(),

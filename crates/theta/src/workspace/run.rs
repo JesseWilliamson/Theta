@@ -325,7 +325,12 @@ impl Workspace {
     /// Bring back the most recently closed console (text, connection, cursor, file).
     pub(super) fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = consoles::pop_closed(&consoles::closed_dir(&self.data_dir)) else {
-            self.notify(NoticeKind::Info, "Nothing to reopen: consoles with no text are not kept", window, cx);
+            self.notify(
+                NoticeKind::Info,
+                "Nothing to reopen: consoles with no text are not kept",
+                window,
+                cx,
+            );
             return;
         };
         let conn = s.connection_id.filter(|c| self.store.read(cx).config(c).is_some());
@@ -911,7 +916,7 @@ impl Workspace {
                 }
                 ran_ddl |= changes_schema(p.class);
                 if matches!(p.class, StatementClass::Transaction) {
-                    txn_open = true;
+                    txn_open = super::txn::txn_end(&p.sql).is_none();
                 }
                 if let Some(m) = &manual {
                     // Ask the server rather than assume: a DDL statement on MySQL ends the transaction
@@ -946,6 +951,11 @@ impl Workspace {
                     })
                     .ok();
                 }
+                // A write inside an open transaction: the rows it touched are only as true as the
+                // transaction's outcome, which a rollback may still change.
+                if txn_open && matches!(p.class, StatementClass::Write | StatementClass::Ddl) {
+                    this.update(cx, |this, _| this.note_txn_write(&conn_id)).ok();
+                }
                 let keep = this
                     .update_in(cx, |this, window, cx| {
                         this.finish_statement(id, &conn_id, p, i, total, res, recovery, window, cx)
@@ -979,6 +989,11 @@ impl Workspace {
         let conn_name = self.conn_name(conn_id, cx);
         let read_only = self.store.read(cx).config(conn_id).is_some_and(|c| c.read_only);
         let cancelled = self.runs.get(conn_id).is_some_and(|r| r.cancelled);
+        // COMMIT, ROLLBACK typed into the console end the transaction (a failed COMMIT undoes it too).
+        if let Some(end) = super::txn::txn_end(&p.sql) {
+            let rolled_back = end == super::txn::TxnEnd::Rollback || res.is_err();
+            self.txn_ended(conn_id, rolled_back, cx);
+        }
         match res {
             Ok(out) => {
                 let rows = out.result.as_ref().map(|r| r.rows.len() as u64).or(out.rows_affected);
@@ -1013,6 +1028,7 @@ impl Workspace {
                             result: rs.clone(),
                             meta,
                             geo: None,
+                            produced: Instant::now(),
                         });
                         c.results.len() - 1
                     };
@@ -1620,6 +1636,9 @@ impl Workspace {
                 let grid = this.consoles.get(&console).map(|c| c.grid.clone());
                 match res {
                     Ok((in_txn, stored)) => {
+                        if in_txn {
+                            this.note_txn_write(&conn_id);
+                        }
                         // Whether the database could say what it stored for every inserted row; if
                         // not, the result is read again below.
                         let unresolved = reload || stored.iter().any(Option::is_none);
@@ -1695,6 +1714,7 @@ impl Workspace {
             && let Some(item) = c.results.iter_mut().find(|r| Arc::ptr_eq(&r.result, submitted))
         {
             item.result = folded;
+            item.produced = Instant::now();
         }
     }
 
@@ -2022,6 +2042,7 @@ impl Workspace {
                 if open {
                     this.txn.insert(conn_id);
                 } else {
+                    this.txn_writes.remove(&conn_id);
                     this.txn.remove(&conn_id);
                 }
                 cx.notify();
@@ -2065,6 +2086,9 @@ impl Workspace {
         cx.spawn_in(window, async move |this, cx| {
             let r = runtime::spawn_result(async move { c.execute(sql, &ExecOptions::default()).await }).await;
             this.update_in(cx, |this, _window, cx| {
+                if let Some(end) = super::txn::txn_end(sql) {
+                    this.txn_ended(&conn_id, end == super::txn::TxnEnd::Rollback || r.is_err(), cx);
+                }
                 match r {
                     Ok(out) => {
                         this.log(

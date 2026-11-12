@@ -21,6 +21,9 @@ pub struct ResultItem {
     pub result: Arc<ResultSet>,
     pub meta: GridMeta,
     pub geo: Option<Arc<GeoData>>,
+    /// When the rows were fetched (or last changed by the user): a rollback makes stale what was produced
+    /// after the transaction's first write.
+    pub produced: std::time::Instant,
 }
 
 /// What the Plan tab shows for a console. Kept per console so an EXPLAIN that finishes while

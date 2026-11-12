@@ -205,6 +205,7 @@ impl Workspace {
             result: Arc::new(summary(&all)),
             meta: GridMeta::new(),
             geo: None,
+            produced: Instant::now(),
         }];
         for o in &all {
             if let Some(rs) = &o.result {
@@ -214,6 +215,7 @@ impl Workspace {
                     result: rs.clone(),
                     meta: GridMeta::new(),
                     geo: None,
+                    produced: Instant::now(),
                 });
             }
         }

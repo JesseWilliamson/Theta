@@ -18,10 +18,96 @@ use theta_core::txn::{Isolation, SqliteBegin, TransactionConfig, isolation_level
 use theta_core::{ConnectionConfig, DatabaseKind};
 use theta_ui::picker::{PickerDelegate, PickerItem};
 
+/// How a transaction statement ends the transaction, if it does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TxnEnd {
+    Commit,
+    Rollback,
+}
+
+/// Whether `sql` is a plain `COMMIT`/`END` or `ROLLBACK`/`ABORT`. `ROLLBACK TO SAVEPOINT` and
+/// `COMMIT ... AND CHAIN` leave a transaction open, so they are not ends.
+pub(super) fn txn_end(sql: &str) -> Option<TxnEnd> {
+    let mut rest = sql.trim_start();
+    // Leading comments are not part of the statement.
+    loop {
+        if let Some(r) = rest.strip_prefix("--") {
+            rest = r.split_once('\n').map_or("", |(_, t)| t).trim_start();
+        } else if let Some(r) = rest.strip_prefix("/*") {
+            rest = r.split_once("*/").map_or("", |(_, t)| t).trim_start();
+        } else {
+            break;
+        }
+    }
+    let words: Vec<String> = rest
+        .trim_end_matches(|c: char| c == ';' || c.is_whitespace())
+        .split_whitespace()
+        .map(|w| w.to_ascii_uppercase())
+        .collect();
+    let filler = |w: &String| matches!(w.as_str(), "TRANSACTION" | "WORK" | "TRAN");
+    let plain = words.iter().skip(1).all(filler);
+    match words.first().map(String::as_str) {
+        Some("COMMIT" | "END") if plain => Some(TxnEnd::Commit),
+        Some("ROLLBACK" | "ABORT") if plain => Some(TxnEnd::Rollback),
+        _ => None,
+    }
+}
+
+/// The footer text of a result that a rollback made untrue.
+pub(super) const ROLLED_BACK: &str = "Rolled back: these rows may no longer exist";
+
+#[cfg(test)]
+mod txn_end_tests {
+    use super::*;
+
+    #[test]
+    fn recognises_plain_ends_only() {
+        assert_eq!(txn_end("COMMIT"), Some(TxnEnd::Commit));
+        assert_eq!(txn_end("commit;"), Some(TxnEnd::Commit));
+        assert_eq!(txn_end("END TRANSACTION"), Some(TxnEnd::Commit));
+        assert_eq!(txn_end("-- done\nROLLBACK WORK;"), Some(TxnEnd::Rollback));
+        assert_eq!(txn_end("/* x */ abort"), Some(TxnEnd::Rollback));
+        assert_eq!(txn_end("ROLLBACK TO SAVEPOINT a"), None);
+        assert_eq!(txn_end("COMMIT AND CHAIN"), None);
+        assert_eq!(txn_end("BEGIN"), None);
+        assert_eq!(txn_end("select 1"), None);
+        assert_eq!(txn_end(""), None);
+    }
+}
+
 /// What a chip-menu item does to the workspace.
 type MenuAction = Box<dyn Fn(&mut Workspace, &mut Window, &mut Context<Workspace>)>;
 
 impl Workspace {
+    /// Note that the open transaction of `conn_id` has written something (once is enough).
+    pub(super) fn note_txn_write(&mut self, conn_id: &str) {
+        self.txn_writes.entry(conn_id.to_string()).or_insert_with(std::time::Instant::now);
+    }
+
+    /// The transaction of `conn_id` has ended. After a rollback, results fetched since its first write
+    /// may show rows that were never stored, so they are marked stale (footer: Rolled back, with a
+    /// Refresh when the statement can be run again). After a commit there is nothing to undo.
+    pub(super) fn txn_ended(&mut self, conn_id: &str, rolled_back: bool, cx: &mut Context<Self>) {
+        let Some(since) = self.txn_writes.remove(conn_id) else { return };
+        if !rolled_back {
+            return;
+        }
+        let ids: Vec<u64> =
+            self.tabs.iter().filter(|t| t.connection_id.as_deref() == Some(conn_id)).map(|t| t.id).collect();
+        for id in ids {
+            let Some(c) = self.consoles.get_mut(&id) else { continue };
+            let grid = c.grid.clone();
+            for item in c.results.iter_mut().filter(|i| i.produced >= since) {
+                item.meta.stale = Some(ROLLED_BACK.to_string());
+                let showing = grid.read(cx).result().is_some_and(|r| std::sync::Arc::ptr_eq(r, &item.result));
+                if showing {
+                    grid.update(cx, |g, cx| g.set_stale(Some(ROLLED_BACK.to_string()), cx));
+                }
+            }
+        }
+        cx.notify();
+    }
+
     /// The mode in force for `conn_id`: a session override, else the connection's saved setting.
     pub(super) fn txn_config(&self, conn_id: &str, cx: &App) -> TransactionConfig {
         self.txn_prefs
