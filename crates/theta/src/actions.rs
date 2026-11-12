@@ -77,6 +77,7 @@ actions!(
         ExportDatabase,
         SearchTables,
         ShowDiagram,
+        CompareSchemas,
         RunSqlScript,
         OpenSettings,
         WelcomeDemo,

@@ -44,6 +44,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-alt-f` | Search Across Tables (also from the explorer's context menu) |
 | `mod-shift-g` | show the Chart tab for the active result (and focus it) |
 | `mod-alt-g` | ER diagram (asks for a schema or a table; also from the explorer's context menu) |
+| `mod-alt-s` | Compare Schemas (asks for a source and a target schema; also from the explorer's context menu on a schema) |
 | `mod-alt-h` | Local History of the active console |
 | `mod-alt-enter` | Run on Several Connections (the current statement or the script on every connection you tick). In the dialog: `up`/`down` or `j`/`k` move, `space` ticks, `a` ticks all or none, `enter` runs |
 | `F5` | refresh schema, only while the explorer has focus (in the editor `F5` is *run all*) |
@@ -190,6 +191,30 @@ diagram, the same in the three key maps. A status line at the bottom edge turns 
 | `s` | save the diagram as an SVG file |
 | `m` | copy the diagram as Mermaid `erDiagram` text |
 | `r` | rebuild from the loaded schema (after a refresh or a DDL change) |
+
+## Compare dialog and Schema Compare tab
+
+*Compare Schemas…* is a palette command, `mod-alt-s`, `space S` (Helix, Vim), `:schemacompare` (`:scompare`, `:schemadiff`) and
+*Compare Schema…* in the explorer's schema menu (which presets the source). The dialog has focus when it opens:
+
+| Keys | Action |
+| --- | --- |
+| `up` / `down`, `j` / `k`, `tab` | previous / next row (source connection, source schema, target connection, target schema) |
+| `left` / `right`, `h` / `l` | previous / next value of the row (wraps); `pageup` / `pagedown` move by ten |
+| `/` | type the start of a name to jump to it; `enter` stops typing |
+| `enter` | compare (refused, with the reason, if the two sides are the same schema) |
+| `esc` | close |
+
+The result tab, whose status line turns blue while it has focus:
+
+| Keys | Action |
+| --- | --- |
+| `j` `k`, arrows, `pageup` / `pagedown`, `g` / `G` | move through the tree |
+| `l` / `h` (or `right` / `left`), `space` | open / close a table's list of differences (space toggles) |
+| `d` | include destructive statements in the script, or hold them back again |
+| `enter`, `o` | open the migration script in a console on the target connection |
+| `c` | copy the script |
+| `r` | compare again with the schemas as loaded now |
 
 ## Chart tab
 
@@ -518,6 +543,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `space s` | search across tables (`:grep`, `:search`) |
 | `space C` | chart of the result (`:chart`) |
 | `space G` | ER diagram of a schema or table (`:diagram [schema | table]`, `:er`) |
+| `space S` | compare two schemas (`:schemacompare`, `:scompare`, `:schemadiff`) |
 | `space h` | local history of the console (`:lhistory`, `:localhistory`) |
 | `space m` | run on several connections (`:multirun`) |
 | `space v` `space V` | cell viewer / copy cell value (`:cell`, `:cell copy`) |
@@ -727,6 +753,7 @@ work. `n` / `N` keep the direction; `*` `#` search the word under the cursor.
 | `space s` | search across tables (`HostCommand("search")`) |
 | `space C` | chart of the result (`HostCommand("chart")`) |
 | `space G` | ER diagram (`HostCommand("diagram")`) |
+| `space S` | compare two schemas (`HostCommand("schemacompare")`) |
 | `space h` | local history of the console (`HostCommand("lhistory")`) |
 | `space m` | run on several connections (`HostCommand("multirun")`) |
 | `space v` `space V` | cell viewer / copy cell value (`HostCommand("cell")`, `"cell copy"`) |

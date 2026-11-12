@@ -64,6 +64,11 @@ pub enum ExplorerEvent {
         schema: String,
         table: Option<String>,
     },
+    /// Compare this schema (as the source) with another.
+    CompareSchema {
+        connection_id: String,
+        schema: String,
+    },
     /// Open a new console, optionally pre-filled (generated SQL, DDL).
     NewConsole {
         connection_id: String,
@@ -1020,13 +1025,27 @@ impl Explorer {
                         });
                     }
                 }))
-                .item(item(&explorer, "ER Diagram…", IconName::Network, move |_, cx| {
-                    cx.emit(ExplorerEvent::ShowDiagram {
-                        connection_id: c.clone(),
-                        schema: schema.clone(),
-                        table: None,
-                    });
+                .item(item(&explorer, "ER Diagram…", IconName::Network, {
+                    let (c, schema) = (c.clone(), schema.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::ShowDiagram {
+                            connection_id: c.clone(),
+                            schema: schema.clone(),
+                            table: None,
+                        });
+                    }
                 }))
+                .item(item(
+                    &explorer,
+                    "Compare Schema…",
+                    IconName::Diff,
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::CompareSchema {
+                            connection_id: c.clone(),
+                            schema: schema.clone(),
+                        });
+                    },
+                ))
             }
             NodeKey::Sequence(_, _, name) | NodeKey::Routine(_, _, name) => {
                 menu.item(item(&explorer, "Copy Name", IconName::Copy, move |this, cx| {

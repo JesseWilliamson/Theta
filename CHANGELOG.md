@@ -8,6 +8,20 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Added
 
+- **Schema compare** (`mod-alt-s`, `space S`, `:schemacompare`, explorer menu on a schema, palette): a dialog picks a
+  connection and schema for the source and the target (everything by keyboard), and a result tab shows a tree of
+  differences with the chosen one side by side. The pure comparison is `theta_sql::schema_diff`: tables, columns
+  (type, nullability, default, identity, generated expression, comment), primary keys, unique constraints,
+  foreign keys (columns, target, actions, deferrability), indexes, checks, table comments, MySQL table options and
+  the definition text of views; routines by signature only. What the catalog does not carry (triggers, routine
+  bodies, sequences, collations, privileges, partitioning, custom types, column order) is not compared, and
+  the tab says so. For two schemas of the same product *Open Migration Script in Console* opens a console
+  bound to the target with the script, ordered by dependency (views and foreign keys off, tables dropped,
+  created, altered, foreign keys on, views back), through the DDL engine, so SQLite gets its documented table
+  rebuild. Destructive statements (drop table or column, narrowing types, dropped or changed constraints and
+  indexes) are commented out with a `-- destructive:` marker unless the `d` toggle includes them; held back, they
+  still leave a script that is correct in order. Across two products only the differences are shown, with the
+  reason. Live tests on PostgreSQL, MariaDB and SQLite apply the script to copies of the target and compare again.
 - **ER diagram** (`mod-alt-g`, `space G`, `:diagram [schema | table]`, explorer menu on a schema and on a table,
   palette): a tab that draws a schema, or one table and the tables it references or that reference it, as boxes
   with columns, types and PK / FK markers and foreign keys as orthogonal edges that end at the right columns

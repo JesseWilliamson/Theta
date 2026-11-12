@@ -689,6 +689,56 @@ plus every table it references and every table that references it, with the tabl
 The diagram reads the catalog Theta already loaded; `r` rebuilds it after a schema refresh. The keys are in
 [KEYBINDINGS.md](KEYBINDINGS.md#er-diagram-tab).
 
+## Compare two schemas
+
+*Compare Schemas…* shows what differs between two schemas, in the same database, in two databases of one server, or on two
+connections, and writes the SQL that makes one look like the other. Open it from the command palette, `mod-alt-s`,
+`space S` (Helix and Vim), `:schemacompare`, or *Compare Schema…* in a schema's context menu. The dialog asks for a
+connection and a schema for the **source** (what you want) and the **target** (what you have), all by keyboard (see
+[KEYBINDINGS.md](KEYBINDINGS.md#compare-dialog-and-schema-compare-tab)); only connected connections whose schema has
+loaded are offered.
+
+The result is a tab. The left side is a tree: each table, view, materialized view or routine that exists on one side only
+(`+` only in the source, `−` only in the target) or differs (`~`), and under a table each column, key, index or
+check that differs, with the attributes that differ (`type`, `nullability`, `default`, ...). The right side shows
+the chosen one with the source and the target text side by side. The header says in one line what the script will be.
+
+**What is compared** is what Theta's catalog carries: tables, columns (type, nullability, default, identity,
+generated expression, comment), primary keys (by their columns; the name is ignored), unique constraints, foreign
+keys (columns, referenced table and columns, `ON DELETE`, `ON UPDATE`, deferrable), indexes (columns, uniqueness,
+method, partial predicate, expression definition), checks, table comments, MySQL table options, and the definition
+text of views and materialized views. Routines are compared by name, kind, signature and return type: **the catalog
+has no routine body**, so a body that changed is not noticed and a missing routine cannot be created. **Not
+compared**: triggers, sequences, column collations, privileges and ownership, partitioning and storage
+parameters, custom types, and column order. The footer of the tab repeats this.
+
+Equality is stated the same way in the comparison and the script: names match without regard to case; a constraint or
+index is identified by its name, so a renamed one is one removed and one added; a reference to a table of the
+schema's own schema is the same in either schema; a sequence default (`nextval('s.t_id_seq')`) is compared
+without the schema; `NO ACTION` is no action (and so is `RESTRICT` in MySQL). SQLite's catalog has no foreign key names,
+so there a key is identified by the columns it connects. Two products compare the canonical column type, so
+PostgreSQL's `integer` and MySQL's `int(11)` agree.
+
+**The migration script** needs both schemas to be the same product. Across products the tab shows the differences and
+says why there is no script. The script opens in a console on the target; the console is an ordinary one: Theta runs
+nothing until you do. It is ordered by dependency: views that go or change come off, then foreign keys that go or
+change and every foreign key of a table about to be dropped, then dropped tables, then new tables (without their
+foreign keys on PostgreSQL and MySQL, which are added once every table exists), then `ALTER`s of changed tables,
+then new foreign keys, then views. SQLite changes that `ALTER TABLE` cannot do use SQLite's documented rebuild
+(create the new table, copy the rows, drop, rename, recreate indexes, check foreign keys).
+
+**Destructive statements are commented out.** A dropped table or column, a type change that can lose data
+(a different base type or a shorter length), and a dropped or changed constraint or index are written as
+`-- destructive: ...` followed by the statement commented out. The rest of the script does not depend on them: each
+changed table is first brought to the source *except* for its destructive changes, then the step from there to the
+source is written as the commented part, so uncommenting it in order is correct. `d` in the tab (or the toggle)
+generates the script again with them live, and then a table is changed in one go. A column whose source default uses
+a sequence is not copied (Theta cannot create the sequence); the script says so, in a `-- manual:` line, as it does
+for routines and MySQL table options, which an `ALTER` could rewrite the table for.
+
+Not verified: the migration script has been run against PostgreSQL 16, MariaDB 10.11 and SQLite (live tests); other
+products that share a dialect (CockroachDB, TiDB, Redshift, ...) use the same text and were not run.
+
 ## Edit data safely
 
 A result is editable only when every column comes from one table of the loaded schema, that table is a

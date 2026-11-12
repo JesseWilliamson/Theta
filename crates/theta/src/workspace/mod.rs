@@ -31,6 +31,7 @@ mod tabs;
 mod templates;
 mod title_bar;
 mod tool_tabs;
+pub(crate) use tool_tabs::is_system_schema;
 mod txn;
 mod welcome;
 
@@ -139,6 +140,7 @@ pub struct ConsoleTab {
 #[derive(Clone)]
 pub enum ToolTab {
     Diagram(Entity<crate::er::DiagramView>),
+    SchemaCompare(Entity<crate::schema_compare::SchemaCompareView>),
 }
 
 /// The view that fills an administration tab.
@@ -683,6 +685,9 @@ impl Workspace {
                 self.open_table(connection_id, schema, table, window, cx)
             }
             ExplorerEvent::ReturnFocus => self.focus_editor(window, cx),
+            ExplorerEvent::CompareSchema { connection_id, schema } => {
+                self.compare_schemas_dialog(Some((connection_id, schema)), window, cx)
+            }
             ExplorerEvent::ShowDiagram { connection_id, schema, table } => {
                 let scope = match table {
                     Some(table) => theta_diagram::Scope::Table { schema, table },
@@ -1245,6 +1250,9 @@ impl Render for Workspace {
             .on_action(
                 cx.listener(|this, _: &ShowDiagram, window, cx| this.diagram_from_palette("", window, cx)),
             )
+            .on_action(cx.listener(|this, _: &CompareSchemas, window, cx| {
+                this.compare_schemas_dialog(None, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &SelectKeymap, window, cx| this.open_keymap_picker(window, cx)))
             .on_action(cx.listener(|this, _: &UseHelixKeymap, window, cx| {
                 this.set_keymap(theta_ui::KeymapMode::Helix, window, cx)

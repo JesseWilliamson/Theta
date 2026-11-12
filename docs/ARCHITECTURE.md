@@ -774,6 +774,40 @@ the same graph in Mermaid's grammar, with names and types made safe where that g
 Tab is bound to focus traversal by gpui-kit's `Root`, so the diagram claims it in its own key context
 (`er::bind_keys`), as the table editor does.
 
+#### Schema compare
+
+`theta_sql::schema_diff` (pure) has two halves. `mod.rs` is the comparison: it pairs objects by name and returns
+`ObjectDiff`s whose `Change`s carry the text of both sides; `NOT_COMPARED` lists what the catalog cannot see, and the
+equality rules (types, defaults, actions, own-schema references, SQLite's unnamed keys) are functions there, so the
+diff and the script cannot disagree about what "equal" means. `script.rs` generates the migration.
+
+*Why the script goes through `ddl::diff`.* The DDL engine already knows every dialect's `ALTER` (MySQL's
+`MODIFY COLUMN`, PostgreSQL's separate type, default and nullability statements, SQLite's rebuild) and flags what
+is destructive. `pair` restates the source table in the *target's* column and constraint ids, matched by name, and
+copies the target's value for every attribute the comparison calls equal, so `ddl::diff(original, edited)` produces
+nothing for an equal attribute. Two additions to `ddl.rs` were needed: `add_foreign_key` / `drop_foreign_key` are
+public, because foreign keys are ordered separately (`diff` itself now calls them).
+
+*Why that order, and why the destructive part is a second diff.* Dropping a table needs the keys that point at it
+gone; creating a table with a key needs its parent to exist; a view may read anything. Hence the seven phases in the
+module documentation, with foreign keys of PostgreSQL and MySQL pulled out of tables on both sides. A statement
+that is held back must not break the ones after it, so a changed table is diffed twice: `held_back` builds "the
+source with every destructive change undone" (removed columns kept, narrowing types kept, changed constraints
+kept as they are), the first diff goes from the target to that and is emitted live, the second goes from there
+to the source and is emitted as comments. With the toggle on the table is diffed straight to the source. A SQLite
+rebuild's `DROP TABLE` carries the destructive flag but is not destructive (the rows were copied): `Flag::Rebuild`
+exempts it, because commenting it out would leave a rebuild half done.
+
+*Proof.* `crates/theta-import/tests/schema_compare_live.rs` builds four schemas (databases, files) per product, A
+the target, B the source, and two copies of A: the first gets the script with destructive statements held back
+(the comparison afterwards must show exactly the held-back differences and the held-back column must still hold its
+data), then the rest; the second gets everything at once; both must compare equal to B afterwards, and rows,
+the new foreign key and the dropped table are checked directly.
+
+The UI is `dialogs/compare_pick.rs` (a `Model` with unit tests, shared with the data compare), `schema_compare/mod.rs`
+(the tab; it owns the two schemas it compared and never runs anything) and `workspace/tool_tabs.rs` (hosting and the
+"open the script in a console on the target" event).
+
 ## Status
 
 0.1.0-alpha.8 is the eighth pre-release (0.1.0-alpha.1 to -alpha.7 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense

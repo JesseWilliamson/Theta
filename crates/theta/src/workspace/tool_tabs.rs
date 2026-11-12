@@ -4,8 +4,10 @@
 
 use super::{ConsoleTab, ToolTab, Workspace};
 use crate::connections::NoticeKind;
+use crate::dialogs::compare_pick;
 use crate::er::{DiagramEvent, DiagramView};
 use crate::palette::ChoicePicker;
+use crate::schema_compare::{CompareEvent, Endpoint, SchemaCompareView};
 use gpui_kit::assets::IconName;
 use gpui_kit::{AppContext as _, Context, Window};
 use theta_diagram::Scope;
@@ -18,12 +20,17 @@ impl ToolTab {
                 let h = v.read(cx).focus_handle_ref();
                 window.focus(&h, cx);
             }
+            ToolTab::SchemaCompare(v) => {
+                let h = v.read(cx).focus_handle_ref();
+                window.focus(&h, cx);
+            }
         }
     }
 
     pub fn conn_id(&self, cx: &gpui_kit::App) -> String {
         match self {
             ToolTab::Diagram(v) => v.read(cx).conn_id().to_string(),
+            ToolTab::SchemaCompare(v) => v.read(cx).target_conn().to_string(),
         }
     }
 }
@@ -99,6 +106,133 @@ impl Workspace {
             window.focus(&h, cx);
         });
         Some(id)
+    }
+
+    /// Ask what to compare (a connection and a schema for each side), then open the result tab.
+    /// `preset` is a schema to start the source on (the explorer's context menu).
+    pub(super) fn compare_schemas_dialog(
+        &mut self,
+        preset: Option<(String, String)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.quiet {
+            return;
+        }
+        let choices = compare_pick::choices(&self.store, cx);
+        if choices.is_empty() {
+            self.notify(
+                NoticeKind::Info,
+                "Connect to a database and wait for its schema to load first",
+                window,
+                cx,
+            );
+            return;
+        }
+        let active = self.active_connection_id(cx);
+        let start = preset
+            .map(|(conn_id, schema)| compare_pick::Side { conn_id, schema, table: None })
+            .or_else(|| {
+                active.and_then(|id| {
+                    let cat = self.store.read(cx).catalog(&id)?;
+                    Some(compare_pick::Side {
+                        conn_id: id,
+                        schema: cat.default_schema.clone().unwrap_or_default(),
+                        table: None,
+                    })
+                })
+            });
+        let model = compare_pick::Model::new(compare_pick::Mode::Schema, choices, start.as_ref());
+        let ws = cx.entity().downgrade();
+        compare_pick::open(
+            "Compare Schemas",
+            "Compare",
+            model,
+            std::rc::Rc::new(move |picked, window, cx| {
+                let _ = ws.update(cx, |ws, cx| ws.open_schema_compare(picked, window, cx));
+            }),
+            window,
+            cx,
+        );
+    }
+
+    fn endpoint(&self, side: &compare_pick::Side, cx: &gpui_kit::App) -> Option<Endpoint> {
+        let store = self.store.read(cx);
+        let cat = store.catalog(&side.conn_id)?;
+        let config = store.config(&side.conn_id)?;
+        Some(Endpoint {
+            conn_id: side.conn_id.clone(),
+            conn_name: config.name.clone(),
+            kind: config.kind,
+            schema: cat.schema(&side.schema)?.clone(),
+        })
+    }
+
+    pub fn open_schema_compare(
+        &mut self,
+        picked: compare_pick::Picked,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some(source), Some(target)) =
+            (self.endpoint(&picked.source, cx), self.endpoint(&picked.target, cx))
+        else {
+            self.notify(NoticeKind::Warning, "A schema to compare is no longer loaded", window, cx);
+            return;
+        };
+        let title = crate::schema_compare::title_of(&source, &target);
+        let view = cx.new(|cx| SchemaCompareView::new(source, target, cx));
+        let id = self.next_tab_id;
+        self.next_tab_id += 1;
+        let sub = cx.subscribe_in(&view, window, move |this, v, ev: &CompareEvent, window, cx| {
+            let sides = v.read(cx).sides();
+            this.on_compare_event(v.clone(), sides, ev.clone(), window, cx)
+        });
+        self.table_subs.insert(id, sub);
+        let target_conn = view.read(cx).target_conn().to_string();
+        self.tabs.push(ConsoleTab {
+            id,
+            title: title.into(),
+            connection_id: Some(target_conn.clone()),
+            modified: false,
+            initial_sql: None,
+            table: None,
+            admin: None,
+            tool: Some(ToolTab::SchemaCompare(view.clone())),
+        });
+        self.console_views.insert(id, view.clone().into());
+        self.active_connection = Some(target_conn);
+        self.activate_tab(id, window, cx);
+        window.defer(cx, move |window, cx| {
+            let h = view.read(cx).focus_handle_ref();
+            window.focus(&h, cx);
+        });
+    }
+
+    fn on_compare_event(
+        &mut self,
+        view: gpui_kit::Entity<SchemaCompareView>,
+        sides: (compare_pick::Side, compare_pick::Side),
+        ev: CompareEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match ev {
+            CompareEvent::OpenScript { conn_id, sql } => {
+                let id = self.open_console(Some(conn_id), Some(sql), window, cx);
+                self.set_tab_title(id, "Migration script".to_string(), cx);
+            }
+            CompareEvent::Notice(kind, m) => self.notify(kind, m, window, cx),
+            CompareEvent::Reload => {
+                let (Some(source), Some(target)) = (self.endpoint(&sides.0, cx), self.endpoint(&sides.1, cx))
+                else {
+                    self.notify(NoticeKind::Warning, "A schema to compare is no longer loaded", window, cx);
+                    return;
+                };
+                view.update(cx, |v, cx| v.recompare(source, target, cx));
+                self.notify(NoticeKind::Info, "Compared again with the schemas as loaded now", window, cx);
+            }
+        }
     }
 
     fn on_diagram_event(

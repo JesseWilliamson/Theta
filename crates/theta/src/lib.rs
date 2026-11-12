@@ -19,6 +19,7 @@ pub mod palette;
 pub mod panels;
 pub mod panic;
 pub mod runtime;
+pub mod schema_compare;
 pub mod sqlgen;
 pub mod table_editor;
 pub mod templates;

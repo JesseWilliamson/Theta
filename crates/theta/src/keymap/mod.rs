@@ -149,6 +149,7 @@ pub fn global_bindings() -> Vec<KeyBinding> {
         kb("mod-shift-y", CopyCellValue, None),
         kb("mod-alt-f", SearchTables, None),
         kb("mod-alt-g", ShowDiagram, None),
+        kb("mod-alt-s", CompareSchemas, None),
         kb("mod-shift-g", ShowChart, None),
         kb("mod-alt-h", ShowLocalHistory, None),
         kb("mod-alt-enter", RunOnSeveral, None),

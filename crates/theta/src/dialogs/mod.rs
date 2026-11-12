@@ -1,3 +1,4 @@
+pub mod compare_pick;
 pub mod confirm;
 pub mod connection;
 pub mod copy_table;

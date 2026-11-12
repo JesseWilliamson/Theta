@@ -38,6 +38,7 @@ fn commands() -> Vec<Command> {
         cmd!("Run All", "Query", IconName::ListVideo, RunAll),
         cmd!("Run on Several Connections…", "Query", IconName::ListVideo, RunOnSeveral),
         cmd!("ER Diagram…", "Data", IconName::Network, ShowDiagram),
+        cmd!("Compare Schemas…", "Data", IconName::Diff, CompareSchemas),
         cmd!("Cancel Query", "Query", IconName::Square, CancelQuery),
         cmd!("Explain", "Query", IconName::Network, Explain),
         cmd!("Explain Analyze", "Query", IconName::Activity, ExplainAnalyze),
