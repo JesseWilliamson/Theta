@@ -74,6 +74,8 @@ pub enum Feature {
     Dump,
     /// Search Across Tables: one generated query per table that looks for a text in every column.
     TableSearch,
+    /// Copy Table: the product can be the source or the target of a table copy.
+    CopyTable,
 }
 
 /// Why each feature is missing, `None` when it works. One row per kind keeps the answer in one place.
@@ -92,6 +94,7 @@ pub struct Features {
     pub role_edit: Option<&'static str>,
     pub dump: Option<&'static str>,
     pub table_search: Option<&'static str>,
+    pub copy_table: Option<&'static str>,
 }
 
 /// Everything the application needs to know about a kind of database that is not SQL
@@ -156,6 +159,7 @@ const NO_FEATURES: Features = Features {
     role_edit: None,
     dump: None,
     table_search: None,
+    copy_table: None,
 };
 
 const SERVER: Sections = Sections { network: true, ssl: true, ssh: true, file: false, create_file: false };
@@ -434,6 +438,9 @@ static SQLSERVER: KindInfo = KindInfo {
         table_search: Some(
             "the search queries (CAST to NVARCHAR, CHARINDEX, TOP) are not written for T-SQL and no SQL Server was available to test them",
         ),
+        copy_table: Some(
+            "the copy writes CREATE TABLE and multi-row INSERT in the ANSI / MySQL / SQLite forms; T-SQL's types (IDENTITY, NVARCHAR(MAX), bracket quoting) and its 1000-row VALUES limit are not handled, and no SQL Server was available to test it",
+        ),
         ..NO_FEATURES
     },
     ssl_labels: [
@@ -476,6 +483,9 @@ static CLICKHOUSE: KindInfo = KindInfo {
         ),
         table_search: Some(
             "the search queries (toString, positionCaseInsensitive) are not written for ClickHouse and the 18.x server available for tests rejects them",
+        ),
+        copy_table: Some(
+            "a ClickHouse table needs an ENGINE and ORDER BY, which a copied CREATE TABLE cannot guess; it has no transactions to roll a failed copy back with either",
         ),
         ..NO_FEATURES
     },
@@ -537,6 +547,7 @@ impl DatabaseKind {
             Feature::RoleEdit => f.role_edit,
             Feature::Dump => f.dump,
             Feature::TableSearch => f.table_search,
+            Feature::CopyTable => f.copy_table,
         }
     }
 

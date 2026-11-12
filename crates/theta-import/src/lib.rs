@@ -5,6 +5,7 @@
 //! [`theta_core::Connection`]. Pure Rust, no UI; the application only shows progress and asks questions.
 
 pub mod convert;
+pub mod copy;
 pub mod decode;
 pub mod dump;
 pub mod export;
@@ -22,6 +23,7 @@ pub mod setup;
 pub mod sniff;
 
 pub use convert::{ConvertError, ConvertOptions, Target, convert};
+pub use copy::{Cleanup, CopyJob, CopyOutcome, CopyProgress, CopyReport, copy_table};
 pub use decode::Encoding;
 pub use dump::{DumpOptions, DumpOutcome, DumpProgress, DumpReport, dump, dump_to_path, not_captured};
 pub use export::{
