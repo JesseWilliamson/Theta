@@ -56,25 +56,6 @@ pub(super) fn txn_end(sql: &str) -> Option<TxnEnd> {
 /// The footer text of a result that a rollback made untrue.
 pub(super) const ROLLED_BACK: &str = "Rolled back: these rows may no longer exist";
 
-#[cfg(test)]
-mod txn_end_tests {
-    use super::*;
-
-    #[test]
-    fn recognises_plain_ends_only() {
-        assert_eq!(txn_end("COMMIT"), Some(TxnEnd::Commit));
-        assert_eq!(txn_end("commit;"), Some(TxnEnd::Commit));
-        assert_eq!(txn_end("END TRANSACTION"), Some(TxnEnd::Commit));
-        assert_eq!(txn_end("-- done\nROLLBACK WORK;"), Some(TxnEnd::Rollback));
-        assert_eq!(txn_end("/* x */ abort"), Some(TxnEnd::Rollback));
-        assert_eq!(txn_end("ROLLBACK TO SAVEPOINT a"), None);
-        assert_eq!(txn_end("COMMIT AND CHAIN"), None);
-        assert_eq!(txn_end("BEGIN"), None);
-        assert_eq!(txn_end("select 1"), None);
-        assert_eq!(txn_end(""), None);
-    }
-}
-
 /// What a chip-menu item does to the workspace.
 type MenuAction = Box<dyn Fn(&mut Workspace, &mut Window, &mut Context<Workspace>)>;
 
@@ -320,5 +301,24 @@ impl PickerDelegate for IsolationPicker {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod txn_end_tests {
+    use super::*;
+
+    #[test]
+    fn recognises_plain_ends_only() {
+        assert_eq!(txn_end("COMMIT"), Some(TxnEnd::Commit));
+        assert_eq!(txn_end("commit;"), Some(TxnEnd::Commit));
+        assert_eq!(txn_end("END TRANSACTION"), Some(TxnEnd::Commit));
+        assert_eq!(txn_end("-- done\nROLLBACK WORK;"), Some(TxnEnd::Rollback));
+        assert_eq!(txn_end("/* x */ abort"), Some(TxnEnd::Rollback));
+        assert_eq!(txn_end("ROLLBACK TO SAVEPOINT a"), None);
+        assert_eq!(txn_end("COMMIT AND CHAIN"), None);
+        assert_eq!(txn_end("BEGIN"), None);
+        assert_eq!(txn_end("select 1"), None);
+        assert_eq!(txn_end(""), None);
     }
 }

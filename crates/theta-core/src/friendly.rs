@@ -346,16 +346,22 @@ mod tests {
 
     #[test]
     fn sqlite_driver_texts() {
+        // The message depends on what is really on disk, so the paths are built from the
+        // host's temporary folder rather than spelled the Unix way.
+        let tmp = std::env::temp_dir();
+        let missing = tmp.join("theta-no-such-folder-7f3a");
+        let file = missing.join("x.db").display().to_string();
         let mut c = ConnectionConfig::new("i", "n", DatabaseKind::Sqlite);
-        c.path = "/nonexistent/dir/x.db".into();
+        c.path = file.clone();
         assert_eq!(
-            msg(Error::Connect("unable to open database file: /nonexistent/dir/x.db".into()), &c),
-            "The folder /nonexistent/dir does not exist."
+            msg(Error::Connect(format!("unable to open database file: {file}")), &c),
+            format!("The folder {} does not exist.", missing.display())
         );
-        c.path = "/tmp".into();
+        let dir = tmp.display().to_string();
+        c.path = dir.clone();
         assert_eq!(
-            msg(Error::Connect("unable to open database file: /tmp".into()), &c),
-            "/tmp is a folder, not a database file."
+            msg(Error::Connect(format!("unable to open database file: {dir}")), &c),
+            format!("{dir} is a folder, not a database file.")
         );
     }
 
