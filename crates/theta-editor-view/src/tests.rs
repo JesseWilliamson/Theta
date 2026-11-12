@@ -1262,7 +1262,10 @@ fn occurrences_follow_the_cursor_and_clear_without_a_provider(cx: &mut TestAppCo
             if sql.as_bytes().get(at) != Some(&b'a') {
                 return Vec::new();
             }
-            sql.match_indices(" a").map(|(i, _)| i + 1..i + 2).chain([7..8]).collect::<Vec<_>>()
+            sql.match_indices(" a")
+                .map(|(i, _)| i + 1..i + 2)
+                .chain(std::iter::once(7..8))
+                .collect::<Vec<_>>()
         })));
     });
     f.view.update(cx, |v, cx| v.goto_byte(7, cx));
