@@ -81,6 +81,11 @@ pub type OccurrenceProvider = Arc<dyn Fn(&str, usize) -> Vec<Range<usize>> + Sen
 /// How long the cursor must rest before the occurrences of the name under it are looked up.
 const OCCURRENCE_DELAY: Duration = Duration::from_millis(250);
 
+/// Do two char ranges share a position? An empty range counts as the position it sits at.
+fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {
+    a.start < b.end.max(b.start + 1) && b.start < a.end.max(a.start + 1)
+}
+
 /// One entry of the problems list.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Problem {
@@ -88,6 +93,8 @@ pub struct Problem {
     pub range: Range<usize>,
     /// Zero-based line of the start.
     pub line: usize,
+    /// Zero-based column of the start, in characters.
+    pub column: usize,
     pub severity: Severity,
     pub message: String,
 }
@@ -185,7 +192,7 @@ pub struct EditorView {
     // diagnostics
     diagnostics_provider: Option<DiagnosticsProvider>,
     pub(crate) diagnostics: Vec<Diag>,
-    pub(crate) transient: Option<(u64, Diag)>,
+    pub(crate) transient: Option<(u64, Diag, bool)>,
     diag_task: Option<Task<()>>,
     occurrence_provider: Option<OccurrenceProvider>,
     /// Char ranges of the other uses of the name under the cursor.
@@ -388,10 +395,24 @@ impl EditorView {
     /// An extra diagnostic from outside (e.g. the server's error position after a failed run),
     /// shown until the next edit.
     pub fn set_transient_diagnostic(&mut self, range: Range<usize>, message: String, cx: &mut Context<Self>) {
+        self.set_transient_diagnostic_at(range, true, message, cx);
+    }
+
+    /// [`EditorView::set_transient_diagnostic`] saying whether `range` is where the server pointed
+    /// (`exact`) or only the statement that failed. An exact range replaces every finding of ours at
+    /// that place (the server's word is final); a whole-statement range replaces only our errors in it.
+    pub fn set_transient_diagnostic_at(
+        &mut self,
+        range: Range<usize>,
+        exact: bool,
+        message: String,
+        cx: &mut Context<Self>,
+    ) {
         let chars = self.byte_range_to_chars(range);
         self.transient = Some((
             self.editor.revision(),
             Diag { range: chars, severity: Severity::Critical, message, incomplete: false },
+            exact,
         ));
         cx.notify();
     }
@@ -801,7 +822,7 @@ impl EditorView {
     fn on_edited(&mut self, cx: &mut Context<Self>) {
         let rev = self.editor.revision();
         self.statement_status = None;
-        if self.transient.as_ref().is_some_and(|(r, _)| *r != rev) {
+        if self.transient.as_ref().is_some_and(|(r, _, _)| *r != rev) {
             self.transient = None;
         }
         self.shift_diagnostics();
@@ -1208,11 +1229,15 @@ impl EditorView {
     pub fn problems(&self) -> Vec<Problem> {
         self.all_diagnostics()
             .into_iter()
-            .map(|d| Problem {
-                range: self.editor.char_to_byte(d.range.start)..self.editor.char_to_byte(d.range.end),
-                line: self.editor.char_to_line(d.range.start),
-                severity: d.severity,
-                message: d.message.clone(),
+            .map(|d| {
+                let line = self.editor.char_to_line(d.range.start);
+                Problem {
+                    range: self.editor.char_to_byte(d.range.start)..self.editor.char_to_byte(d.range.end),
+                    line,
+                    column: d.range.start.saturating_sub(self.editor.line_to_char(line)),
+                    severity: d.severity,
+                    message: d.message.clone(),
+                }
             })
             .collect()
     }
@@ -1308,9 +1333,12 @@ impl EditorView {
     /// Diagnostics at a char index (transient first), as indexes into `all_diagnostics`.
     pub(crate) fn all_diagnostics(&self) -> Vec<&Diag> {
         let mut v: Vec<&Diag> = self.diagnostics.iter().filter(|d| !self.held_back(d)).collect();
-        if let Some((rev, d)) = &self.transient
+        if let Some((rev, d, exact)) = &self.transient
             && *rev == self.editor.revision()
         {
+            // The server's verdict on a statement supersedes the parser's error at the same place:
+            // both would be listed (and underlined) for one mistake.
+            v.retain(|p| !((*exact || p.severity == Severity::Critical) && overlaps(&p.range, &d.range)));
             v.push(d);
         }
         v

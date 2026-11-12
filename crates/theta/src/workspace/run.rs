@@ -1101,7 +1101,10 @@ impl Workspace {
                 {
                     let range = pick::error_range(&p.range, &e, &text);
                     if let Some(c) = self.consoles.get(&id) {
-                        c.editor.update(cx, |ed, cx| ed.set_transient_diagnostic(range, e.to_string(), cx));
+                        let exact = matches!(&e, Error::Query { position: Some(_), .. });
+                        c.editor.update(cx, |ed, cx| {
+                            ed.set_transient_diagnostic_at(range, exact, e.to_string(), cx)
+                        });
                     }
                 }
                 if let Some(c) = self.consoles.get_mut(&id) {

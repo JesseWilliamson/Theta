@@ -128,13 +128,11 @@ impl Render for ProblemsPanel {
                 .when(selected, |d| d.bg(theme.list_active))
                 .when(!selected, |d| d.hover(|s| s.bg(theme.list_hover)))
                 .child(Icon::new(icon).size(px(13.)).text_color(color))
-                .child(
-                    div()
-                        .w(px(56.))
-                        .flex_shrink_0()
-                        .text_color(theme.muted_foreground)
-                        .child(format!("line {}", p.line + 1)),
-                )
+                .child(div().w(px(64.)).flex_shrink_0().text_color(theme.muted_foreground).child(format!(
+                    "{}:{}",
+                    p.line + 1,
+                    p.column + 1
+                )))
                 .child(
                     div()
                         .flex_1()

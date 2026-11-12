@@ -70,34 +70,42 @@ pub fn first_line(sql: &str) -> String {
     }
 }
 
-/// Where to put the squiggle for a failed statement: the server's position is
-/// relative to the statement, so add the statement's start. Falls back to the
-/// whole statement; the result is clamped to the document.
+/// Where to put the squiggle for a failed statement. The server's position is a 0-based **byte** offset
+/// into the statement that was sent (`theta_core::ErrorPosition`), so it is shifted by the statement's
+/// start. Without a position the whole statement is marked. The result is clamped to the document and
+/// never splits a character.
 pub fn error_range(stmt: &Range<usize>, error: &Error, text: &str) -> Range<usize> {
     let Error::Query { position: Some(p), .. } = error else { return stmt.clone() };
-    // The position is a char offset on some servers and a byte offset on others; treat it as chars
-    // within the statement and convert.
-    let sql = &text[stmt.clone()];
-    let byte = sql.char_indices().nth(p.offset.saturating_sub(1)).map(|(i, _)| i).unwrap_or(sql.len());
-    let start = (stmt.start + byte).min(text.len());
+    let stmt_end = stmt.end.min(text.len());
+    let mut start = (stmt.start + p.offset).min(stmt_end);
+    while start > stmt.start && !text.is_char_boundary(start) {
+        start -= 1;
+    }
     let mut end = start;
-    // Cover the word at the position.
-    for (i, c) in text[start..stmt.end.min(text.len())].char_indices() {
-        if c.is_alphanumeric() || c == '_' {
-            end = start + i + c.len_utf8();
-        } else if end > start {
-            break;
-        } else {
-            end = start + c.len_utf8();
-            break;
+    // Cover the word at the position, or the one character there when it is punctuation. A position at
+    // a line break (or the end of the statement) marks the character before it instead, so the
+    // squiggle is never a stray tick after the end of a line.
+    let rest = &text[start..stmt_end];
+    match rest.chars().next() {
+        Some(c) if c.is_alphanumeric() || c == '_' => {
+            for (i, c) in rest.char_indices() {
+                if c.is_alphanumeric() || c == '_' {
+                    end = start + i + c.len_utf8();
+                } else {
+                    break;
+                }
+            }
         }
-    }
-    if end <= start {
-        end = (start + 1).min(text.len());
-    }
-    // Never split a char.
-    while end < text.len() && !text.is_char_boundary(end) {
-        end += 1;
+        Some(c) if c != '\n' && c != '\r' => end = start + c.len_utf8(),
+        _ => {
+            if let Some(prev) = text[stmt.start..start].trim_end_matches(['\n', '\r']).chars().next_back() {
+                let before = text[stmt.start..start].trim_end_matches(['\n', '\r']).len();
+                start = stmt.start + before - prev.len_utf8();
+                end = stmt.start + before;
+            } else {
+                end = stmt_end.max(start);
+            }
+        }
     }
     start..end
 }
@@ -156,15 +164,57 @@ mod tests {
     fn error_position_is_shifted_by_statement_start() {
         let t = "select 1;\nselect nope from t";
         let stmt = 10..t.len();
-        let e = Error::Query {
+        assert_eq!(&t[error_range(&stmt, &at(7), t)], "nope");
+    }
+
+    fn at(offset: usize) -> Error {
+        Error::Query {
             message: "x".into(),
             code: None,
             detail: None,
             hint: None,
-            position: Some(ErrorPosition { offset: 8 }),
-        };
-        let r = error_range(&stmt, &e, t);
-        assert_eq!(&t[r], "nope");
+            position: Some(ErrorPosition { offset }),
+        }
+    }
+
+    #[test]
+    fn error_after_a_newline_is_on_the_next_line() {
+        let t = "select * from aud_t order by id\nnewrow    77";
+        let stmt = 0..t.len();
+        let off = t.find("newrow").unwrap();
+        assert_eq!(&t[error_range(&stmt, &at(off), t)], "newrow");
+        // CRLF line ends
+        let t = "select *\r\nfrom nope\r\nwhere x";
+        let off = t.find("nope").unwrap();
+        assert_eq!(&t[error_range(&(0..t.len()), &at(off), t)], "nope");
+    }
+
+    #[test]
+    fn multibyte_text_before_the_error_does_not_shift_it() {
+        let t = "select 'héllo wörld ✓', nope from t";
+        let off = t.find("nope").unwrap(); // a byte offset: the string literal has 2-byte and 3-byte chars
+        assert_eq!(&t[error_range(&(0..t.len()), &at(off), t)], "nope");
+        let t = "select 1;\nselect 'ünï', nope";
+        let off = t["select 1;\n".len()..].find("nope").unwrap();
+        assert_eq!(&t[error_range(&(10..t.len()), &at(off), t)], "nope");
+        // An offset in the middle of a character snaps back to its start.
+        let t = "select 'é'";
+        let r = error_range(&(0..t.len()), &at(8), t);
+        assert!(t.is_char_boundary(r.start) && t.is_char_boundary(r.end));
+    }
+
+    #[test]
+    fn position_on_a_line_break_or_the_end_marks_the_last_character() {
+        let t = "select 1 from\nwhere";
+        let r = error_range(&(0..t.len()), &at("select 1 from".len()), t);
+        assert_eq!(&t[r], "m");
+        let t = "select 1 +";
+        let r = error_range(&(0..t.len()), &at(t.len()), t);
+        assert_eq!(&t[r], "+");
+        let t = "select 1;\nselect nope from t";
+        // beyond the statement: clamped
+        let r = error_range(&(10..t.len()), &at(500), t);
+        assert!(r.end <= t.len() && r.start >= 10);
     }
 
     #[test]

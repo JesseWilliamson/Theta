@@ -420,6 +420,33 @@ fn transient_diagnostic_lives_until_the_next_edit(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn the_servers_error_replaces_ours_at_the_same_place(cx: &mut TestAppContext) {
+    let f = setup(cx, "select nme from t where x", Keymap::Standard);
+    use crate::view::Diag;
+    use theta_sql::Severity;
+    let diag = |range, severity, m: &str| Diag { range, severity, message: m.into(), incomplete: false };
+    f.view.update(cx, |v, cx| {
+        v.diagnostics = vec![
+            diag(7..10, Severity::Critical, "parser"),
+            diag(7..10, Severity::Warning, "resolver"),
+            diag(22..23, Severity::Warning, "elsewhere"),
+        ];
+        v.set_transient_diagnostic(7..10, "server".into(), cx);
+    });
+    let msgs = |cx: &mut TestAppContext| -> Vec<String> {
+        f.view.read_with(cx, |v, _| v.problems().into_iter().map(|p| p.message).collect())
+    };
+    let m = msgs(cx);
+    assert_eq!(m.len(), 2, "{m:?}");
+    assert!(m.contains(&"server".to_string()) && m.contains(&"elsewhere".to_string()));
+    // Only the statement is known: our warnings stay, our errors in it go.
+    f.view.update(cx, |v, cx| v.set_transient_diagnostic_at(0..25, false, "server".into(), cx));
+    let m = msgs(cx);
+    assert_eq!(m.len(), 3, "{m:?}");
+    assert!(!m.contains(&"parser".to_string()));
+}
+
+#[gpui_kit::test]
 fn a_transient_diagnostic_can_be_cleared_without_an_edit(cx: &mut TestAppContext) {
     let f = setup(cx, "select 1", Keymap::Standard);
     f.view.update(cx, |v, cx| v.set_transient_diagnostic(0..6, "boom".into(), cx));
