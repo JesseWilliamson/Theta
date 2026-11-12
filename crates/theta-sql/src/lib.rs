@@ -6,6 +6,7 @@
 //! every keystroke and be tested without a database.
 
 pub mod admin;
+pub mod analysis;
 pub mod complete;
 pub mod ddl;
 pub mod export;
@@ -19,6 +20,7 @@ pub mod params;
 pub mod plan;
 pub(crate) mod scope;
 pub mod script;
+pub mod syntax;
 pub mod templates;
 
 /// Realistic catalogs used by this crate's tests; exposed so other crates can reuse them.

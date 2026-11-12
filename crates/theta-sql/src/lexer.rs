@@ -98,6 +98,7 @@ fn is_op_char(b: u8, kind: DatabaseKind) -> bool {
         b'+' | b'-' | b'*' | b'/' | b'<' | b'>' | b'=' | b'~' | b'!' | b'%' | b'^' | b'&' | b'|' => true,
         b'@' | b'?' => pg_like(kind),
         b'#' => !matches!(kind.family(), Family::MySql | Family::ClickHouse),
+        b'`' => kind.family() == Family::Postgres,
         _ => false,
     }
 }
@@ -141,7 +142,9 @@ pub fn tokenize(sql: &str, kind: DatabaseKind) -> Vec<Token> {
                     (TokenKind::QuotedIdent, e, t)
                 }
             }
-            b'`' => {
+            // PostgreSQL treats the backtick as an operator character, so `` `abc `` is a prefix operator, not an
+            // unterminated quoted identifier. (DuckDB, which copied PostgreSQL's parser, accepts it as a quote.)
+            b'`' if kind.family() != Family::Postgres => {
                 let (e, t) = quoted_end(b, i, b'`', false);
                 (TokenKind::QuotedIdent, e, t)
             }

@@ -472,6 +472,84 @@ reason in the capability table.
   Because *Run* arrives inside a workspace update, a view must not read the workspace from `refresh`
   (`refresh_with(console_busy)`); `admin_tests.rs` covers it.
 
+### Added in 0.1.0-alpha.8: a syntax tree and the code intelligence built on it
+
+Until alpha.7 everything that "understood" SQL (completion, the linter, FK inference, the formatter) worked from
+tokens and heuristics. alpha.8 adds a real parser, `theta_sql::syntax` (`crates/theta-sql/src/syntax/`), and, on
+top of it, name resolution and the editor features that need to know what an identifier *means*.
+
+#### Why a hand-written parser, not a crate
+
+`sqlparser` (sqlparser-rs, 0.64 at the time of writing) is the obvious candidate and was considered first. It is
+built for the opposite job: it turns *valid* SQL into an AST and returns the first error, it drops whitespace and
+comments (so the tree cannot cover the input), spans exist on tokens but not on every AST node, it has no error
+recovery, and a construct outside its grammar is an error rather than an opaque region. An IDE needs the reverse of
+each of those: a tree for text that is half typed, a span on every node so a cursor can be mapped to one, trivia
+kept so edits can be expressed as text ranges, and silence about syntax it does not know. I did not benchmark or
+prototype it; the decision rests on that design. It is not a dependency.
+
+#### Tree shape
+
+`syntax::parse(sql, kind) -> Parse { root, errors }`. The tree is lossless and uniform: `Node { kind, span,
+children }`, where a leaf is a token (`Kind::Token(TokenKind)`, trivia included) and everything else is a syntax
+node. Two invariants are tested on every parse of the corpus and of every fuzz input
+(`Node::check_tiling`): the root spans `0..len`, and the children of each node tile its span exactly.
+The leaves therefore concatenate back to the input and `Node::path_at(offset)` is plain interval arithmetic.
+The doc comment on each `Kind` variant lists the child nodes a consumer may rely on; everything else (keywords,
+punctuation) is in between only so the tiling holds. Two shapes worth knowing: a chain of the same operator
+(`a + b + c`, `a AND b AND c`), of set operations and of joins is one *flat* node with many operands, never a
+left-leaning tower (`Parser::wrap_merging`), so tree depth follows real nesting and never statement length; and a
+trailing-trivia rule: trivia belongs to the parent of the node it follows, so every node starts and ends on a
+significant token.
+
+Queries and DML (SELECT with CTEs, set operations, every join kind, LATERAL, window definitions, INSERT with ON
+CONFLICT / ON DUPLICATE KEY / RETURNING / OUTPUT, UPDATE ... FROM / joins, DELETE ... USING, MERGE) are parsed in
+depth; expressions use precedence climbing (`expr.rs`, the table is in the module docs). DDL and every other
+statement are *shallow*: the parser knows the kind and the names a statement defines or refers to (`Kind::Ddl`
+with `Name` children, `ColumnDef`s of a CREATE TABLE) and keeps the rest as tokens. Queries that appear inside
+such statements (`CREATE VIEW ... AS`, `PREPARE ... AS`, `COPY (query)`, `DECLARE ... CURSOR FOR`) are parsed too;
+routine bodies (`CREATE FUNCTION/PROCEDURE/TRIGGER`) are deliberately opaque, because `NEW`/`OLD` and procedural
+variables would look like unknown columns.
+
+#### Error recovery, and the rule that matters: no false errors
+
+A statement is parsed on its own: the script splitter (`script::segments`, which already knows `;`, `GO`, routine
+bodies and dollar quotes) decides where it ends, so a broken statement cannot swallow the next. Inside a statement
+the parser never fails: where it does not understand something it consumes tokens up to the next place the grammar
+can resume (a `,`, a `)`, a clause keyword) into a `Kind::Unknown` node and carries on, so the intact clauses
+around the problem still parse (`one_error_does_not_hide_the_rest` pins this).
+
+`Parse::errors` is a different thing and much smaller than "where the parser got confused". Every `error(...)`
+call is placed where the text cannot be valid in the dialect it is emitted in, and the call site says why (the
+list is in the module docs of `parser.rs`). Where dialects disagree the rule is per family: `SELECT FROM t` and
+`SELECT 1 AND` are fine in PostgreSQL, `SELECT a, FROM t` is fine in DuckDB, `a JOIN b` without a condition is
+an error only in PostgreSQL and T-SQL, an unterminated `/* ...` is fine in SQLite. Every one of those exceptions
+was found by the differential test, not by reading manuals. When in doubt a rule is dropped for that family.
+
+#### How it is tested
+
+* `crates/theta-drivers/tests/sql_differential.rs` runs the corpus in `crates/theta-sql/tests/corpus/` against
+  real engines (PostgreSQL 16, MariaDB 10.11, bundled SQLite, bundled DuckDB) and asserts that the parser reports
+  no error for any statement the engine accepts *or rejects only for a semantic reason*. It prints how many
+  engine-rejected statements the parser also flags, and asserts nothing about that number. The README of the
+  corpus directory says how each engine is asked. ClickHouse and T-SQL have only documentation examples and are
+  weaker evidence; the ClickHouse server available locally is version 18.16 and rejects much of the corpus.
+* `crates/theta-sql/tests/parser_robustness.rs`: the whole corpus in all six dialects, every truncation at every
+  token boundary, random deletions and insertions, random token soup, 20,000-deep nesting on a 1 MB stack and a
+  linear-time bound. These found a real hang (a `GO` separator) and a stack overflow (deep left-leaning chains).
+* Unit tests next to the code (`syntax/tests.rs`): tree shapes, exact spans, each certain error, dialect
+  differences, recovery.
+
+#### How to add a statement or a construct
+
+1. Add the `Kind` (and its doc line in `node.rs`) if the tree needs a new node.
+2. Parse it in `dml.rs` / `query.rs` / `expr.rs`; consume with `bump`, group with `start(kind)` / `finish()`, wrap
+   an already-parsed operand with `mark()` / `wrap()`. Every loop must consume at least one token.
+3. Never call `error` unless the text is invalid in every dialect the rule is active for. If a server accepts a
+   statement the test rejects, fix the *rule*, not the test.
+4. Add a statement to `crates/theta-sql/tests/corpus/*.sql` (one per line), run the differential test, add a unit
+   test for the tree shape.
+
 ## Status
 
 0.1.0-alpha.7 is the seventh pre-release (0.1.0-alpha.1 to -alpha.6 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
