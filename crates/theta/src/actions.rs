@@ -28,6 +28,7 @@ actions!(
         ShowLocalHistory,
         RunOnSeveral,
         CopyCellValue,
+        LoadAllRows,
         // Command surfaces
         OpenCommandPalette,
         OpenTablePicker,

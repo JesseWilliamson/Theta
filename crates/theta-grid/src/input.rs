@@ -23,6 +23,7 @@ enum Chord {
     Bottom,
     HalfPageDown,
     HalfPageUp,
+    LoadAll,
 }
 
 /// The single table of the grid's primary-modifier chords. `key` is the key name without
@@ -39,6 +40,7 @@ fn chord(key: &str, modal: bool) -> Option<Chord> {
         "end" => Chord::Bottom,
         "d" if modal => Chord::HalfPageDown,
         "u" if modal => Chord::HalfPageUp,
+        "l" => Chord::LoadAll,
         _ => return None,
     })
 }
@@ -108,7 +110,12 @@ impl ResultGrid {
                     self.move_selection(Motion::PageUp(page / 2), extend, cx);
                     true
                 }
-                None => false,
+                // Shift is part of the chord: plain mod-l belongs to the editor's select line.
+                Some(Chord::LoadAll) if m.shift => {
+                    self.request_load_all(cx);
+                    true
+                }
+                Some(Chord::LoadAll) | None => false,
             }
         } else if !m.alt {
             self.plain_key(key, m.shift, extend, modal, page, ks.key_char.as_deref(), window, cx)

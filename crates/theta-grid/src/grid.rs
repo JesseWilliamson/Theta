@@ -109,6 +109,8 @@ pub struct ResultGrid {
     pub(crate) viewer: crate::inspector::ViewerState,
     cache: HashMap<(u32, u32), CachedCell>,
     pub(crate) loading: bool,
+    /// The loading in progress is a "Load all" of this very result (the footer says so).
+    pub(crate) loading_all: bool,
     /// Body width before an inspector toggle; the cursor is re-revealed once the
     /// measured width differs.
     pub(crate) reveal_pending: Option<f32>,
@@ -169,6 +171,7 @@ impl ResultGrid {
             viewer: Default::default(),
             cache: HashMap::new(),
             loading: false,
+            loading_all: false,
             reveal_pending: None,
             modal_g: false,
             modal_visual: false,
@@ -216,6 +219,7 @@ impl ResultGrid {
         self.result = Some(result);
         self.meta = meta;
         self.loading = false;
+        self.loading_all = false;
         self.inspector = None;
         self.inspector_dirty = true;
         self.agg = Default::default();
@@ -226,6 +230,37 @@ impl ResultGrid {
             self.refresh_summary_pub();
         }
         cx.notify();
+    }
+
+    /// Swap in a fuller answer to the same statement (after "Load all"), keeping what the user set
+    /// up: sort, filter, column widths, selection and scroll position. Staged edits are dropped, so
+    /// the host must not call this while `has_pending_changes`.
+    pub fn replace_result(&mut self, result: Arc<ResultSet>, meta: GridMeta, cx: &mut Context<Self>) {
+        self.cache.clear();
+        self.pending = meta.editable.clone().map(|t| Pending::new(t, result.columns.len()));
+        self.gutter_w = layout::gutter_width(result.rows.len(), self.char_w);
+        self.result = Some(result);
+        self.meta = meta;
+        self.loading = false;
+        self.loading_all = false;
+        self.submit_error = None;
+        self.editor = None;
+        self.inspector_dirty = true;
+        self.agg_gen += 1;
+        // Rebuilds the view even without sort or filter, which also clamps the selection.
+        self.recompute_view(cx);
+    }
+
+    /// True while the result is a prefix of what the server holds.
+    pub fn is_partial(&self) -> bool {
+        self.result.as_ref().is_some_and(|r| r.truncated)
+    }
+
+    /// Ask the host to load the remaining rows. Ignored when everything is loaded or a load runs.
+    pub fn request_load_all(&mut self, cx: &mut Context<Self>) {
+        if self.is_partial() && !self.loading && !self.loading_all && !self.meta.load_cap_reached {
+            cx.emit(GridEvent::LoadAll);
+        }
     }
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
@@ -243,7 +278,15 @@ impl ResultGrid {
         self.submit_error = None;
         self.cache.clear();
         self.loading = false;
+        self.loading_all = false;
         self.inspector = None;
+        cx.notify();
+    }
+
+    /// Mark the loading in progress as a "Load all" of the result on show (or end it).
+    pub fn set_loading_all(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.loading = on;
+        self.loading_all = on;
         cx.notify();
     }
 

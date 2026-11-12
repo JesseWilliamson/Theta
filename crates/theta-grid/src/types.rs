@@ -18,6 +18,9 @@ pub struct GridMeta {
     /// get a link icon, and ctrl-click / Enter / double-click on a cell emits
     /// `GridEvent::FollowReference`.
     pub reference_columns: Vec<usize>,
+    /// "Load all" already ran and still hit its cap: asking again would change nothing, so the grid
+    /// stops offering it and says the result must be narrowed instead.
+    pub load_cap_reached: bool,
 }
 
 impl GridMeta {
@@ -38,6 +41,10 @@ impl GridMeta {
     }
     pub fn with_reference_columns(mut self, columns: Vec<usize>) -> Self {
         self.reference_columns = columns;
+        self
+    }
+    pub fn with_load_cap_reached(mut self) -> Self {
+        self.load_cap_reached = true;
         self
     }
     pub fn with_read_only_reason(mut self, reason: impl Into<String>) -> Self {
@@ -141,6 +148,10 @@ pub enum GridEvent {
     SelectionChanged,
     /// Double-click / Enter on a cell of a foreign-key column.
     FollowReference { column: usize, value: Value },
+    /// The user asked to load the rows beyond the row limit (the result is truncated). The host runs
+    /// the statement again with a higher limit and hands the answer back with
+    /// `ResultGrid::replace_result`; the grid keeps its sort and filter meanwhile.
+    LoadAll,
     /// Escape with nothing left to dismiss: keyboard focus should go back to the editor.
     ReturnFocus,
 }

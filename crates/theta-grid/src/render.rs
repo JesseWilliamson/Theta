@@ -329,18 +329,58 @@ impl ResultGrid {
             }
             left = left.child(div().child(label));
             if rs.truncated {
+                let partial = crate::view::partial_notice(
+                    !self.sorts.is_empty(),
+                    self.filter_query.is_some(),
+                    n,
+                    true,
+                );
                 let why = format!(
                     "The result was cut off at the row limit, so more rows exist on the server. \
-                     Add a WHERE or LIMIT clause, or raise the row limit in Settings. Filtering and sorting only see these {}.",
+                     Sorting and filtering only see the {} rows loaded. Load all re-runs the statement \
+                     for the rest, or add a WHERE or LIMIT clause, or raise the row limit in Settings.",
                     format_count(n)
                 );
+                let why = if self.meta.load_cap_reached {
+                    format!(
+                        "Load all stopped at its cap of {} rows and more exist on the server. \
+                         Narrow the query with a WHERE or LIMIT clause.",
+                        format_count(n)
+                    )
+                } else {
+                    why
+                };
+                let note = match &partial {
+                    Some(text) => format!("· {text}"),
+                    None => format!("· first {} shown, limit reached", format_count(n)),
+                };
                 left = left.child(
                     div()
                         .id("grid-truncated")
                         .text_color(p.warning)
-                        .child(format!("· first {} shown, limit reached", format_count(n)))
+                        .when(partial.is_some(), |d| d.font_weight(FontWeight::MEDIUM))
+                        .child(note)
                         .tooltip(move |window, cx| Tooltip::new(why.clone()).build(window, cx)),
                 );
+                if self.loading_all {
+                    left = left.child(div().text_color(p.muted).child("Loading all rows…"));
+                } else if !self.meta.load_cap_reached {
+                    left = left.child(
+                        div()
+                            .id("grid-load-all")
+                            .px_1()
+                            .rounded(px(3.))
+                            .cursor_pointer()
+                            .text_color(p.accent)
+                            .font_weight(FontWeight::MEDIUM)
+                            .hover(|d| d.bg(p.hover))
+                            .tooltip(|window, cx| {
+                                Tooltip::new("Load every row of this result (Ctrl+Shift+L)").build(window, cx)
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| this.request_load_all(cx)))
+                            .child("Load all"),
+                    );
+                }
             }
             if let Some(e) = self.meta.elapsed {
                 left = left.child(div().text_color(p.muted).child(format!("· {}", format_duration(e))));
@@ -591,6 +631,14 @@ impl ResultGrid {
         let bounds_cell = self.body_bounds.clone();
         let loading = self.loading || self.view_busy;
         let empty = nr == 0;
+        // A filter that hides every loaded row of a cut-off result says so: matches may exist beyond.
+        let empty_text = if self.filter_query.is_some() && self.n_new() == 0 && self.is_partial() {
+            "No match in the rows loaded"
+        } else if self.filter_query.is_some() {
+            "No rows match"
+        } else {
+            "No rows"
+        };
 
         let body_clip = div()
             .id("grid-body")
@@ -631,7 +679,7 @@ impl ResultGrid {
                         .justify_center()
                         .text_color(p.muted)
                         .font_family(cx.theme().font_family.clone())
-                        .child("No rows"),
+                        .child(empty_text),
                 )
             })
             .child(Scrollbar::new(&self.scroll))

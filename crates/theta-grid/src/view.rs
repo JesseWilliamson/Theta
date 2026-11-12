@@ -15,6 +15,23 @@ pub fn build_view(result: &ResultSet, filter: Option<&FilterQuery>, sorts: &[Sor
     indices
 }
 
+/// The persistent footer notice for a sort or filter that only saw part of the result.
+///
+/// A truncated result is a prefix of what the server holds, so a descending sort shows the biggest
+/// of the loaded rows and a filter can say "no rows" while matches exist beyond them. Nothing is
+/// said when neither is active (the plain "limit reached" label covers that) or when all rows are in.
+pub fn partial_notice(sorted: bool, filtered: bool, loaded: usize, truncated: bool) -> Option<String> {
+    if !truncated || !(sorted || filtered) {
+        return None;
+    }
+    let what = match (sorted, filtered) {
+        (true, true) => "Sorted and filtered",
+        (true, false) => "Sorted",
+        _ => "Filtered",
+    };
+    Some(format!("{what} within the {} rows loaded", crate::format::format_count(loaded)))
+}
+
 /// Above this many rows, filtering/sorting leaves the UI thread.
 pub const BACKGROUND_THRESHOLD: usize = 20_000;
 
@@ -80,6 +97,21 @@ mod tests {
         let v = build_view(&rs, Some(&q), &[]);
         println!("filter 100k x 3 cells for 'name-42': {} ms, {} hits", t.elapsed().as_millis(), v.len());
         assert!(t.elapsed().as_millis() < 5_000);
+    }
+
+    #[test]
+    fn partial_notice_wording() {
+        assert_eq!(partial_notice(true, false, 1000, true).as_deref(), Some("Sorted within the 1,000 rows loaded"));
+        assert_eq!(
+            partial_notice(false, true, 1000, true).as_deref(),
+            Some("Filtered within the 1,000 rows loaded")
+        );
+        assert_eq!(
+            partial_notice(true, true, 2500, true).as_deref(),
+            Some("Sorted and filtered within the 2,500 rows loaded")
+        );
+        assert_eq!(partial_notice(true, true, 1000, false), None, "everything is loaded");
+        assert_eq!(partial_notice(false, false, 1000, true), None, "nothing applied");
     }
 
     #[test]

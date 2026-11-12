@@ -21,6 +21,7 @@ mod code_intel;
 pub mod console;
 mod ddl_actions;
 mod folders;
+mod load_all;
 pub(crate) mod multi_run;
 mod params;
 pub mod persist;
@@ -1248,6 +1249,7 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &ShowChart, window, cx| this.show_chart(window, cx)))
             .on_action(cx.listener(|this, _: &ShowHistory, window, cx| this.show_history(window, cx)))
+            .on_action(cx.listener(|this, _: &LoadAllRows, window, cx| this.load_all_active(window, cx)))
             .on_action(
                 cx.listener(|this, _: &ShowLocalHistory, window, cx| this.open_local_history(window, cx)),
             )

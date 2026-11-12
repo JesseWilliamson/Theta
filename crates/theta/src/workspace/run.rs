@@ -1179,7 +1179,7 @@ impl Workspace {
         cx.notify();
     }
 
-    fn ensure_ticker(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn ensure_ticker(&mut self, cx: &mut Context<Self>) {
         if self.ticker.is_some() {
             return;
         }
@@ -1388,7 +1388,7 @@ impl Workspace {
         cx.notify();
     }
 
-    fn detect_geometry(
+    pub(super) fn detect_geometry(
         &mut self,
         id: u64,
         index: usize,
@@ -1454,6 +1454,7 @@ impl Workspace {
             }
             GridEvent::SelectionChanged => {}
             GridEvent::ReturnFocus => self.focus_editor(window, cx),
+            GridEvent::LoadAll => self.load_all_rows(id, window, cx),
             GridEvent::FollowReference { column, value } => {
                 self.follow_reference(id, column, value, window, cx)
             }
