@@ -616,13 +616,16 @@ Differential test, run on this machine (`cargo test -p theta-drivers --test sql_
 
 | engine | statements | false parser errors | false name diagnostics | (c) name errors also flagged | (b) syntax errors also flagged |
 | --- | --- | --- | --- | --- | --- |
-| PostgreSQL 16 | 2259 | 0 of 1409 | 0 of 864 | 363 of 435 (83%) | 510 of 819 (62%) |
-| MariaDB 10.11 | 2269 | 0 of 1273 | 0 of 912 | 283 of 320 (88%) | 498 of 990 (50%) |
-| SQLite (bundled) | 2104 | 0 of 1140 | 0 of 677 | 321 of 412 (78%) | 514 of 957 (54%) |
-| DuckDB 1.2 | 2545 | 0 of 1596 | 0 of 997 | 341 of 463 (74%) | 452 of 949 (48%) |
+| PostgreSQL 16 | 2346 | 0 of 1451 | 0 of 905 | 363 of 435 (83%) | 560 of 864 (65%) |
+| MariaDB 10.11 | 2356 | 0 of 1310 | 0 of 949 | 283 of 320 (88%) | 548 of 1040 (53%) |
+| SQLite (bundled) | 2191 | 0 of 1177 | 0 of 714 | 321 of 412 (78%) | 561 of 1007 (56%) |
+| DuckDB 1.2 | 2632 | 0 of 1639 | 0 of 1039 | 341 of 463 (74%) | 516 of 993 (52%) |
 | ClickHouse (docs, weak) | 138 | 0 | 0 | n/a | n/a |
 | T-SQL (docs, weak) | 234 | 0 | 0 | n/a | n/a |
 
+`corpus/typos.sql` is a separate, asserted list: every statement in it that an engine rejects as a syntax
+error must reach the editor (parser error, or the linter's near-miss keyword check for `selct`); it holds the 18
+typos reported from real use and their near neighbours, and `corpus/neighbours.sql` holds the valid side.
 (b) is low on purpose: the parser flags a syntax error only where every dialect it applies to agrees, and the
 engines reject far more (type errors, bad option values, missing keywords the parser tolerates). The corpus was
 written by me, so these are catch rates on *my* statements, not a prediction for real-world SQL. Analysing a

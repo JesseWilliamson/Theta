@@ -435,7 +435,7 @@ Server administration (Sessions, Roles, Export Database, Run SQL Script)
 Editor
 - No soft wrap and no code folding. Long lines scroll horizontally.
 - Diagnostics stay quiet rather than flag valid SQL, so they miss errors: against real servers the parser flags
-  48-62% of the statements the engine rejects for syntax and the resolver 74-88% of the unknown-name errors
+  52-65% of the statements the engine rejects for syntax and the resolver 74-88% of the unknown-name errors
   (see [ARCHITECTURE](docs/ARCHITECTURE.md)). Name checks need a loaded catalog and are silent for schemas that
   are not loaded. DDL and anything outside queries and DML is parsed shallowly (only the names it defines or
   uses); routine bodies are opaque. T-SQL and ClickHouse were checked against documentation examples only.

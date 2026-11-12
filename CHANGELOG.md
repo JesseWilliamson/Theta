@@ -33,6 +33,9 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 - The linter's token-based syntax and name checks were replaced by the tree-based ones; the remaining
   meaning-level checks (`UPDATE` / `DELETE` without `WHERE`, `= NULL`, implicit cross join) are kept.
+- Four more common typos are now flagged in PostgreSQL, MySQL/MariaDB, SQLite and DuckDB: `ORDER` / `GROUP`
+  without `BY`, `UPDATE ... SET col 'x'` without `=`, a missing comma before a function call in the select list
+  (`select a count(*)`), and a `CASE` that is never closed; `CASE` without `END` is flagged in every dialect.
 - The backtick is an operator, not a quote, in PostgreSQL (it is still a quote in every other dialect).
 
 ## [0.1.0-alpha.7] - 2026-11-11
