@@ -10,11 +10,14 @@ use crate::er::keys::Cmd as ErCmd;
 use gpui_kit::{App, Window};
 use std::rc::Rc;
 
+/// What a tab command does when chosen.
+pub type RunTabCommand = Rc<dyn Fn(&mut Window, &mut App)>;
+
 pub struct TabCommand {
     pub label: &'static str,
     /// The key that does the same in the tab, as the key reference spells it.
     pub key: &'static str,
-    pub run: Rc<dyn Fn(&mut Window, &mut App)>,
+    pub run: RunTabCommand,
 }
 
 impl Workspace {

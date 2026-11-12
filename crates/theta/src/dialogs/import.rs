@@ -1372,7 +1372,8 @@ impl Render for ImportView {
             .child(
                 h_flex()
                     .gap_2()
-                    .items_end()
+                    // Top-aligned, so the two captions share a baseline whatever the controls' heights.
+                    .items_start()
                     .child(
                         v_flex().gap_1().child(caption("Import into", cx)).child(
                             h_flex()

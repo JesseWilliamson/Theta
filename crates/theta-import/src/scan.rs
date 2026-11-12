@@ -111,10 +111,44 @@ pub fn scan<R: Read>(
             Err(e) => return Err(e),
         }
     }
-    let types = (0..width).map(|i| inf.infer(i)).collect();
+    let types: Vec<ColumnType> = (0..width).map(|i| inf.infer(i)).collect();
+    // Numbers become numbers, so the preview grid right-aligns them like the results grid does; a value
+    // that does not read as its column's type (the sample says "mostly", not "all") stays as text.
+    for row in &mut rows {
+        for (v, t) in row.iter_mut().zip(&types) {
+            let Value::Text(text) = v else { continue };
+            let typed = match t {
+                ColumnType::Integer | ColumnType::BigInt => text.trim().parse::<i64>().ok().map(Value::Int),
+                ColumnType::Float => text.trim().parse::<f64>().ok().map(Value::Float),
+                ColumnType::Numeric { .. } => {
+                    text.trim().parse::<f64>().is_ok().then(|| Value::Decimal(text.trim().to_string()))
+                }
+                _ => None,
+            };
+            if let Some(typed) = typed {
+                *v = typed;
+            }
+        }
+    }
+    // The preview's header shows the inferred type, as the Columns tab does, and the grid aligns numbers
+    // to the right the way the results grid does (it goes by the column's kind).
     let columns = names
         .iter()
-        .map(|n| Column { name: n.clone(), type_name: "text".into(), kind: TypeKind::Text, origin: None })
+        .zip(&types)
+        .map(|(n, t): (&String, &ColumnType)| Column {
+            name: n.clone(),
+            type_name: t.label().into(),
+            kind: match t {
+                ColumnType::Integer | ColumnType::BigInt => TypeKind::Integer,
+                ColumnType::Numeric { .. } => TypeKind::Decimal,
+                ColumnType::Float => TypeKind::Float,
+                ColumnType::Boolean => TypeKind::Bool,
+                ColumnType::Date => TypeKind::Date,
+                ColumnType::Timestamp { .. } => TypeKind::Timestamp,
+                ColumnType::Text { .. } => TypeKind::Text,
+            },
+            origin: None,
+        })
         .collect();
     Ok(Scan {
         names,
@@ -167,6 +201,13 @@ mod tests {
         let s = run("a,b\n1,\"cut", true);
         assert!(s.unterminated_quote);
         assert_eq!(s.sampled, 0);
+    }
+
+    #[test]
+    fn the_preview_header_shows_the_inferred_types() {
+        let s = scan("id,price,name\n1,2.50,a\n2,3.75,b\n".as_bytes(), &CsvOptions::default(), true, &ConvertOptions::default(), 10).unwrap();
+        let types: Vec<_> = s.preview.columns.iter().map(|c| (c.type_name.as_str(), c.kind)).collect();
+        assert_eq!(types, [("integer", TypeKind::Integer), ("numeric", TypeKind::Decimal), ("text", TypeKind::Text)]);
     }
 
     #[test]

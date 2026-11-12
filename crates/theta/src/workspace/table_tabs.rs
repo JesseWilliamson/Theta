@@ -1146,10 +1146,10 @@ mod tests {
             .join("\n\n");
         assert_eq!(preview, expected);
         assert!(preview.starts_with("CREATE TABLE things ("), "{preview}");
-        assert_eq!(editor.read_with(vcx, |e, _| e.title()), "New table things");
+        assert_eq!(editor.read_with(vcx, |e, _| e.title()), "New Table things");
         // The tab is marked as having unapplied changes.
         let modified = f.ws.read_with(vcx, |ws, _| ws.tabs.last().map(|t| (t.modified, t.title.to_string())));
-        assert_eq!(modified, Some((true, "New table things".to_string())));
+        assert_eq!(modified, Some((true, "New Table things".to_string())));
     }
 
     #[gpui_kit::test]

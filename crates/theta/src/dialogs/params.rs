@@ -80,7 +80,7 @@ impl ParamsForm {
             .zip(initial)
             .map(|(key, init)| {
                 let text = init.text.clone();
-                let value = cx.new(|cx| InputState::new(window, cx).placeholder("value").default_value(text));
+                let value = cx.new(|cx| InputState::new(window, cx).default_value(text));
                 let ix = ParamType::ALL.iter().position(|t| *t == init.ty).unwrap_or(0);
                 let ty = cx.new(|cx| SelectState::new(labels.clone(), Some(IndexPath::new(ix)), window, cx));
                 subs.push(cx.subscribe_in(&value, window, |this, _, ev: &InputEvent, window, cx| {

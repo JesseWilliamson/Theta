@@ -186,6 +186,8 @@ impl HistoryPanel {
         let panel = cx.entity().downgrade();
         h_flex()
             .id(("history", ix))
+            // The whole row, not the width of its text, carries the selection.
+            .w_full()
             .h(px(24.))
             .px_2()
             .gap_2()
