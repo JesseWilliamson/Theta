@@ -450,12 +450,9 @@ async fn duckdb() {
     // for ever where it stays open, as on a CI runner), `read_csv('x.csv')` opens files, and a missing extension
     // is fetched from the network. The verdict must depend on the SQL alone, so the oracle gets no outside
     // world; those statements then fail with a permission error, which counts as "not a syntax error".
-    // It also folds constants while preparing: `select generate_series(1, 2000000000)` builds the two-billion
-    // element list there and then, which exhausted a 16 GB CI runner. A small memory limit turns
-    // that into an ordinary out-of-memory error.
     db.execute_batch(
         "SET autoinstall_known_extensions = false; SET autoload_known_extensions = false; \
-         SET enable_external_access = false; SET memory_limit = '512MB';",
+         SET enable_external_access = false;",
     )
     .unwrap();
     let mut cfg = ConnectionConfig::new("t-duck", "duck", DatabaseKind::DuckDb);
@@ -479,6 +476,9 @@ async fn duckdb() {
                 use std::io::Write;
                 let _ = writeln!(std::io::stderr(), "duckdb prepare: {sql:?}");
             }
+            if folds_to_something_huge(sql) {
+                return (s.clone(), Verdict::Skipped);
+            }
             let verdict = match db.prepare(sql) {
                 Ok(_) => Verdict::Valid,
                 Err(e) => {
@@ -491,6 +491,17 @@ async fn duckdb() {
         .collect();
     let t = judge_all("DuckDB 1.2", DatabaseKind::DuckDb, Some(&catalog), v, false, false);
     assert_clean(&t);
+}
+
+/// DuckDB folds constants while preparing, so `select generate_series(1, 2000000000)` builds the whole list
+/// there and then. `memory_limit` does not govern that allocation: on a machine that overcommits memory (the
+/// 16 GB CI runner) the process grows until the machine is taken down. Such statements are not asked.
+#[cfg(feature = "duckdb")]
+fn folds_to_something_huge(sql: &str) -> bool {
+    let lower = sql.to_ascii_lowercase();
+    let generator = ["generate_series(", "range(", "repeat("].iter().any(|f| lower.contains(f));
+    let long_number = lower.split(|c: char| !c.is_ascii_digit()).any(|digits| digits.len() >= 8);
+    generator && long_number
 }
 
 // ---------------------------------------------------------------- ClickHouse and T-SQL
