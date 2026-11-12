@@ -21,9 +21,21 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 - The Standard key map has find and replace: `ctrl-h` (or `ctrl-h` inside the find prompt), `enter` replaces one and moves on, `ctrl-enter` replaces all.
 - Reopen Closed Tab says why there is nothing to reopen after an empty console was closed, and the docs say empty consoles are not kept.
 
+- Sorting or filtering a result that was cut off at the row limit said nothing and showed wrong maxima and "No rows". The footer now says "Sorted within the 1,000 rows loaded" for as long as it applies, and **Load all** (`ctrl-shift-l`, or the palette) fetches the rest with progress and cancel, up to 500,000 rows, keeping the sort and filter.
+- A row added in the grid came back with NULL for its generated key. After Submit the grid shows what the database stored (keys, defaults, computed columns), read back with `RETURNING`, `LAST_INSERT_ID()` or a reload.
+- After a rollback or a failed commit, grids that may show rows that were never stored are marked "Rolled back: these rows may no longer exist" with a one-key Refresh (`F5`).
+- Floats print as the shortest text that reads back as the same number, with an exponent below 1e-5 and from 1e16 (`1.5e300`, not 300 digits), and a whole float keeps its `.0` so `1.0` is not mistaken for the integer 1. Copy and export write the same text.
+- Polygons were drawn as faint 2 px squares that vanished against the basemap at world zoom; collapsed polygons are now outlined markers no smaller than a point, in dark and light.
+- The squiggle under a server error started one character early (the position is a byte offset, not a 1-based character position), which put a stray tick at the end of the previous line for errors after a line break.
+- The same error was listed twice in Problems and without a column: the server's message now replaces ours at its position, and Problems shows "line:column".
+- A script that stops at its first error ends its *Messages* entry with "Stopped at statement 3 of 7: 4 statements were not run", and the status bar shows the failure instead of the previous statement's row count.
+- A read-only connection is marked in the title-bar connection switcher, the status bar and the explorer row, not only after a write is refused.
+- A failed Submit in the grid was shown three times (footer, toast and Messages) without saying which row; it is now shown once in the footer, with the row (`id = 2`, `new row 1`), the cursor moves to it and the staged edits are kept.
+
 ### Changed
 
 - Cancel Query is `shift-F5` instead of `mod-.`.
+- The grid footer has **Load all** and **Refresh**; `F5` in the grid refreshes the result.
 
 ## [0.1.0-alpha.9] - 2026-11-12
 

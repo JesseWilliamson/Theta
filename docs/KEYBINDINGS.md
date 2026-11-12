@@ -387,6 +387,8 @@ Handled in `crates/theta-grid/src/input.rs` when the grid has focus. `mod` is `c
 | `space` | toggle the cell viewer (follows the cursor while it is open) |
 | `shift-y` (Helix, Vim) | copy the whole value of the current cell (`mod-shift-y` works in every key map, from anywhere) |
 | `[` / `]` | with the viewer open on JSON: fold everything below the top level / unfold all |
+| `mod-shift-l` | **Load all**: run the statement again for the rows beyond the row limit (only when the result was cut off; `shift-F5` cancels) |
+| `F5` | **Refresh**: run the statement of the result again, keeping sort and filter (queries only) |
 | `F4`, `r` (Helix, Vim) | toggle the record view (the current row as a list of fields) |
 | `F3`, `a` (Helix, Vim) | toggle the selection statistics popover (also: click the summary in the footer) |
 | `esc` | collapse the selection; when nothing is left to collapse, return to the editor |

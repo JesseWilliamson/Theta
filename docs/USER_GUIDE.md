@@ -118,7 +118,9 @@ connection and pick the right type.
 
 ### Read-only connections
 
-Before running a statement Theta classifies it. On a read-only connection, anything classified as a data
+A read-only connection is marked wherever its name is shown: a muted *Read-only* tag with a lock in the
+title-bar connection switcher, "read-only" after the server version in the status bar, and a lock after its
+name in the explorer. Before running a statement Theta classifies it. On a read-only connection, anything classified as a data
 change (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `COPY`, `TRUNCATE` …) or a schema change (`CREATE`, `ALTER`,
 `DROP` …) is refused with "This connection is read-only: statements that modify data or schema are not
 run." Edits made in the grid are refused too. This is a safety net in the application, not a permission in
@@ -210,7 +212,13 @@ opened it; the title-bar switcher (or `:connect NAME` in Helix) rebinds it. Cons
 - One query runs at a time per connection. A second run is refused with "A query is already running on …
   Cancel it first". All consoles bound to the same connection share one server session.
 - **Row limit**: results stop at 1,000 rows by default (Settings › Data › *Row limit*). The server stops
-  producing rows at the limit, and *Messages* says "stopped at the row limit".
+  producing rows at the limit, and *Messages* says "stopped at the row limit". The grid footer says
+  "first 1,000 shown, limit reached" and offers **Load all** (see [Sort and filter a cut-off result](#sort-and-filter-a-cut-off-result)).
+- **A script that stops**: a script stops at its first error. The error's entry in *Messages* ends with "Stopped
+  at statement 3 of 7: 4 statements were not run" (cancelling says the same), the status bar shows the failure
+  in red instead of the previous statement's row count, and in manual transaction mode *Messages* adds that the
+  transaction is still open. A failed statement is underlined where the server pointed (a position is a byte
+  offset into the statement, so multi-line statements and non-ASCII text are underlined in the right place).
 - If the connection was lost (the server terminated the session, the network dropped, "server has gone
   away"), the first failing statement already marks the session lost and reconnects. A plain query
   outside a transaction is then re-run once automatically and *Messages* says "Connection lost —
@@ -288,8 +296,9 @@ MySQL user variables (`@x := 1`, `SET @x = 1`, `@@version`) are not parameters. 
   Name checks need the catalog; while it is loading, or for a schema Theta has not loaded, they stay silent
   rather than guess. The checker is deliberately quiet: an underline is worth a look, but the absence of one
   proves nothing. The database has the last word.
-  - **Problems** tab (`ctrl-shift-m`, Helix/Vim `space D`): every problem of the current console with its line;
-    `enter` jumps to it. `F8` / `shift-F8` (Helix/Vim `]d` / `[d`) step to the next / previous problem.
+  - **Problems** tab (`ctrl-shift-m`, Helix/Vim `space D`): every problem of the current console with its
+    line and column ("3:14"); `enter` jumps to it. When the server rejects a statement, its message replaces
+    ours at the position it points to, so one mistake is listed once. `F8` / `shift-F8` (Helix/Vim `]d` / `[d`) step to the next / previous problem.
 
 ### Code intelligence
 
@@ -376,6 +385,12 @@ shows **TXN open** with **Commit** and **Roll Back** buttons. Grid edits submitt
 run in it and are not committed ("Applied 2 changes (in your open transaction, not yet committed)"). Closing
 the last console of a connection or quitting with an open transaction opens a dialog with *Roll Back and
 Close* / *Commit and Close* (or *Roll Back and Quit* / *Commit and Quit*).
+
+**After a rollback, or a failed commit,** grids on that connection that were fetched after the transaction's
+first write (so they may show rows that were never stored) are marked stale: the footer says "Rolled back:
+these rows may no longer exist" with a **Refresh** button (`F5` in the grid). Results fetched before the
+transaction wrote anything are still true and are left alone. After a commit nothing is marked: what the grid
+shows is what is stored.
 
 ### Auto-commit, manual mode and isolation level
 
@@ -531,6 +546,10 @@ summary of the selected cells.
   *Clear Sort*, *Auto-fit Width* and *Copy Column Name*.
 - **Filter**: `mod-f` or `/` opens a filter box that matches any cell; the footer shows "2 of 8 rows";
   `esc` closes it and restores the rows.
+- **Cut-off results**: see [Sort and filter a cut-off result](#sort-and-filter-a-cut-off-result).
+- **Refresh**: `F5` in the grid (or *Refresh Results* in the palette, or **Refresh** in the footer) runs the
+  statement of the result again and keeps the sort, the filter and the column widths. Only queries can be
+  refreshed, never a write.
 - **Columns**: drag a header edge to resize; double-click the edge to fit.
 - **Cell viewer**: `space` (or the **Cell inspector** button, `mod-shift-v`, *Toggle Cell Viewer* in the palette,
   `space v` in Helix and Vim, `:cell`) opens a pane that shows the value of the current cell and follows the
@@ -551,6 +570,25 @@ summary of the selected cells.
 
 The grid draws only the visible window, and sorting or filtering more than 20,000 rows happens in the
 background.
+
+### Sort and filter a cut-off result
+
+The grid sorts and filters the rows it holds. When the result was cut off at the row limit that is a prefix
+of what the server has, so "descending" shows the largest of the rows loaded, not of the table, and a filter
+can say "No match in the rows loaded" while matching rows exist on the server. Theta does not hide this:
+
+- While a sort or a filter is applied to a cut-off result the footer says so, in the warning colour, for as
+  long as it applies: "Sorted within the 1,000 rows loaded", "Filtered within the 1,000 rows loaded" or
+  "Sorted and filtered within …". Without a sort or filter it says "first 1,000 shown, limit reached".
+- **Load all** in the footer (`mod-shift-l` while the grid has focus, or *Load All Rows* in the palette) runs
+  the statement again for the rest. It is an ordinary run: the status bar counts the seconds, the grid footer
+  says "Loading all rows…", the connection is busy, and `shift-F5` or the stop button cancels it and keeps the
+  rows already shown. When it finishes the sort and filter stay applied, now to every row, and the notice
+  disappears.
+- Load all fetches at most 500,000 rows. If the result is bigger the grid keeps saying "within the 500,000
+  rows loaded", stops offering **Load all** and asks for a narrower query (`WHERE`, `LIMIT`).
+- It needs the statement of the result, so it is not offered while there are pending changes (submit or revert
+  them first).
 
 With the Helix key map the grid also takes `h j k l`, `gg` / `G`, `v` (extend), `x` (select row), `y` (copy),
 `u` (undo an edit), `i` (edit) and `%` (select all).
@@ -805,7 +843,15 @@ be edited, not views", …). Connections marked *Read-only* never write.
    ```
 
    *Apply 2 changes* runs them in one transaction (inside yours, if one is open). If anything fails, nothing
-   is applied and the edits stay staged so you can fix them. *Cancel* leaves them staged.
+   is applied, the edits stay staged so you can fix them, the cursor goes to the row the server refused and
+   the footer says what it said, once ("… violates check constraint "chk" (id = 2)"; a new row is "new row 1").
+   *Cancel* leaves them staged.
+
+   Rows you added come back as the database stored them: a generated key, a default or a computed column
+   shows its value, not NULL. Theta asks for it with `INSERT … RETURNING` (PostgreSQL and its relatives,
+   DuckDB, SQLite 3.35 and later, MariaDB 10.5 and later); MySQL has no `RETURNING`, so it reads the row back
+   by the key you typed or by `LAST_INSERT_ID()`; where neither works (SQL Server, ClickHouse, Redshift,
+   a keyless MySQL table) the result is run again.
 
 The `WHERE` clauses use the primary key values the rows had **before** your edit. Values you type are
 parsed by the column type (integers, decimals, booleans, dates, JSON …); text that does not parse is
