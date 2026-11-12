@@ -94,6 +94,11 @@ theta --connect mysql://quarry:quarry@127.0.0.1:3306/quarry_demo --script report
 
 `--run SQL` and `--script FILE` open a console on the first start-up connection and run every statement in it.
 
+A problem with the command line or with a file read at start-up (an unusable `--connect` URL, a missing `--script`
+file, an unknown `--theme`, a broken theme or `templates.json`, a `--modify` table that does not exist) is printed to
+the terminal and also shown in the window: as a toast, and always in the *Messages* tab, which keeps the record after
+the toast has gone. Toasts appear one at a time, so a "Connected" toast never hides a warning.
+
 ### Other databases
 
 Besides PostgreSQL, MySQL/MariaDB and SQLite, Theta connects to the products below. How far each has been
@@ -842,7 +847,7 @@ be edited, not views", …). Connections marked *Read-only* never write.
    DELETE FROM main.customers WHERE id = 3;
    ```
 
-   *Apply 2 changes* runs them in one transaction (inside yours, if one is open). If anything fails, nothing
+   *Apply 2 Changes* runs them in one transaction (inside yours, if one is open). If anything fails, nothing
    is applied, the edits stay staged so you can fix them, the cursor goes to the row the server refused and
    the footer says what it said, once ("… violates check constraint "chk" (id = 2)"; a new row is "new row 1").
    *Cancel* leaves them staged.

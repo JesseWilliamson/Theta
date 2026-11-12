@@ -334,7 +334,7 @@ impl Render for ScriptView {
                                     live.statements + 1,
                                     human(live.bytes_read),
                                     live.total_bytes.map(human).unwrap_or_else(|| "?".into()),
-                                    plural(live.errors as u64, "error", "errors")
+                                    plural(live.errors, "error", "errors")
                                 )))
                                 .child(div().text_size(px(11.)).truncate().child(live.current.clone())),
                         )

@@ -414,7 +414,7 @@ impl Render for DataCompareView {
                         "Reading… {} from the source, {} from the target · {} so far",
                         rows_word(p.left_rows),
                         rows_word(p.right_rows),
-                        theta_core::text::plural(p.differences as u64, "difference", "differences")
+                        theta_core::text::plural(p.differences, "difference", "differences")
                     ),
                     vec![("esc cancels".to_string(), false)],
                 )

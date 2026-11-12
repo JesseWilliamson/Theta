@@ -8,6 +8,15 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Fixed
 
+- Errors are worded for people. `Connection refused (os error 111)`, `failed to lookup address information`, `password authentication failed`, `No such file or directory (os error 2)` and the temporary `.part` name no longer reach the screen: a connection says "Nothing is listening on 127.0.0.1:5999. Is the server running, and is the port right?", "The host db.internal could not be found. Check the name or your VPN." or "The server rejected the password for user postgres."; a file says "The file /x/y.csv does not exist." or "The folder /nonexistent/dir does not exist.". One mapping (`theta_core::friendly`) serves Test Connection, the explorer, toasts, Import, Export, Export Database, Run SQL Script, Open and Save, theme import and `--script`; Test Connection keeps the driver's own text on a "Details" line.
+- A connection failure no longer says "could not connect" twice, and a failed Modify Table apply is shown in the editor only (a toast appears when another tab is in front); Import no longer prints the failing row in the report and again in the footer.
+- Copy Table checks the new name against the live catalogue while you type (a table copied a moment ago counts) and disables Copy with the reason. The clean-up sentence after a failed copy is true in every case: made and rolled back, refused before anything was made (an existing table is untouched), or left behind.
+- Terminate Session and Cancel Query confirmations read once ("Terminate session 12756 (user postgres, database quarry_demo)?") and the badge agrees with the text ("Theta's own connection" or "Affects another session"). Truncate and Drop say what they delete, give the catalogue's row estimate and say when it cannot be undone.
+- Start-up problems (bad `--connect` URL, missing `--script` file, unknown `--theme`, a broken theme file or `templates.json`, a `--modify` table that is not there) are shown in the window and recorded in Messages as well as printed to stderr. Toasts now appear one at a time instead of piling up behind each other, so a warning is no longer covered by "Connected to …".
+- Importing an empty file says "The file is empty." and a header-only file says it has a header but no rows; Import is off, except into a new table, where the button reads Create Table and the footer says the empty table was created.
+- Counts, durations and rates read the same everywhere ("1 row", "831 ms", "1.24 s", "6 rows/s"); "1 ragged rows" and similar are fixed.
+- Error lines in Messages read the same for every engine: "SQLSTATE 42P01" or "Error 1305 · SQLSTATE 42000", with the server's DETAIL and HINT labelled.
+- Edit Live Templates, Zed theme import and a broken `templates.json` say what happened and name the file. Editor hints are in British spelling ("centre cursor"). The migration script no longer has a lone `-- ;` after commented statements, and the Compare header says "held back" once.
 - Copy Table opened from the palette had no focus, so `esc` and `tab` acted on the editor behind it; its name field is focused now.
 - `ctrl-alt-enter` (Run on Several Connections) was swallowed by the editor in the Standard and Helix key maps, and with fewer than two connections it crashed the app instead of saying so.
 - The "query is already running" message named `ctrl-.`, which is Quick Fixes in the editor. Cancel is `shift-F5` in every key map (it replaces `mod-.`), and the message reads the key from the bindings.
@@ -34,6 +43,7 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Changed
 
+- Confirmation buttons are Title Case ("Apply 2 Changes").
 - Cancel Query is `shift-F5` instead of `mod-.`.
 - The grid footer has **Load all** and **Refresh**; `F5` in the grid refreshes the result.
 

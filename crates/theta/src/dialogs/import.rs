@@ -771,6 +771,13 @@ impl ImportView {
                     )
                 },
             ),
+            (Outcome::Completed, ReportKind::Import) if rep.created_table && rep.rows_inserted == 0 => (
+                true,
+                format!(
+                    "Created the empty table {}. The file had a header and no rows.",
+                    self.last_table.as_ref().map(|(s, t)| qualified(s, t)).unwrap_or_default()
+                ),
+            ),
             (Outcome::Completed, ReportKind::Import) => (
                 true,
                 format!(
@@ -1280,6 +1287,8 @@ impl Render for ImportView {
                     empty_note(
                         if self.phase == Phase::Scanning {
                             "Reading the file…"
+                        } else if self.scan_error.is_some() {
+                            "Nothing to preview. Fix the file path above and press Enter."
                         } else {
                             "Enter a file path above and press Enter."
                         },
@@ -1318,7 +1327,7 @@ impl Render for ImportView {
             && matches!(&self.report, Some((ReportKind::Import, r)) if matches!(r.outcome, Outcome::Completed) && r.rows_inserted > 0);
         let import_label = if self.armed {
             "Confirm Import"
-        } else if emptiness.is_some() {
+        } else if emptiness.as_ref().is_some_and(|(_, blocks)| !*blocks) {
             "Create Table"
         } else {
             "Import"

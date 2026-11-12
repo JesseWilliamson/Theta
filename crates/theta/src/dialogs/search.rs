@@ -123,7 +123,7 @@ pub fn summary(r: &SearchReport, skipped: usize) -> String {
         "{} searched · {} with matches · {} matching · {}",
         r.tables - r.not_run,
         r.matched_tables,
-        theta_core::text::plural(r.matched_rows as u64, "row", "rows"),
+        theta_core::text::plural(r.matched_rows, "row", "rows"),
         theta_core::text::duration(r.elapsed)
     );
     for (n, what) in [(r.timed_out, "timed out"), (r.failed, "failed"), (skipped, "skipped")] {
@@ -528,7 +528,7 @@ impl SearchView {
                 SearchOutcome::Matched(c) => lines.push(format!(
                     "{}: {} ({})",
                     qualified(&r.schema, &r.table),
-                    theta_core::text::plural(c.matched_rows as u64, "row", "rows"),
+                    theta_core::text::plural(c.matched_rows, "row", "rows"),
                     c.columns.iter().map(|(n, k)| format!("{n} {k}")).collect::<Vec<_>>().join(", ")
                 )),
                 SearchOutcome::TimedOut => {
