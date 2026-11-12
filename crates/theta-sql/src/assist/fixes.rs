@@ -41,10 +41,15 @@ pub fn code_actions(
         && sql.as_bytes().get(at).is_none_or(|b| !(b.is_ascii_alphanumeric() || *b == b'_'));
     let probe = if at_word_end { at - 1 } else { at };
     let path: Vec<&Node> = a.parse.root.path_at(probe).into_iter().filter(|n| !n.kind.is_token()).collect();
-    for d in &a.diagnostics {
-        if d.range.start > at || at > d.range.end {
-            continue;
-        }
+    // The problems under the cursor; when there are none, those of the statement (a fix is useful from
+    // anywhere in the statement, and the title names the word it changes).
+    let here = |d: &&crate::analysis::Diag| d.range.start <= at && at <= d.range.end;
+    let relevant: Vec<&crate::analysis::Diag> = if a.diagnostics.iter().any(|d| here(&d)) {
+        a.diagnostics.iter().filter(here).collect()
+    } else {
+        a.diagnostics.iter().collect()
+    };
+    for d in relevant {
         match &d.kind {
             DiagKind::UnknownTable { name, candidates }
             | DiagKind::UnknownColumn { name, candidates, .. }

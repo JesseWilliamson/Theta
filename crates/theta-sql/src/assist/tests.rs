@@ -67,6 +67,17 @@ fn did_you_mean_for_columns_tables_and_aliases() {
 }
 
 #[test]
+fn fixes_for_the_statement_are_offered_from_anywhere_in_it() {
+    let marked = "select emial from customers where id > 1|";
+    assert!(titles(marked).iter().any(|t| t == "Change 'emial' to 'email'"), "{:?}", titles(marked));
+    // but when the cursor is on a problem, only that problem's fixes come first
+    let two = "select emial, naem| from customers";
+    let t = titles(two);
+    assert_eq!(t[0], "Change 'naem' to 'name'", "{t:?}");
+    assert!(!t.iter().any(|x| x.contains("'emial'")), "{t:?}");
+}
+
+#[test]
 fn qualify_an_ambiguous_column() {
     let sql = "select i|d from customers c join orders o on o.customer_id = c.id";
     assert_eq!(
