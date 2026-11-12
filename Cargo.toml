@@ -35,6 +35,7 @@ theta-plan-view = { path = "crates/theta-plan-view" }
 theta-import = { path = "crates/theta-import" }
 encoding_rs = "0.8"
 theta-chart = { path = "crates/theta-chart" }
+theta-diagram = { path = "crates/theta-diagram" }
 
 [profile.dev]
 opt-level = 1

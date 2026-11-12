@@ -1,0 +1,11 @@
+[package]
+name = "theta-diagram"
+description = "Entity-relationship diagrams for Theta: graph from the catalog, deterministic layered layout with orthogonal edge routing, SVG and Mermaid export. Pure Rust, no UI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+theta-core.workspace = true

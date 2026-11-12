@@ -8988,6 +8988,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "theta-diagram"
+version = "0.1.0-alpha.8"
+dependencies = [
+ "theta-core",
+]
+
+[[package]]
 name = "theta-drivers"
 version = "0.1.0-alpha.8"
 dependencies = [
