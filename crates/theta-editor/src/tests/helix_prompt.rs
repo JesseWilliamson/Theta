@@ -278,6 +278,7 @@ fn space_menu_effects() {
         ("<space>V", Effect::HostCommand("cell copy".into())),
         ("<space>G", Effect::HostCommand("diagram".into())),
         ("<space>S", Effect::HostCommand("schemacompare".into())),
+        ("<space>X", Effect::HostCommand("datacompare".into())),
         ("<F12>", Effect::GoToDefinition),
         ("<S-F12>", Effect::FindUsages),
         ("<F2>", Effect::RenameSymbol),

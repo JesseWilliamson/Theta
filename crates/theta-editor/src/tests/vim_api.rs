@@ -306,6 +306,7 @@ fn leader_actions() {
         ("<space>V", Effect::HostCommand("cell copy".into())),
         ("<space>G", Effect::HostCommand("diagram".into())),
         ("<space>S", Effect::HostCommand("schemacompare".into())),
+        ("<space>X", Effect::HostCommand("datacompare".into())),
         // code intelligence
         ("gd", Effect::GoToDefinition),
         ("gr", Effect::FindUsages),
@@ -509,6 +510,7 @@ fn host_commands_match_the_helix_table() {
         (":multirun", vec![Effect::HostCommand("multirun".into())]),
         (":diagram", vec![Effect::HostCommand("diagram".into())]),
         (":schemacompare", vec![Effect::HostCommand("schemacompare".into())]),
+        (":datacompare", vec![Effect::HostCommand("datacompare".into())]),
         (":diagram orders", vec![Effect::HostCommand("diagram orders".into())]),
         (":localhistory", vec![Effect::HostCommand("localhistory".into())]),
         (":new", vec![Effect::NewTab]),
