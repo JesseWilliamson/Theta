@@ -6,6 +6,35 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+### Added
+
+- **A real SQL parser** (`theta_sql::syntax`): hand-written, error-tolerant recursive descent over the existing
+  lexer for PostgreSQL, MySQL, SQLite, DuckDB, T-SQL and ClickHouse. The tree is lossless (every node has a byte
+  span; trivia is kept). Queries and DML are parsed in depth, DDL and the rest shallowly. It reports an error
+  only where the text is invalid in every dialect the rule applies to.
+- **Name resolution** (`theta_sql::analysis`) against the catalog: aliases, CTEs, derived tables, `USING` /
+  `NATURAL`, `*` expansion, correlated and `LATERAL` scopes, `RETURNING`, with dialect case folding and
+  quoting. When it cannot tell, it says nothing.
+- **Diagnostics** from the tree: syntax errors with exact spans, unknown table / column (naming the tables
+  searched), ambiguous column, undefined / duplicate alias, column-count mismatch, ungrouped column. Inline,
+  with a new **Problems** tab (`ctrl-shift-m`) that jumps to the problem; `F8` / `shift-F8` step through them.
+  Computed after a pause, off the UI thread.
+- **Quick fixes and refactorings** (`ctrl-.`, Helix/Vim `space a`): did you mean, qualify an ambiguous column,
+  expand `*`, add alias and qualify, add `GROUP BY` columns, comma join to `JOIN`, flip `JOIN`, extract / inline
+  CTE, upper- / lower-case keywords.
+- **Go to definition** (`F12`, `gd`), **find usages** (`shift-F12`, `gr`) with a picker, occurrence
+  highlighting, and **rename** (`F2`, Helix/Vim `space n`) for aliases, CTEs and CTE / select-alias columns as
+  one undo step, refusing collisions and capture with the reason. Catalog renames are not offered.
+- A differential test against PostgreSQL 16, MariaDB 10.11, SQLite and DuckDB with a corpus of about 2,000
+  statements per dialect (T-SQL and ClickHouse: documentation examples), and parser robustness tests (truncation
+  at every token, random deletions, token soup, deep nesting, linear time).
+
+### Changed
+
+- The linter's token-based syntax and name checks were replaced by the tree-based ones; the remaining
+  meaning-level checks (`UPDATE` / `DELETE` without `WHERE`, `= NULL`, implicit cross join) are kept.
+- The backtick is an operator, not a quote, in PostgreSQL (it is still a quote in every other dialect).
+
 ## [0.1.0-alpha.7] - 2026-11-11
 
 ### Fixed

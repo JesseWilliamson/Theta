@@ -253,9 +253,41 @@ MySQL user variables (`@x := 1`, `SET @x = 1`, `@@version`) are not parameters. 
     `enter` does not turn the alias into `CROSS JOIN`.
 - **Format Document**: `mod-shift-f` (Helix `:format`). With a selection, Helix `=` formats the selection.
   Indent width (default 4) and keyword upper-casing (default on) are in Settings › Editor.
-- **Diagnostics** underline syntax problems, `UPDATE`/`DELETE` without `WHERE`, suspicious predicates and,
-  when the catalog is loaded, unknown tables and columns. The linter is heuristic and deliberately quiet:
-  an underline is worth a look, but the absence of one proves nothing. The database has the last word.
+- **Diagnostics** underline problems as you type (after a short pause, off the UI thread). Red is a syntax
+  error; amber is a problem with meaning: an unknown table or column (the message names the tables it looked in),
+  an ambiguous column, an alias that is not defined or is defined twice, a column-count mismatch in `INSERT` or
+  `UNION`, a column that is neither grouped nor aggregated (PostgreSQL, DuckDB, SQL Server), plus
+  `UPDATE`/`DELETE` without `WHERE` and suspicious predicates. Hover an underline for the message.
+  Name checks need the catalog; while it is loading, or for a schema Theta has not loaded, they stay silent
+  rather than guess. The checker is deliberately quiet: an underline is worth a look, but the absence of one
+  proves nothing. The database has the last word.
+  - **Problems** tab (`ctrl-shift-m`, Helix/Vim `space D`): every problem of the current console with its line;
+    `enter` jumps to it. `F8` / `shift-F8` (Helix/Vim `]d` / `[d`) step to the next / previous problem.
+
+### Code intelligence
+
+Theta parses the statement under the cursor (all six dialects) and knows what each name refers to: a catalog
+table or column, an alias, a CTE, a column of a CTE or derived table, or nothing. When it cannot tell it says
+nothing instead of guessing. The features below work on that.
+
+- **Quick fixes and refactorings** (`ctrl-.` / `cmd-.`, Helix/Vim `space a`) open a menu. Problems at the cursor
+  come first; the statement-wide actions are offered from anywhere in the statement.
+  - Quick fixes: *did you mean* for an unknown table or column, *qualify* an ambiguous column, *add GROUP BY*
+    columns.
+  - Refactorings: expand `*` into the column list, add an alias and qualify the columns with it, comma join to
+    `JOIN ... ON`, flip a two-table `JOIN`, extract a subquery into a CTE, inline a CTE.
+  - Source: upper-case / lower-case the keywords of the statement.
+  Each action is one undo step.
+- **Go to definition** (`F12`, Helix/Vim `gd`) jumps from a use to its alias, CTE, CTE column or select alias in
+  the same statement. On a table or column of the catalog it reveals it in the explorer and shows a peek of the
+  table's columns.
+- **Occurrences**: while the cursor rests on a name, the other uses of the same thing are highlighted.
+- **Find usages** (`shift-F12`, Helix/Vim `gr`) lists them in a picker: for an alias or CTE the uses in the
+  statement, for a catalog table or column the uses in every open console.
+- **Rename** (`F2`, Helix/Vim `space n`) renames an alias, a CTE, or a CTE column / select alias, everywhere it is
+  used in the statement, as one undo step. It keeps the quoting style of the dialect and refuses, with the
+  reason, a name that collides with another alias or CTE, would capture a different column, or is not a valid
+  identifier. Renaming a table or column of the database is not offered: use the table editor for that.
 
 ### Live templates
 

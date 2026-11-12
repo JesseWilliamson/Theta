@@ -445,6 +445,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `space /` | go to table (picker) |
 | `space g` `space d` | focus results / focus explorer |
 | `space T` `space j` | toggle explorer / toggle bottom panel |
+| `space a` `space n` `space D` | quick fixes / rename / Problems tab |
 
 #### Command line (`:`)
 
@@ -475,6 +476,21 @@ Prompt editing: `left right home end ctrl-a ctrl-e ctrl-b ctrl-f alt-b alt-f` mo
 `backspace del ctrl-w ctrl-u ctrl-k alt-backspace` deletion, `up down ctrl-p ctrl-n` history, `esc ctrl-c`
 cancel (backspace on an empty prompt cancels too). While a prompt is open all of these belong to the prompt,
 including `ctrl-e`, `ctrl-b`, `ctrl-w`, `ctrl-k`, `ctrl-p` and `ctrl-n`.
+
+#### Code intelligence (all three key maps; see also Vim and Standard below)
+
+| keys | action |
+| --- | --- |
+| `F12` / `shift-F12` | go to definition / find usages |
+| `F2` | rename alias, CTE, CTE column or select alias |
+| `ctrl-.` `cmd-.` | quick fixes and refactorings menu |
+| `F8` / `shift-F8` | next / previous problem |
+| `ctrl-shift-m` `cmd-shift-m` | Problems tab |
+
+Helix and Vim also have `gd` (definition), `gr` (usages), `]d` / `[d` (next / previous problem) and, in the
+space menu, `space a` (quick fixes), `space n` (rename) and `space D` (Problems). Two deviations: real Helix
+renames with `space r`, which here runs the statement, so rename is `space n`; and in Vim `gr` is "virtual
+replace" in real Vim, which Theta does not have, so `gr` finds usages as in Helix.
 
 #### Global (every mode of both keymaps)
 
@@ -626,6 +642,7 @@ work. `n` / `N` keep the direction; `*` `#` search the word under the cursor.
 | `space /` | `OpenTablePicker` |
 | `space g` `space d` | `FocusResults` / `FocusExplorer` |
 | `space T` `space j` | `ToggleExplorer` / `ToggleBottomPanel` |
+| `space a` `space n` `space D` | code actions / rename / Problems tab |
 
 #### Command line (`:`)
 
@@ -698,4 +715,5 @@ The deviations from real Vim (what `space` means, fixed options, no `:map` or Vi
 | `ctrl-p` | go to table |
 | `ctrl-shift-i` `ctrl-alt-l` | format document (`mod-shift-f` also works) |
 | `ctrl-b` `ctrl-j` `ctrl-shift-e` | toggle explorer / toggle bottom panel / focus explorer |
+| `F12` `shift-F12` `F2` `ctrl-.` `F8` `ctrl-shift-m` | definition / usages / rename / quick fixes / next problem / Problems tab |
 | `ctrl-k ctrl-t` | theme picker (the status bar shows `ctrl-k` while it waits for the second chord) |

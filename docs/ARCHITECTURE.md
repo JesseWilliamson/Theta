@@ -550,6 +550,85 @@ was found by the differential test, not by reading manuals. When in doubt a rule
 4. Add a statement to `crates/theta-sql/tests/corpus/*.sql` (one per line), run the differential test, add a unit
    test for the tree shape.
 
+#### Resolution (`theta_sql::analysis`)
+
+`analysis::analyze(sql, kind, catalog) -> Analysis` runs the parser, then walks the tree once building *scopes*
+and resolving every identifier. The result holds the parse, the symbol table (aliases, CTEs, CTE and derived
+columns, select aliases), a `Resolution` per reference, the expanded `*`s and the diagnostics.
+
+* A reference resolves to a catalog table, catalog column, symbol, function, pseudo source (`excluded`,
+  `inserted`, `deleted`) or to `Unresolved(Problem)`; and, the important case, to `Unknown`.
+  **Unresolved is only produced when every source in scope is fully known.** One unloaded schema, a system table,
+  a script-created object of unknown shape, a statement containing an opaque `Unknown` node, or an empty catalog
+  ("not loaded") makes the answer `Unknown` and no diagnostic is emitted. This is the same rule as the parser's:
+  a missing diagnostic is cheap, a false one is not.
+* Dialect rules live in `analysis/names.rs`: identifier folding (unquoted names fold to lower case in PostgreSQL and
+  DuckDB; MySQL, SQLite and T-SQL compare case-insensitively, as their servers do for columns), quoting, and a strict-then-loose match (an exact match
+  wins; otherwise a case-insensitive match is accepted for dialects that fold).
+* Scopes: CTE scopes (recursive or not), derived tables, `USING` / `NATURAL` (the merged column is not
+  ambiguous), `LATERAL` / `APPLY` (see the preceding FROM items), correlated subqueries (outer scopes are
+  searched after inner), `RETURNING` / `OUTPUT`. A *passthrough* output column (`select a from t`) reuses the
+  source's symbol, so renaming and ORDER BY see one thing.
+* Diagnostics emitted: unknown table and column (with the tables it was looked for in), ambiguous column,
+  undefined and duplicate alias, column-count mismatch (INSERT, set operations), ungrouped column (PostgreSQL,
+  DuckDB, SQL Server only; it skips anything inside a call, columns determined by a primary key, and
+  positional references).
+* `lint::lint` merges parse errors (Critical), analysis diagnostics (Warning) and the meaning-level checks that are
+  not about names (UPDATE/DELETE without WHERE, `= NULL`, implicit cross join, a near-miss statement keyword).
+
+#### Editor assistance (`theta_sql::assist`)
+
+Pure functions from `(sql, analysis, cursor)` to byte-range `Edit`s; `apply_edits` applies them. Nothing here
+touches the UI.
+
+* `code_actions` offers fixes for the problem at the cursor, and the statement-wide ones from anywhere in the
+  statement. Every fix has a before/after unit test in `assist/tests.rs`.
+* `definition_at`, `usages_of`, `highlights_at`, `target_at` answer navigation. A catalog object is a *target*
+  (table or column) that the app resolves against the explorer and, for usages, against every open tab.
+* `rename_prepare` / `rename_at` rename a symbol or refuse with a reason: empty, unchanged, not an identifier,
+  alias collision, an inner scope that would capture the new name, a CTE collision or one that would hide a
+  table the statement uses, a duplicated output column, an ORDER BY / GROUP BY that would bind differently, a
+  passthrough column (rename the source), a catalog object (the message points to the table editor).
+
+#### How the editor uses it
+
+`theta/src/exec/intel.rs` analyses the *statement under the cursor* (the splitter's segment), so a 5,000-line
+script costs one statement per keystroke; only catalog-object usages analyse the whole script. Diagnostics run
+on the background executor after a debounce and are cancelled by the next edit; the view holds them back while
+typing (`TYPING_IDLE`) and emits `DiagnosticsChanged` when the pause ends. The engine crates only know *keys*:
+`gd`, `gr`, `F12`, ... become `Effect`s (`GoToDefinition`, `FindUsages`, `RenameSymbol`, `CodeActions`,
+`NextProblem`, `ShowProblems`) and the workspace (`workspace/code_intel.rs`) answers them with pickers, the name
+dialog and `Explorer::reveal_table`. A multi-range edit goes through `Editor::replace_ranges`, one undo step.
+
+#### How to add a quick fix
+
+1. Add a `FixKind` variant only if it is a new *section*; otherwise return an `Action { title, kind, edits }` from
+   `code_actions` (`assist/fixes.rs`). Compute edits from the tree and the analysis, never from regexes on the
+   text, and make them non-overlapping byte ranges.
+2. Offer it only when it is certainly correct for the dialect; return nothing otherwise.
+3. Add a before/after test in `assist/tests.rs` (`apply_edits` the action and compare the text) and a test that it
+   is *not* offered where it would be wrong.
+
+#### Numbers
+
+Differential test, run on this machine (`cargo test -p theta-drivers --test sql_differential`; set
+`THETA_DIFF_VERBOSE=1` for the missed lists). (a) is asserted, (b) and (c) are reported.
+
+| engine | statements | false parser errors | false name diagnostics | (c) name errors also flagged | (b) syntax errors also flagged |
+| --- | --- | --- | --- | --- | --- |
+| PostgreSQL 16 | 2259 | 0 of 1409 | 0 of 864 | 363 of 435 (83%) | 510 of 819 (62%) |
+| MariaDB 10.11 | 2269 | 0 of 1273 | 0 of 912 | 283 of 320 (88%) | 498 of 990 (50%) |
+| SQLite (bundled) | 2104 | 0 of 1140 | 0 of 677 | 321 of 412 (78%) | 514 of 957 (54%) |
+| DuckDB 1.2 | 2545 | 0 of 1596 | 0 of 997 | 341 of 463 (74%) | 452 of 949 (48%) |
+| ClickHouse (docs, weak) | 138 | 0 | 0 | n/a | n/a |
+| T-SQL (docs, weak) | 234 | 0 | 0 | n/a | n/a |
+
+(b) is low on purpose: the parser flags a syntax error only where every dialect it applies to agrees, and the
+engines reject far more (type errors, bad option values, missing keywords the parser tolerates). The corpus was
+written by me, so these are catch rates on *my* statements, not a prediction for real-world SQL. Analysing a
+5,000-statement file (one statement per line) takes about 0.23 s in the optimised test profile; parse time is
+linear (500 units 0.04 s, 4,000 units 0.32 s).
+
 ## Status
 
 0.1.0-alpha.7 is the seventh pre-release (0.1.0-alpha.1 to -alpha.6 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense

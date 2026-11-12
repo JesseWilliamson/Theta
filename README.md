@@ -136,9 +136,14 @@ Per-product behaviour (what is disabled and why) is in the [user guide](docs/USE
 - Completion for keywords, schemas, tables, columns, aliases, functions and snippets, with dialect-specific
   function lists. After `JOIN` it offers whole `JOIN … ON …` clauses built from declared and suggested
   foreign keys.
-- A formatter (indent width and keyword case are settings), a diagnostics pass (syntax problems,
-  `UPDATE`/`DELETE` without `WHERE`, unknown tables and columns), and a statement splitter that understands
+- A formatter (indent width and keyword case are settings) and a statement splitter that understands
   comments, quoting and dollar-quoted bodies, so "run statement under the cursor" works in scripts.
+- A real SQL parser (hand-written, error-tolerant, all six dialects) and code intelligence built on it:
+  diagnostics (syntax errors, unknown table or column, ambiguous column, undefined or duplicate alias,
+  column-count mismatch, ungrouped column) inline and in a Problems tab; quick fixes and refactorings (did you
+  mean, qualify, expand `*`, add alias, add `GROUP BY`, comma join to `JOIN`, flip `JOIN`, extract / inline CTE,
+  keyword case); go to definition, find usages and occurrence highlighting; rename of aliases, CTEs and
+  select aliases. All keyboard-driven in the Helix, Vim and Standard key maps.
 - Hand-written SQL highlighter that copes with half-typed statements.
 - **Live templates**: `sel`, `join`, `cte`, `crt` and a dozen more expand with Tab into snippets with tab stops,
   linked placeholders (typing in one edits the mirrors), and variables (`${table}` asks which table, `${columns}`,
@@ -429,9 +434,14 @@ Server administration (Sessions, Roles, Export Database, Run SQL Script)
 
 Editor
 - No soft wrap and no code folding. Long lines scroll horizontally.
-- Diagnostics are heuristic. The linter is written to stay quiet rather than flag valid SQL, so it misses
-  some errors, and it understands only the common parts of each dialect. The database remains the judge:
-  a failed statement is underlined from the server's error position.
+- Diagnostics stay quiet rather than flag valid SQL, so they miss errors: against real servers the parser flags
+  48-62% of the statements the engine rejects for syntax and the resolver 74-88% of the unknown-name errors
+  (see [ARCHITECTURE](docs/ARCHITECTURE.md)). Name checks need a loaded catalog and are silent for schemas that
+  are not loaded. DDL and anything outside queries and DML is parsed shallowly (only the names it defines or
+  uses); routine bodies are opaque. T-SQL and ClickHouse were checked against documentation examples only.
+  The database remains the judge: a failed statement is underlined from the server's error position.
+- Rename covers aliases, CTEs and select aliases in one statement. Renaming a table or column of the database is
+  not offered. Usages of a catalog object are searched in open consoles only, not in saved files that are closed.
 - In the editor the engine's keys win over the application's shortcuts, so a few application chords
   (`ctrl-b`, `ctrl-o`, `ctrl-w`, `ctrl-k`, `F5`) do something else while the editor has focus in the Helix key
   map, and in the Vim key map the `ctrl-` letters Vim uses (`ctrl-w`, `ctrl-b`, `ctrl-e`, `ctrl-n`, `ctrl-o`,
