@@ -835,11 +835,13 @@ impl Editor {
         use crate::keys::Key;
         let m = &k.modifiers;
         match &k.key {
-            Key::Enter if (m.ctrl || m.platform) && m.shift => {
+            Key::Enter if (m.ctrl || m.platform) && m.shift && !m.alt => {
                 self.effects.push(Effect::RunAll);
                 true
             }
-            Key::Enter if m.ctrl || m.platform => {
+            // `ctrl-alt-enter` is the application's "Run on Several Connections"; the engine must
+            // not take it for a plain run.
+            Key::Enter if (m.ctrl || m.platform) && !m.alt => {
                 match self.selected_text() {
                     Some(t) => self.effects.push(Effect::RunSelection(t)),
                     None => self.effects.push(Effect::RunStatementAtCursor),

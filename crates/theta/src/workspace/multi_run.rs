@@ -77,7 +77,7 @@ impl Workspace {
         // read the workspace (it is being updated), so everything it needs is handed over.
         let previews =
             [self.multi_preview(id, Scope::Statement, cx), self.multi_preview(id, Scope::Script, cx)];
-        crate::dialogs::multi_run::open(
+        if let Err(why) = crate::dialogs::multi_run::open(
             cx.entity().downgrade(),
             self.store.clone(),
             id,
@@ -85,7 +85,9 @@ impl Workspace {
             previews,
             window,
             cx,
-        );
+        ) {
+            self.notify(NoticeKind::Info, why, window, cx);
+        }
     }
 
     /// Run `scope` of console `id` on each of `conn_ids`. Nothing here stops at the first failure.

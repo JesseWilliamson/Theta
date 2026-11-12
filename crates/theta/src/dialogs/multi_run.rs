@@ -49,7 +49,7 @@ pub fn open(
     previews: [Vec<(String, bool)>; 2],
     window: &mut Window,
     cx: &mut App,
-) {
+) -> Result<(), &'static str> {
     let items: Vec<Item> = {
         let s = store.read(cx);
         s.configs()
@@ -64,18 +64,10 @@ pub fn open(
             })
             .collect()
     };
+    // The caller is inside an update of the workspace, so the refusal is returned to it to show; updating
+    // the workspace from here would be a re-entrant update (a panic).
     if items.len() < 2 {
-        if let Some(ws) = ws.upgrade() {
-            ws.update(cx, |w, cx| {
-                w.notify(
-                    crate::connections::NoticeKind::Info,
-                    "Connect at least two connections to run on several".to_string(),
-                    window,
-                    cx,
-                )
-            });
-        }
-        return;
+        return Err("Connect at least two connections to run on several");
     }
     let view = cx.new(|cx| {
         let scope = cx.new(|cx| {
@@ -130,6 +122,7 @@ pub fn open(
         let handle = focus.read(cx).focus.clone();
         window.focus(&handle, cx);
     });
+    Ok(())
 }
 
 impl MultiRunView {

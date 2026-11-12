@@ -394,4 +394,21 @@ mod tests {
         assert!(engine_owns(s(Keymap::Helix, Mode::Insert, false, true), &n), "popup owns ctrl-n");
         assert!(!engine_owns(s(Keymap::Helix, Mode::Insert, false, false), &n));
     }
+
+    /// `ctrl-alt-enter` (Run on Several Connections) was once taken for a plain `ctrl-enter` by
+    /// the engine, which ignored `alt`. No `alt` chord of the application may be used by the
+    /// engine while a prompt bar or a half-typed Vim command is not waiting for the next key.
+    #[test]
+    fn alt_chords_of_the_application_reach_it_from_the_editor() {
+        for b in super::super::global_bindings() {
+            let stroke = b.keystrokes()[0].unparse(theta_ui::host_os());
+            if !stroke.contains("alt") {
+                continue;
+            }
+            let key = engine_key(&stroke).unwrap();
+            for s in EditorState::all().into_iter().filter(|s| !s.prompt && !s.pending) {
+                assert!(!engine_owns(s, &key), "{stroke} must reach the application in {}", s.describe());
+            }
+        }
+    }
 }

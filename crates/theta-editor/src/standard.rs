@@ -222,6 +222,8 @@ impl Editor {
                     -l
                 })));
             }
+            // `ctrl-alt-enter` belongs to the application (Run on Several Connections).
+            Key::Enter if prim && alt => return false,
             Key::Enter => self.insert_newline(),
             Key::Backspace => {
                 if m.platform {
