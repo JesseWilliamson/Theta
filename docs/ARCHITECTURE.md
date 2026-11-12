@@ -652,6 +652,23 @@ and `copy_cell_value` for the palette actions, the global chords and the `:cell`
 space menus use the new `FxKind::Host`, a generic "send this `:` command to the application", so a menu entry for
 an application feature needs no engine change beyond one line in each menu.
 
+#### Charts
+
+`theta-chart` is a pure crate (it depends on `theta-core` only) holding everything about a chart that is not
+painting, so each rule has a unit test: `spec::suggest` (defaults from column types; a column on a very
+different scale is not charted with the first), `shape::build` (rows to series: category slots, grouping by a
+series column, aggregation, bucketing of crowded continuous x into equal intervals, the bar / pie category
+limits, and a note for every row or category that was left out), `ticks` (Heckbert nice numbers, calendar-aware
+time ticks on month starts), `time` (civil-date arithmetic, no calendar dependency), `scale`, `hit` and
+`layout`. `Layout::new(data, width, height)` is the whole geometry: plot rectangle, scales, tick positions,
+bar rectangles, pie slices, `hit` (which mark is under a pixel) and `readout` (the text), all in plain `f64`.
+`crates/theta/src/panels/chart.rs` is only the shell: the dropdowns and buttons, `canvas` painting of a `Layout`
+(`paint_path` for lines, areas and slices, `paint_quad` for bars and points, shaped text for labels), the
+pointer and key handlers, and the colours, which are the theme's own hues so the chart follows a theme change.
+The workspace feeds it from `apply_console`, the one place every result passes through (a result that is the
+same `Arc` as the one shown keeps the user's choices). PNG export is not offered: `Window::render_to_image`
+exists only under GPUI's `test-support` feature.
+
 #### Search across tables
 
 Three layers, so that the dialect logic and the concurrency are each testable without a window:

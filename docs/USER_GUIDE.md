@@ -550,6 +550,37 @@ Helix and Vim), for the details: cells, count, distinct values, NULLs, min, max,
 shortest and longest text. It follows the selection, is computed on a background thread when the selection is large,
 and *Copy* puts the figures on the clipboard.
 
+## Charts
+
+The **Chart** tab next to *Results* draws the active result: a bar, line, area, scatter or pie chart. Open it
+from the tab strip, the command palette (*Show Chart*), `mod-shift-g`, `space C` in Helix and Vim, or `:chart`.
+It charts the result that is on screen, so run a query that returns what you want to plot (a `GROUP BY` does the
+heavy lifting); opening the tab on a result with a date and a number, or a text and a number, already shows a chart.
+
+- **X** is the horizontal axis: text and other values become categories, numbers and dates a real axis (dates
+  get calendar-aware ticks: hours, days, months, years). **Y** is a row of buttons, one per numeric column;
+  several can be on at once and each becomes a series (the last one cannot be switched off). **Series** splits
+  every Y by the values of a column, one line or bar group per value.
+- **Aggregate** (sum, average, count, min, max) combines the Y values that share an X and a series, so a table of
+  orders by day can be summed per month without writing the query. A scatter chart plots every row and does not
+  aggregate. *Count* counts the non-NULL values and also works on text columns, so a single column of countries
+  charts as "how many rows per country".
+- **Defaults** come from the column types: a date on X gives a line, text a bar, two numbers a scatter (a line when
+  X only grows); the numeric columns on a similar scale are charted together, one on a very different scale (an
+  order count next to revenue) is left for you to switch on.
+- **Reading it**: axes carry ticks and labels (the y axis shows 15k, 2.5M and so on, the readout shows the exact
+  value), the legend names the series, and moving the pointer over a bar, point or slice shows its x and the value of
+  every series there. Colours come from the theme, so both the dark and the light themes are readable.
+- **Keyboard**: with the chart focused, `1` to `5` choose bar, line, area, scatter, pie, `a` steps through the aggregates, the
+  arrow keys (or `h j k l`) walk the points and show the readout, `esc` hides it. `shift-tab` walks back to the controls,
+  `tab` forward again; `enter` or `space` operates a button or opens a list.
+
+A chart never shows more than it can read: bar charts keep the 50 largest categories, a pie the 11 largest slices plus
+"Other", lines and areas merge more than 400 distinct x values into 400 equal intervals, and each of these says so
+under the chart, as do rows left out because X or Y was NULL or not a number. There is no PNG export: GPUI's
+screenshot call exists only in its test builds, and drawing the chart a second time with a hand-written rasteriser
+would not be the chart the screen shows.
+
 ## Search across tables
 
 *Search Across Tables…* looks for a text in every column of many tables at once, like a "find in files" for the

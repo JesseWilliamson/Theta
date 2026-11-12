@@ -23,6 +23,7 @@ actions!(
         FocusResults,
         // The value viewer of the result grid's focused cell
         ToggleCellViewer,
+        ShowChart,
         CopyCellValue,
         // Command surfaces
         OpenCommandPalette,

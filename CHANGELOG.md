@@ -8,6 +8,12 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Added
 
+- **Charts**: a Chart tab next to Results (`mod-shift-g`, `space C`, `:chart`). Bar, line, area, scatter and pie
+  charts of the active result; X, one or more Y columns, an optional series column and an aggregate (sum,
+  average, count, min, max) for Y where X repeats; defaults chosen from the column types so a two-column result
+  charts at once; ticks, legend, hover readout and keyboard control; painted with GPUI's own primitives in the
+  theme's colours. The data shaping is the new pure crate `theta-chart`. There is no PNG export (GPUI can
+  capture an image only in its test builds).
 - **Search Across Tables** (`mod-alt-f`, `space s`, `:grep`, explorer menu): find a text in every table of a
   connection, a schema or a hand-picked list. One generated, fully escaped query per table (PostgreSQL, MySQL and
   MariaDB, SQLite, DuckDB), run on up to four sessions with a row limit and a timeout per table; hits stream into a

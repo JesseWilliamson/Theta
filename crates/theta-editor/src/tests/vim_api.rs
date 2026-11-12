@@ -270,7 +270,7 @@ fn leader_menu_hints_mirror_the_helix_space_menu() {
     assert_eq!(title, "Space");
     for key in [
         "f", "b", "? space", "r", "R", "e", "E", "k", "t", "y", "p", "c", "x", "g", "d", "T", "j", "a", "n",
-        "D", "s", "v", "V",
+        "D", "s", "C", "v", "V",
     ] {
         assert!(hints.iter().any(|h| h.key == key), "missing {key}");
     }
@@ -299,6 +299,7 @@ fn leader_actions() {
         ("<space>T", Effect::ToggleExplorer),
         ("<space>j", Effect::ToggleBottomPanel),
         ("<space>s", Effect::HostCommand("search".into())),
+        ("<space>C", Effect::HostCommand("chart".into())),
         ("<space>v", Effect::HostCommand("cell".into())),
         ("<space>V", Effect::HostCommand("cell copy".into())),
         // code intelligence
@@ -499,6 +500,7 @@ fn host_commands_match_the_helix_table() {
         (":cell copy", vec![Effect::HostCommand("cell copy".into())]),
         (":grep needle", vec![Effect::HostCommand("grep needle".into())]),
         (":search", vec![Effect::HostCommand("search".into())]),
+        (":chart", vec![Effect::HostCommand("chart".into())]),
         (":new", vec![Effect::NewTab]),
         (":cancel", vec![Effect::CancelQuery]),
         (":help", vec![Effect::HostCommand("help".into())]),

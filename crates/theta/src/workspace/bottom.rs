@@ -17,6 +17,8 @@ fn empty_state(tab: BottomTab) -> EmptyState {
         BottomTab::Results => EmptyState::new(IconName::Table, "Run a query to see results")
             .description("Rows returned by a statement appear here.")
             .key_hint(KeyHint::new(&format!("{modk}-enter"))),
+        BottomTab::Chart => EmptyState::new(IconName::ChartColumn, "Nothing to chart")
+            .description("A result can be shown as a bar, line, area, scatter or pie chart."),
         BottomTab::Messages => EmptyState::new(IconName::MessageSquare, "No messages")
             .description("Notices, warnings and statement outcomes are listed here."),
         BottomTab::Problems => EmptyState::new(IconName::Check, "No problems").description(

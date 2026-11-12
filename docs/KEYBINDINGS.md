@@ -42,6 +42,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-shift-v` | toggle the cell viewer for the focused result cell (focuses the results) |
 | `mod-shift-y` | copy the whole value of the focused result cell |
 | `mod-alt-f` | Search Across Tables (also from the explorer's context menu) |
+| `mod-shift-g` | show the Chart tab for the active result (and focus it) |
 | `F5` | refresh schema, only while the explorer has focus (in the editor `F5` is *run all*) |
 | `mod-alt-r` | refresh schema, from anywhere |
 | `mod-k mod-t` | select theme (a two-chord sequence) |
@@ -155,6 +156,19 @@ Vim key maps, `:import` / `:export`), so they cannot conflict with an editor key
 
 Palette commands: *Import Data from CSV/TSV…*, *Import CSV/TSV as New Table…*, *Export Table Data…*,
 *New Table…*, *Modify Table…*, *Rename Table…*, *Duplicate Table Structure…*, *Truncate Table…*, *Drop Table…*.
+
+## Chart tab
+
+Opened with *Show Chart* (palette), `mod-shift-g`, `space C` (Helix, Vim) or `:chart`; the chart has focus afterwards.
+The keys are plain keys of the focused chart, the same in the three key maps:
+
+| Keys | Action |
+| --- | --- |
+| `1` `2` `3` `4` `5` | bar, line, area, scatter, pie |
+| `a` | next aggregate (sum, average, count, min, max) |
+| arrows, `h` `j` `k` `l` | move the readout: left / right along a series, up / down to another series |
+| `esc` | hide the readout |
+| `shift-tab` / `tab` | back to the controls (type, X, Y chips, Series, Aggregate) / forward again; `enter` operates the focused one |
 
 ## Search Across Tables
 
@@ -468,6 +482,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `space T` `space j` | toggle explorer / toggle bottom panel |
 | `space a` `space n` `space D` | quick fixes / rename / Problems tab |
 | `space s` | search across tables (`:grep`, `:search`) |
+| `space C` | chart of the result (`:chart`) |
 | `space v` `space V` | cell viewer / copy cell value (`:cell`, `:cell copy`) |
 
 #### Command line (`:`)
@@ -494,6 +509,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `:reopen` | reopen the last closed tab |
 | `:cell` `:cell copy` | toggle the cell viewer / copy the value of the focused result cell |
 | `:grep` `:search` | Search Across Tables on the active connection |
+| `:chart` | show the Chart tab for the active result |
 
 `tab` completes command names (repeat to cycle). An unknown command shows "Unknown command".
 
@@ -669,6 +685,7 @@ work. `n` / `N` keep the direction; `*` `#` search the word under the cursor.
 | `space T` `space j` | `ToggleExplorer` / `ToggleBottomPanel` |
 | `space a` `space n` `space D` | code actions / rename / Problems tab |
 | `space s` | search across tables (`HostCommand("search")`) |
+| `space C` | chart of the result (`HostCommand("chart")`) |
 | `space v` `space V` | cell viewer / copy cell value (`HostCommand("cell")`, `"cell copy"`) |
 
 #### Command line (`:`)

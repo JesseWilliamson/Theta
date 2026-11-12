@@ -26,6 +26,7 @@ theta-map-view.workspace = true
 theta-editor-view.workspace = true
 theta-plan-view.workspace = true
 theta-import.workspace = true
+theta-chart.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 serde.workspace = true

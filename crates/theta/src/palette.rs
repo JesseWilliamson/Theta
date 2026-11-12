@@ -71,6 +71,7 @@ fn commands() -> Vec<Command> {
         cmd!("Focus Explorer", "View", IconName::FolderTree, FocusExplorer),
         cmd!("Focus Editor", "View", IconName::SquareTerminal, FocusEditor),
         cmd!("Focus Results", "View", IconName::Table, FocusResults),
+        cmd!("Show Chart", "View", IconName::ChartColumn, ShowChart),
         cmd!("Toggle Cell Viewer", "View", IconName::PanelRight, ToggleCellViewer),
         cmd!("Copy Cell Value", "Data", IconName::Copy, CopyCellValue),
         cmd!("Close Tab", "View", IconName::X, CloseTab),

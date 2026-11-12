@@ -148,6 +148,7 @@ pub fn global_bindings() -> Vec<KeyBinding> {
         kb("mod-shift-v", ToggleCellViewer, None),
         kb("mod-shift-y", CopyCellValue, None),
         kb("mod-alt-f", SearchTables, None),
+        kb("mod-shift-g", ShowChart, None),
         // F5 is "run all" in the editor; the explorer (and a chord everywhere) refreshes.
         kb("f5", RefreshSchema, Some("Explorer")),
         kb("mod-alt-r", RefreshSchema, None),

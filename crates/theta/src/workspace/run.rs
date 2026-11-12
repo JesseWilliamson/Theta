@@ -416,6 +416,17 @@ impl Workspace {
         window.focus(&h, cx);
     }
 
+    /// Show the Chart tab of the active result and give it the keyboard, so the arrow keys walk the points
+    /// and the digits pick the chart type.
+    pub(super) fn show_chart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.state.bottom_open {
+            self.toggle_bottom(cx);
+        }
+        self.set_bottom_tab(BottomTab::Chart, cx);
+        let h = self.chart.read(cx).focus_handle();
+        window.focus(&h, cx);
+    }
+
     /// Show the value viewer for the results grid's focused cell, or hide it. The grid takes focus so
     /// the cursor keys move the viewer along; `esc` hands focus back to the editor as usual.
     pub(super) fn toggle_cell_viewer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -480,6 +491,7 @@ impl Workspace {
                     ),
                 }
             }
+            "chart" => self.show_chart(window, cx),
             "grep" | "search" => self.search_from_palette(window, cx),
             "cell" | "viewer" if arg == "copy" => self.copy_cell_value(window, cx),
             "cell" | "viewer" => self.toggle_cell_viewer(window, cx),
@@ -1202,6 +1214,7 @@ impl Workspace {
             self.results.read(cx).grid.clone().update(cx, |g, cx| g.clear(cx));
             self.map.update(cx, |m, cx| m.clear(cx));
             self.map_badge = None;
+            self.chart.update(cx, |c, cx| c.clear(cx));
             self.plan_owner = None;
             self.plan.update(cx, |p, cx| p.clear(cx));
             self.set_result_info(None, cx);
@@ -1231,6 +1244,7 @@ impl Workspace {
                 info += " · truncated";
             }
             self.set_result_info(Some(info.into()), cx);
+            self.chart.update(cx, |c, cx| c.set_result(rs.clone(), window, cx));
             self.apply_map(id, active, window, cx);
         } else {
             let summary = c.summary.clone();
@@ -1251,6 +1265,7 @@ impl Workspace {
             }
             self.map.update(cx, |m, cx| m.clear(cx));
             self.map_badge = None;
+            self.chart.update(cx, |c, cx| c.clear(cx));
         }
     }
 

@@ -49,6 +49,7 @@ pub(crate) const LEADER: &[(&str, &str)] = &[
     ("n", "rename alias / CTE / column alias"),
     ("D", "problems"),
     ("s", "search across tables"),
+    ("C", "chart of the result"),
     ("v", "cell viewer"),
     ("V", "copy cell value"),
 ];
@@ -221,6 +222,7 @@ impl Editor {
             'D' => fx(self, FxKind::ShowProblems),
             'j' => fx(self, FxKind::ToggleBottomPanel),
             's' => fx(self, FxKind::Host("search")),
+            'C' => fx(self, FxKind::Host("chart")),
             'v' => fx(self, FxKind::Host("cell")),
             'V' => fx(self, FxKind::Host("cell copy")),
             'c' => {

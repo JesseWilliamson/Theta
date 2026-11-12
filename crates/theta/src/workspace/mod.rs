@@ -84,11 +84,13 @@ pub enum BottomTab {
     Plan,
     Map,
     History,
+    Chart,
 }
 
 impl BottomTab {
-    pub const ALL: [BottomTab; 6] = [
+    pub const ALL: [BottomTab; 7] = [
         BottomTab::Results,
+        BottomTab::Chart,
         BottomTab::Messages,
         BottomTab::Problems,
         BottomTab::Plan,
@@ -99,6 +101,7 @@ impl BottomTab {
     pub fn label(self) -> &'static str {
         match self {
             BottomTab::Results => "Results",
+            BottomTab::Chart => "Chart",
             BottomTab::Messages => "Messages",
             BottomTab::Problems => "Problems",
             BottomTab::Plan => "Plan",
@@ -210,6 +213,7 @@ pub struct Workspace {
     problems: Entity<ProblemsPanel>,
     history: Entity<HistoryPanel>,
     plan: Entity<PlanPanel>,
+    chart: Entity<crate::panels::chart::ChartPanel>,
     map: Entity<MapPanel>,
     map_badge: Option<usize>,
     pub(crate) runs: HashMap<String, run::RunInfo>,
@@ -277,6 +281,7 @@ impl Workspace {
             HistoryPanel::new(HistoryStore::load(Some(data_dir.join("history.jsonl"))), window, cx)
         });
         let plan = cx.new(|cx| PlanPanel::new(window, cx));
+        let chart = cx.new(|cx| crate::panels::chart::ChartPanel::new(window, cx));
         let map = cx.new(|cx| MapPanel::new(window, cx));
         let subscriptions = vec![
             cx.subscribe_in(&store, window, Self::on_store_event),
@@ -324,6 +329,7 @@ impl Workspace {
             problems: problems.clone(),
             history: history.clone(),
             plan: plan.clone(),
+            chart: chart.clone(),
             map: map.clone(),
             map_badge: None,
             runs: HashMap::new(),
@@ -355,6 +361,7 @@ impl Workspace {
         ws.bottom_views.insert(BottomTab::Problems, problems.into());
         ws.bottom_views.insert(BottomTab::History, history.into());
         ws.bottom_views.insert(BottomTab::Plan, plan.into());
+        ws.bottom_views.insert(BottomTab::Chart, chart.into());
         ws.bottom_views.insert(BottomTab::Map, map.into());
         ws.active_connection = ws.store.read(cx).first_connected().map(str::to_string);
         ws.restore_consoles(window, cx);
@@ -1196,6 +1203,7 @@ impl Render for Workspace {
                 cx.listener(|this, _: &ToggleCellViewer, window, cx| this.toggle_cell_viewer(window, cx)),
             )
             .on_action(cx.listener(|this, _: &CopyCellValue, window, cx| this.copy_cell_value(window, cx)))
+            .on_action(cx.listener(|this, _: &ShowChart, window, cx| this.show_chart(window, cx)))
             .on_action(cx.listener(|this, _: &SearchTables, window, cx| this.search_from_palette(window, cx)))
             .on_action(cx.listener(|this, _: &SelectKeymap, window, cx| this.open_keymap_picker(window, cx)))
             .on_action(cx.listener(|this, _: &UseHelixKeymap, window, cx| {
@@ -1354,6 +1362,7 @@ impl Workspace {
             BottomTab::Plan => IconName::Network,
             BottomTab::Map => IconName::Map,
             BottomTab::History => IconName::Clock,
+            BottomTab::Chart => IconName::ChartColumn,
         }
     }
 }
