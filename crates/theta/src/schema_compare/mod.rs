@@ -230,13 +230,13 @@ impl SchemaCompareView {
         cx.notify();
     }
 
-    fn toggle_destructive(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_destructive(&mut self, cx: &mut Context<Self>) {
         self.include_destructive = !self.include_destructive;
         self.regenerate();
         cx.notify();
     }
 
-    fn open_script(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn open_script(&mut self, cx: &mut Context<Self>) {
         match (&self.script, self.script_text()) {
             (Ok(s), Some(text)) if !s.is_empty() || !s.manual.is_empty() => {
                 cx.emit(CompareEvent::OpenScript { conn_id: self.target.conn_id.clone(), sql: text })
@@ -250,7 +250,7 @@ impl SchemaCompareView {
         }
     }
 
-    fn copy_script(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn copy_script(&mut self, cx: &mut Context<Self>) {
         match self.script_text() {
             Some(t) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(t));
@@ -261,6 +261,11 @@ impl SchemaCompareView {
                 cx.emit(CompareEvent::Notice(NoticeKind::Warning, why));
             }
         }
+    }
+
+    /// Read both schemas again (the `r` key).
+    pub(crate) fn reload(&mut self, cx: &mut Context<Self>) {
+        cx.emit(CompareEvent::Reload);
     }
 
     fn on_key(&mut self, ev: &KeyDownEvent, cx: &mut Context<Self>) {

@@ -12,8 +12,9 @@
 use crate::fuzzy::{fuzzy_match, highlight_ranges};
 use crate::keyhint::KeyHint;
 use gpui_kit::assets::IconName;
+use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState, MoveDown, MoveUp};
-use gpui_kit::component::{ActiveTheme as _, Icon, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, EventEmitter, FontWeight, HighlightStyle,
@@ -104,8 +105,18 @@ pub trait PickerDelegate: 'static {
     fn placeholder(&self) -> SharedString {
         "Search…".into()
     }
+    /// What the picker lists, plural ("commands", "tables"): an empty search reads "No commands match
+    /// “xyz”" in every picker, and an empty list "No commands" unless `empty_message` says more.
+    fn noun(&self) -> SharedString {
+        "items".into()
+    }
+    /// Shown when there is nothing to list at all.
     fn empty_message(&self) -> SharedString {
-        "No matches".into()
+        format!("No {}", self.noun()).into()
+    }
+    /// The next step when there is nothing to list, as a button label and the action it dispatches.
+    fn empty_action(&self) -> Option<(SharedString, Box<dyn gpui_kit::Action>)> {
+        None
     }
     /// All candidates, in display order. Called once when the picker opens.
     fn items(&mut self, cx: &mut App) -> Vec<PickerItem>;
@@ -381,7 +392,13 @@ impl<D: PickerDelegate> Render for Picker<D> {
         let rows = self.rows.len();
         let list_height = px(ROW_H * rows.min(MAX_VISIBLE_ROWS) as f32 + 8.);
         let empty = self.selectable.is_empty();
-        let message = self.delegate.empty_message();
+        let searching = !self.query.trim().is_empty() && !self.items.is_empty();
+        let message: SharedString = if searching {
+            format!("No {} match “{}”", self.delegate.noun(), self.query.trim()).into()
+        } else {
+            self.delegate.empty_message()
+        };
+        let next_step = if searching { None } else { self.delegate.empty_action() };
 
         div()
             .id("picker-backdrop")
@@ -444,14 +461,30 @@ impl<D: PickerDelegate> Render for Picker<D> {
                         )
                         .when(empty, |this| {
                             this.child(
-                                div()
-                                    .h(px(64.))
-                                    .flex()
+                                v_flex()
+                                    .py_4()
+                                    .gap_2()
                                     .items_center()
                                     .justify_center()
                                     .text_size(px(13.))
                                     .text_color(theme.muted_foreground)
-                                    .child(message),
+                                    .child(message)
+                                    .when(searching, |d| {
+                                        d.child(div().text_size(px(12.)).child("Delete some of the text to see more."))
+                                    })
+                                    .when_some(next_step, |d, (label, action)| {
+                                        d.child(
+                                            Button::new("picker-empty-action").small().label(label).on_click(
+                                                cx.listener(move |this, _, window, cx| {
+                                                    this.cancel(window, cx);
+                                                    let action = action.boxed_clone();
+                                                    window.defer(cx, move |window, cx| {
+                                                        window.dispatch_action(action, cx)
+                                                    });
+                                                }),
+                                            ),
+                                        )
+                                    }),
                             )
                         })
                         .when(!empty, |this| {

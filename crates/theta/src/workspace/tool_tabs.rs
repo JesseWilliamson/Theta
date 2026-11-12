@@ -429,11 +429,23 @@ impl Workspace {
             catalog.schemas.iter().filter(|s| !s.tables.is_empty()).collect();
         schemas.sort_by_key(|s| (is_system_schema(&s.name), s.name.to_lowercase()));
         for s in &schemas {
-            let n = s.tables.len();
+            // The diagram draws tables only, so the count says tables and names the views left out; the
+            // picker and the diagram's own status line then agree.
+            let tables = s.tables.iter().filter(|t| t.kind == theta_core::TableKind::Table).count() as u64;
+            let views = s.tables.len() as u64 - tables;
+            let detail = if views == 0 {
+                theta_core::text::plural(tables, "table", "tables")
+            } else {
+                format!(
+                    "{} ({} not drawn)",
+                    theta_core::text::plural(tables, "table", "tables"),
+                    theta_core::text::plural(views, "view", "views")
+                )
+            };
             items.push(
                 PickerItem::new(format!("s\u{1}{}", s.name), format!("Schema {}", s.name))
                     .icon(IconName::Network)
-                    .detail(format!("{n} table{}", if n == 1 { "" } else { "s" }))
+                    .detail(detail)
                     .section("Whole schema"),
             );
         }

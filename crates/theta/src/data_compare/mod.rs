@@ -202,6 +202,24 @@ impl DataCompareView {
         matches!(self.phase, Phase::Running)
     }
 
+    /// Copy the sync script (the `c` key).
+    pub(crate) fn copy_script(&mut self, cx: &mut Context<Self>) {
+        match self.sync_text() {
+            Some(t) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(t));
+                cx.emit(CompareEvent::Notice(NoticeKind::Success, "Copied the sync script".into()));
+            }
+            None => cx.emit(CompareEvent::Notice(NoticeKind::Info, "Wait for the comparison to finish".into())),
+        }
+    }
+
+    /// Read both tables again (the `r` key).
+    pub(crate) fn reload(&mut self, cx: &mut Context<Self>) {
+        if !self.is_running() {
+            cx.emit(CompareEvent::Reload);
+        }
+    }
+
     pub fn sync_text(&self) -> Option<String> {
         let r = self.report()?;
         let s = sync_script(
@@ -318,7 +336,7 @@ impl DataCompareView {
         cx.notify();
     }
 
-    fn open_script(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn open_script(&mut self, cx: &mut Context<Self>) {
         match (self.report(), self.sync_text()) {
             (Some(r), Some(text)) if r.counts.differences() > 0 => {
                 cx.emit(CompareEvent::OpenScript { conn_id: self.ends.target.conn_id.clone(), sql: text })

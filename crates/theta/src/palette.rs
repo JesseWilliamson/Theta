@@ -125,12 +125,23 @@ pub fn command_list(window: &Window) -> Vec<(String, String, String)> {
 
 pub struct CommandPalette {
     items: Vec<PickerItem>,
+    /// Commands of the tab in front (diagram, compare, sessions, roles), listed before the global ones.
+    tab: Vec<crate::workspace::TabCommand>,
 }
 
 impl CommandPalette {
     /// Key hints are resolved up front because they need the window's keymap.
-    pub fn new(window: &Window) -> Self {
-        let items = commands()
+    pub fn new(window: &Window, tab: Vec<crate::workspace::TabCommand>) -> Self {
+        let mut items: Vec<PickerItem> = tab
+            .iter()
+            .map(|c| {
+                PickerItem::new(format!("tab:{}", c.label), c.label)
+                    .section("This Tab")
+                    .icon(IconName::SquareTerminal)
+                    .key_hint(c.key)
+            })
+            .collect();
+        items.extend(commands()
             .into_iter()
             .map(|c| {
                 let action = (c.action)();
@@ -139,9 +150,8 @@ impl CommandPalette {
                     item = item.key_hint(hint);
                 }
                 item
-            })
-            .collect();
-        Self { items }
+            }));
+        Self { items, tab }
     }
 }
 
@@ -149,13 +159,18 @@ impl PickerDelegate for CommandPalette {
     fn placeholder(&self) -> SharedString {
         "Type a command…".into()
     }
-    fn empty_message(&self) -> SharedString {
-        "No matching commands".into()
+    fn noun(&self) -> SharedString {
+        "commands".into()
     }
     fn items(&mut self, _: &mut App) -> Vec<PickerItem> {
         self.items.clone()
     }
     fn confirm(&mut self, item: &PickerItem, window: &mut Window, cx: &mut App) {
+        if let Some(c) = self.tab.iter().find(|c| format!("tab:{}", c.label) == item.id.as_ref()) {
+            let run = c.run.clone();
+            window.defer(cx, move |window, cx| window.defer(cx, move |window, cx| run(window, cx)));
+            return;
+        }
         let Some(command) = commands().into_iter().find(|c| c.label == item.id.as_ref()) else { return };
         let action = (command.action)();
         // Two deferrals: the picker is removed and focus restored first, so the
@@ -178,6 +193,9 @@ impl ThemePicker {
 }
 
 impl PickerDelegate for ThemePicker {
+    fn noun(&self) -> SharedString {
+        "themes".into()
+    }
     fn placeholder(&self) -> SharedString {
         "Select a theme…".into()
     }
@@ -226,6 +244,9 @@ impl KeymapPicker {
 }
 
 impl PickerDelegate for KeymapPicker {
+    fn noun(&self) -> SharedString {
+        "keymaps".into()
+    }
     fn placeholder(&self) -> SharedString {
         "Select a keymap…".into()
     }
@@ -277,8 +298,14 @@ impl PickerDelegate for ConnectionPicker {
     fn placeholder(&self) -> SharedString {
         "Switch to connection…".into()
     }
+    fn noun(&self) -> SharedString {
+        "connections".into()
+    }
     fn empty_message(&self) -> SharedString {
         "No saved connections".into()
+    }
+    fn empty_action(&self) -> Option<(SharedString, Box<dyn Action>)> {
+        Some(("New Connection…".into(), Box::new(NewConnection)))
     }
     fn items(&mut self, cx: &mut App) -> Vec<PickerItem> {
         let store = self.store.read(cx);
@@ -350,6 +377,9 @@ impl TablePicker {
 }
 
 impl PickerDelegate for TablePicker {
+    fn noun(&self) -> SharedString {
+        "tables".into()
+    }
     fn placeholder(&self) -> SharedString {
         match self.purpose {
             TablePurpose::Open => "Go to table…",
@@ -458,8 +488,8 @@ impl PickerDelegate for RelatedPicker {
     fn placeholder(&self) -> SharedString {
         format!("Tables related to {}…", self.from).into()
     }
-    fn empty_message(&self) -> SharedString {
-        "No related tables found".into()
+    fn noun(&self) -> SharedString {
+        "related tables".into()
     }
     fn items(&mut self, _: &mut App) -> Vec<PickerItem> {
         self.items
@@ -501,6 +531,9 @@ impl FolderPicker {
 }
 
 impl PickerDelegate for FolderPicker {
+    fn noun(&self) -> SharedString {
+        "folders".into()
+    }
     fn placeholder(&self) -> SharedString {
         "Move to folder…".into()
     }

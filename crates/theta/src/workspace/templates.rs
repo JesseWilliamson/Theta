@@ -182,8 +182,8 @@ impl PickerDelegate for TemplateTablePicker {
     fn placeholder(&self) -> SharedString {
         "Table for the template…".into()
     }
-    fn empty_message(&self) -> SharedString {
-        "No tables".into()
+    fn noun(&self) -> SharedString {
+        "tables".into()
     }
     fn items(&mut self, _: &mut App) -> Vec<PickerItem> {
         self.tables

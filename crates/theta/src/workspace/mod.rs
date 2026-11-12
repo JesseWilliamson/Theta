@@ -35,6 +35,7 @@ mod title_bar;
 mod tool_tabs;
 pub(crate) use tool_tabs::is_system_schema;
 mod txn;
+mod tab_commands;
 mod welcome;
 
 #[cfg(test)]
@@ -79,6 +80,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use table_tabs::DropWhat;
 pub use table_tabs::{EditorTarget, StartupTable};
+pub use tab_commands::TabCommand;
 use theta_editor_view::EditorStatus;
 use theta_map_view::{MapEvent, MapPanel};
 use theta_plan_view::{PlanEvent, PlanPanel};
@@ -959,7 +961,7 @@ impl Workspace {
     }
 
     fn open_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let delegate = palette::CommandPalette::new(window);
+        let delegate = palette::CommandPalette::new(window, self.tab_commands(cx));
         self.open_picker(delegate, window, cx);
     }
 

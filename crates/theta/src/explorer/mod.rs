@@ -1459,8 +1459,15 @@ impl Render for Explorer {
                 )
                 .into_any_element()
         } else if count == 0 && filtering {
-            EmptyState::new(IconName::Search, "No matching objects")
-                .description(format!("Nothing matches “{}”.", self.filter_text.trim()))
+            EmptyState::new(IconName::Search, format!("No objects match “{}”", self.filter_text.trim()))
+                .description("Press Esc, or clear the box above, to see everything again.")
+                .action(
+                    Button::new("explorer-clear-filter").small().label("Clear Filter").on_click(
+                        cx.listener(|this, _, window, cx| {
+                            this.filter.update(cx, |f, cx| f.set_value("", window, cx));
+                        }),
+                    ),
+                )
                 .into_any_element()
         } else {
             div()

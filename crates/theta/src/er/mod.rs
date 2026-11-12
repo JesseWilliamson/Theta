@@ -6,7 +6,7 @@
 //! `workspace/diagram_tabs.rs` turns into "open the table", "save the file" and notices.
 
 pub mod camera;
-mod keys;
+pub(crate) mod keys;
 mod paint;
 
 use crate::connections::NoticeKind;
@@ -287,7 +287,7 @@ impl DiagramView {
         theta_diagram::svg::render(&self.graph, &self.layout, &self.metrics, &palette, &self.title())
     }
 
-    fn run(&mut self, cmd: Cmd, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn run(&mut self, cmd: Cmd, window: &mut Window, cx: &mut Context<Self>) {
         let view = self.view_size();
         match cmd {
             Cmd::Pan(dx, dy) => self.cam.pan_screen(-dx, -dy),
@@ -563,14 +563,15 @@ impl Render for DiagramView {
             .border_color(if focused { theme.primary } else { theme.border })
             .text_size(px(11.))
             .text_color(theme.muted_foreground)
-            .child(div().child(counts))
-            .children(self.describe_selection().map(|s| div().text_color(theme.foreground).child(s)))
-            .children(self.graph.notes.iter().map(|n| div().child(n.clone())))
-            .child(div().flex_1())
-            .child(div().child(
+            .child(div().flex_shrink_0().child(counts))
+            .children(self.describe_selection().map(|s| div().flex_shrink_0().text_color(theme.foreground).child(s)))
+            .children(self.graph.notes.iter().map(|n| div().flex_shrink_0().child(n.clone())))
+            // The keys come last and give way first (they are also in the palette, "Diagram: ..."); a toast
+            // at the bottom right then covers the zoom, not the hint.
+            .child(div().flex_1().min_w_0().truncate().child(
                 "hjkl pan · + - 0 zoom · f fit · tab select · / jump · enter open · s svg · m mermaid · r reload",
             ))
-            .child(div().child(zoom));
+            .child(div().flex_shrink_0().child(zoom));
 
         let mut body = div()
             .id("er-diagram")
