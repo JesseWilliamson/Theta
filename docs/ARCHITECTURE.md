@@ -634,7 +634,7 @@ linear (500 units 0.04 s, 4,000 units 0.32 s).
 
 ## Status
 
-0.1.0-alpha.7 is the seventh pre-release (0.1.0-alpha.1 to -alpha.6 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
+0.1.0-alpha.8 is the eighth pre-release (0.1.0-alpha.1 to -alpha.7 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
 that every crate in the workspace is wired into it and used:
 
 - All twelve crates exist and are used; the application runs against PostgreSQL, MySQL/MariaDB and SQLite, and (since alpha.7) CockroachDB, Redshift, TimescaleDB, YugabyteDB, TiDB, DuckDB, SQL Server and ClickHouse. DuckDB runs locally; ClickHouse, CockroachDB, TimescaleDB, TiDB and SQL Server pass live tests in CI; Redshift and YugabyteDB are unverified. See the README's table.

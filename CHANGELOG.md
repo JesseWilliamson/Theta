@@ -6,6 +6,8 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+## [0.1.0-alpha.8] - 2026-11-12
+
 ### Added
 
 - **A real SQL parser** (`theta_sql::syntax`): hand-written, error-tolerant recursive descent over the existing
@@ -570,7 +572,8 @@ Packaging and docs
 - The AppImage does not bundle the Vulkan or Wayland libraries.
 - The map basemap needs network access (cached tiles still draw offline).
 
-[Unreleased]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.7...HEAD
+[Unreleased]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.8...HEAD
+[0.1.0-alpha.8]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.7...v0.1.0-alpha.8
 [0.1.0-alpha.7]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.6...v0.1.0-alpha.7
 [0.1.0-alpha.6]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.5...v0.1.0-alpha.6
 [0.1.0-alpha.5]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.4...v0.1.0-alpha.5
