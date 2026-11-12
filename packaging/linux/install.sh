@@ -10,15 +10,21 @@ prefix=${PREFIX:-$HOME/.local}
 bin="$prefix/bin"
 apps="$prefix/share/applications"
 icons="$prefix/share/icons/hicolor"
+docs="$prefix/share/doc/theta"
 
 if [ "${1:-}" = "uninstall" ]; then
   rm -f "$bin/theta" "$apps/theta.desktop"
+  rm -rf "$docs"
   find "$icons" -name theta.png -o -name theta.svg 2>/dev/null | xargs -r rm -f
   echo "Theta removed from $prefix"
   exit 0
 fi
 
 install -Dm755 "$here/theta" "$bin/theta"
+# The licence texts travel with the binary: MIT for Theta, plus the notices for the bundled fonts and themes.
+for f in LICENSE THIRD_PARTY.md NOTICE; do
+  if [ -f "$here/$f" ]; then install -Dm644 "$here/$f" "$docs/$f"; fi
+done
 sed "s|^Exec=theta|Exec=$bin/theta|" "$here/theta.desktop" > "$here/.theta.desktop.tmp"
 install -Dm644 "$here/.theta.desktop.tmp" "$apps/theta.desktop"
 rm -f "$here/.theta.desktop.tmp"
