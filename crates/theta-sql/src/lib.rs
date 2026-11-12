@@ -21,6 +21,7 @@ pub mod params;
 pub mod plan;
 pub(crate) mod scope;
 pub mod script;
+pub mod search;
 pub mod syntax;
 pub mod templates;
 

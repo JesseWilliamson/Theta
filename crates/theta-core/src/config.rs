@@ -72,6 +72,8 @@ pub enum Feature {
     RoleEdit,
     /// Export Database: Theta's own SQL dump.
     Dump,
+    /// Search Across Tables: one generated query per table that looks for a text in every column.
+    TableSearch,
 }
 
 /// Why each feature is missing, `None` when it works. One row per kind keeps the answer in one place.
@@ -89,6 +91,7 @@ pub struct Features {
     pub roles: Option<&'static str>,
     pub role_edit: Option<&'static str>,
     pub dump: Option<&'static str>,
+    pub table_search: Option<&'static str>,
 }
 
 /// Everything the application needs to know about a kind of database that is not SQL
@@ -152,6 +155,7 @@ const NO_FEATURES: Features = Features {
     roles: None,
     role_edit: None,
     dump: None,
+    table_search: None,
 };
 
 const SERVER: Sections = Sections { network: true, ssl: true, ssh: true, file: false, create_file: false };
@@ -427,6 +431,9 @@ static SQLSERVER: KindInfo = KindInfo {
         dump: Some(
             "the DDL generator does not emit T-SQL (CREATE TABLE with IDENTITY, bracket quoting) yet; Run SQL Script still restores a script made elsewhere",
         ),
+        table_search: Some(
+            "the search queries (CAST to NVARCHAR, CHARINDEX, TOP) are not written for T-SQL and no SQL Server was available to test them",
+        ),
         ..NO_FEATURES
     },
     ssl_labels: [
@@ -466,6 +473,9 @@ static CLICKHOUSE: KindInfo = KindInfo {
         role_edit: Some("ClickHouse access control is not supported yet"),
         dump: Some(
             "a ClickHouse table needs an ENGINE and ORDER BY, which the generated CREATE TABLE does not carry; use clickhouse-client",
+        ),
+        table_search: Some(
+            "the search queries (toString, positionCaseInsensitive) are not written for ClickHouse and the 18.x server available for tests rejects them",
         ),
         ..NO_FEATURES
     },
@@ -526,6 +536,7 @@ impl DatabaseKind {
             Feature::Roles => f.roles,
             Feature::RoleEdit => f.role_edit,
             Feature::Dump => f.dump,
+            Feature::TableSearch => f.table_search,
         }
     }
 

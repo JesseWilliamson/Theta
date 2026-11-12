@@ -17,6 +17,7 @@ pub mod run;
 pub mod scalar;
 pub mod scan;
 pub mod script;
+pub mod search;
 pub mod setup;
 pub mod sniff;
 
@@ -31,4 +32,5 @@ pub use job::*;
 pub use parser::{CsvOptions, CsvReader, Field, ParseError, Record};
 pub use run::{Item, RowReader, run_import, validate};
 pub use script::{ScriptOptions, ScriptOutcome, ScriptProgress, ScriptReport, StatementStream, run_script};
+pub use search::{CancelToken, SearchOutcome, SearchReport, TableResult, run_search};
 pub use sniff::{Sniffed, sniff};
