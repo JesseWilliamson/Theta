@@ -460,3 +460,25 @@ fn switching_keymaps_keeps_text_and_selections() {
     assert_eq!(e.mode(), Mode::Standard);
     assert_eq!(e.text(), "abc");
 }
+
+#[test]
+fn find_and_replace_one_by_one_and_all() {
+    // ctrl-f, the pattern, ctrl-h to the replacement, enter replaces this match and moves to the next.
+    st("#[|]#a b a b a", "<C-f>a<C-h>X<ret>", "X b #[a|]# b a");
+    st("#[|]#a b a b a", "<C-f>a<C-h>X<ret><ret>", "X b X b #[a|]#");
+    st("#[|]#a b a b a", "<C-f>a<C-h>X<ret><ret><ret>", "X b X b X#[|]#");
+    // ctrl-enter replaces every match at once; `\1` and `&` are the `:substitute` replacement syntax.
+    st("#[|]#a b a b a", "<C-f>a<C-h>X<C-ret>", "#[|]#X b X b X");
+    st("#[|]#ab ab", "<C-f>(a)b<C-h>[\\1]<C-ret>", "#[|]#[a] [a]");
+    // ctrl-h outside the prompt opens the same find prompt; without a pattern it stays in it.
+    st("#[|]#a a", "<C-h>a<C-h>b<C-ret>", "#[|]#b b");
+    // The prompt is closed by the replacement, and the whole thing is one undo step.
+    let mut e = Editor::new("a a", Keymap::Standard);
+    for k in ["ctrl-f", "a", "ctrl-h", "b", "ctrl-enter"] {
+        e.handle_key(&KeyInput::parse(k).unwrap());
+    }
+    assert!(e.prompt().is_none());
+    assert_eq!(e.text(), "b b");
+    e.handle_key(&KeyInput::parse("ctrl-z").unwrap());
+    assert_eq!(e.text(), "a a");
+}

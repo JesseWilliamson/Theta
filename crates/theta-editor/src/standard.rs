@@ -301,6 +301,12 @@ impl Editor {
                 let init = self.selected_text().filter(|s| !s.contains('\n')).unwrap_or_default();
                 self.open_prompt(PromptKind::Search { backwards: false }, "find:", &init, 1);
             }
+            // Find and replace share one prompt: ctrl-h (here or inside the find prompt) goes on to the
+            // replacement text.
+            ('h', false) => {
+                let init = self.selected_text().filter(|s| !s.contains('\n')).unwrap_or_default();
+                self.open_prompt(PromptKind::Search { backwards: false }, "find:", &init, 1);
+            }
             ('g', false) => self.open_prompt(PromptKind::Goto, "goto line:", "", 1),
             ('s', false) => self.effects.push(Effect::Save),
             ('w', false) => self.effects.push(Effect::CloseTab),

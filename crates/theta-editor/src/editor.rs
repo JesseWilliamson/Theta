@@ -124,6 +124,8 @@ pub struct Prompt<'a> {
     pub text: &'a str,
     /// char index in text
     pub cursor: usize,
+    /// The keys the prompt offers right now, for the bar to show (empty when it has none to mention).
+    pub hint: &'a str,
 }
 
 /// Helix-style which-key entry.
@@ -611,7 +613,16 @@ impl Editor {
     }
 
     pub fn prompt(&self) -> Option<Prompt<'_>> {
-        self.prompt.as_ref().map(|p| Prompt { prefix: &p.prefix, text: &p.text, cursor: p.cursor })
+        self.prompt.as_ref().map(|p| Prompt {
+            prefix: &p.prefix,
+            text: &p.text,
+            cursor: p.cursor,
+            hint: match p.kind {
+                crate::prompt::PromptKind::Replace => "Enter replaces · Ctrl+Enter replaces all · Esc cancels",
+                crate::prompt::PromptKind::Search { .. } if self.keymap == Keymap::Standard => "Ctrl+H replaces",
+                _ => "",
+            },
+        })
     }
 
     pub fn matching_bracket(&self) -> Option<(usize, usize)> {

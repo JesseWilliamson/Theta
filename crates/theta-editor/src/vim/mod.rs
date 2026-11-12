@@ -29,6 +29,10 @@ mod ops;
 mod visual;
 mod vregex;
 
+// Standard's find-and-replace reuses the `:substitute` engine: same replacement syntax (`&`, `\1`, `\n`).
+pub(crate) use ex::substitute_text;
+pub(crate) use vregex::parse_replacement;
+
 use crate::editor::{Editor, Effect, Mode, ScrollRequest};
 use crate::keys::{Key, KeyInput};
 use crate::selection::{Selection, Selections};

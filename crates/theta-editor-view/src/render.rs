@@ -105,7 +105,7 @@ impl EditorView {
         if let Some(p) = self.editor.prompt() {
             let before: String = p.text.chars().take(p.cursor).collect();
             let after: String = p.text.chars().skip(p.cursor).collect();
-            let search = matches!(p.prefix, "/" | "?" | "find:");
+            let search = matches!(p.prefix, "/" | "?" | "find:" | "replace with:");
             let counter = search.then(|| {
                 let matches = self.editor.search_matches();
                 let from = self.editor.primary().from();
@@ -122,6 +122,16 @@ impl EditorView {
                         .child(div().w(px(2.)).h(px(bar_h)).bg(colors.cursor))
                         .child(div().whitespace_nowrap().text_color(colors.foreground).child(after)),
                 )
+                .when(!p.hint.is_empty(), |d| {
+                    d.child(
+                        div()
+                            .ml_auto()
+                            .mr_3()
+                            .text_size(CHROME_TEXT_SIZE)
+                            .text_color(theme.muted_foreground)
+                            .child(p.hint.to_string()),
+                    )
+                })
                 .when_some(counter, |d, (cur, total)| {
                     let none = total == 0;
                     d.child(

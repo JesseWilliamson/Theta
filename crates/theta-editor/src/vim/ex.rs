@@ -992,7 +992,7 @@ impl Editor {
 /// Run a substitution over `hay` (whole lines with their breaks). Returns the new text, the number
 /// of substitutions, whether the last one swallowed a line break, and where (as a byte offset in
 /// the new text) the last replacement ends.
-fn substitute_text(
+pub(crate) fn substitute_text(
     hay: &str,
     re: &Regex,
     parts: &[vregex::Rep],

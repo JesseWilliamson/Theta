@@ -18,6 +18,8 @@ pub(crate) enum PromptKind {
     SplitRegex,
     Keep(bool),
     Goto,
+    /// Standard only: the replacement text; the pattern is `PromptState::pattern`.
+    Replace,
 }
 
 pub(crate) struct PromptState {
@@ -32,6 +34,8 @@ pub(crate) struct PromptState {
     pub extend: bool,
     pub count: usize,
     pub tab_state: Option<(String, usize)>,
+    /// What a `Replace` prompt replaces.
+    pub pattern: String,
 }
 
 /// (revision, pattern, matches) of the last `search_matches()` call.
@@ -142,6 +146,7 @@ impl Editor {
             extend: self.mode == Mode::Select,
             count,
             tab_state: None,
+            pattern: String::new(),
         });
         if !initial.is_empty() {
             self.prompt_changed();
@@ -179,6 +184,16 @@ impl Editor {
             }
             Key::Char('c') if ctrl && !m.alt => {
                 self.close_prompt(true);
+                return true;
+            }
+            Key::Char('h') if ctrl && !m.alt && p.kind == (PromptKind::Search { backwards: false })
+                && self.keymap == Keymap::Standard =>
+            {
+                self.begin_replace();
+                return true;
+            }
+            Key::Enter if p.kind == PromptKind::Replace => {
+                self.replace_submit(ctrl);
                 return true;
             }
             Key::Enter => {
@@ -359,7 +374,91 @@ impl Editor {
                     }
                 }
             }
-            PromptKind::Command | PromptKind::Goto => {}
+            PromptKind::Command | PromptKind::Goto | PromptKind::Replace => {}
+        }
+    }
+
+    /// From the find prompt on to the replacement text, keeping the match the preview is on.
+    fn begin_replace(&mut self) {
+        let Some(p) = &self.prompt else { return };
+        let pattern = p.text.clone();
+        if pattern.is_empty() {
+            self.status("type what to find first");
+            return;
+        }
+        if let Err(e) = build_regex(&pattern) {
+            self.status(format!("invalid regex: {e}"));
+            return;
+        }
+        self.search.pattern = Some(pattern.clone());
+        if let Some(p) = &mut self.prompt {
+            p.kind = PromptKind::Replace;
+            p.prefix = "replace with:".into();
+            p.pattern = pattern;
+            p.text.clear();
+            p.cursor = 0;
+            p.hist_idx = None;
+        }
+    }
+
+    /// Enter in the replacement prompt: replace the current match and move on to the next, or with `all`
+    /// (ctrl-enter) every match in the document. The replacement is `:substitute`'s (`&` is the match,
+    /// `\1` a group).
+    fn replace_submit(&mut self, all: bool) {
+        let Some(p) = &self.prompt else { return };
+        let (pattern, replacement) = (p.pattern.clone(), p.text.clone());
+        let Ok(re) = build_regex(&pattern) else { return };
+        let parts = crate::vim::parse_replacement(&replacement);
+        if all {
+            let hay = self.rope.to_string();
+            let multiline = re.as_str().contains(r"\n");
+            let (new, n, _, _) = crate::vim::substitute_text(&hay, &re, &parts, true, false, multiline);
+            self.prompt = None;
+            if n == 0 {
+                self.status("no matches");
+                return;
+            }
+            // Only the stretch that differs is replaced, so the cursor and the undo step stay local.
+            let (old, new): (Vec<char>, Vec<char>) = (hay.chars().collect(), new.chars().collect());
+            let head = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+            let tail = old[head..].iter().rev().zip(new[head..].iter().rev()).take_while(|(a, b)| a == b).count();
+            let change = Change {
+                from: head,
+                to: old.len() - tail,
+                text: new[head..new.len() - tail].iter().collect(),
+            };
+            self.apply(Transaction::new(vec![change]));
+            self.status(format!("replaced {n} match{}", if n == 1 { "" } else { "es" }));
+            return;
+        }
+        // The current match is the selection when it is one, else the next one.
+        let sel = self.sels.primary();
+        let (from, to) = (sel.from().min(self.rope.len_chars()), sel.to().min(self.rope.len_chars()));
+        let selected = self.rope.slice(from..to).to_string();
+        let is_match = !selected.is_empty() && re.find(&selected).is_some_and(|m| m.start() == 0 && m.end() == selected.len());
+        let target = if is_match { Some(from..to) } else { self.find_from(&re, &sel, false) };
+        let Some(target) = target else {
+            self.prompt = None;
+            self.status("no matches");
+            return;
+        };
+        let matched = self.rope.slice(target.clone()).to_string();
+        let (text, ..) = crate::vim::substitute_text(&matched, &re, &parts, false, false, false);
+        let end = target.start + text.chars().count();
+        self.apply(Transaction::new(vec![Change { from: target.start, to: target.end, text }]));
+        self.set_sels(Selections::single(Selection::point(end.min(self.rope.len_chars()))));
+        match self.find_from(&re, &Selection::point(end.min(self.rope.len_chars())), false) {
+            Some(next) => {
+                self.set_sels(Selections::single(Selection::new(next.start, next.end)));
+                let now = self.sels.clone();
+                if let Some(p) = &mut self.prompt {
+                    p.saved = now;
+                }
+            }
+            None => {
+                self.prompt = None;
+                self.status("replaced; no more matches");
+            }
         }
     }
 
@@ -407,6 +506,8 @@ impl Editor {
                     }
                 }
             }
+            // Enter in the replacement prompt is handled by `replace_submit` before it gets here.
+            PromptKind::Replace => {}
             PromptKind::SelectRegex | PromptKind::SplitRegex | PromptKind::Keep(_) => {
                 self.set_sels(p.saved.clone());
                 if text.is_empty() {

@@ -839,7 +839,7 @@ impl EditorView {
         let mut outlines: Vec<(Bounds<Pixels>, Hsla)> = Vec::new();
         // Vim's `hlsearch` keeps the matches painted after the prompt closes (`:noh` clears them
         // inside the engine, which then reports none).
-        let searching = self.editor.prompt().is_some_and(|p| matches!(p.prefix, "/" | "?" | "find:"))
+        let searching = self.editor.prompt().is_some_and(|p| matches!(p.prefix, "/" | "?" | "find:" | "replace with:"))
             || keymap == Keymap::Vim;
         let push_range = |this: &EditorView,
                           from: usize,
