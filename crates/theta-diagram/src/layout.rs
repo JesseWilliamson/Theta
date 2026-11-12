@@ -834,13 +834,16 @@ fn total_crossings(layers: &[Vec<usize>], pos: &[usize], up: &[Vec<Link>]) -> us
             let mut le = 0;
             while i > 0 {
                 le += tree[i];
-                i -= i & i.wrapping_neg();
+                // Fenwick tree step to the parent: clear the lowest set bit.
+                i &= i - 1;
             }
             total += seen - le;
             let mut i = b + 1;
             while i <= width {
                 tree[i] += 1;
-                i += i & i.wrapping_neg();
+                // Step to the next node covering `i`: add the lowest set bit (fill the bits below it,
+                // then carry).
+                i = (i | (i - 1)) + 1;
             }
         }
     }
