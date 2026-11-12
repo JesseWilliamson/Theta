@@ -423,6 +423,7 @@ fn build_trie() -> Sub {
         s.bind("v", Cmd::Fx(FxKind::Host("cell")), "cell viewer");
         s.bind("V", Cmd::Fx(FxKind::Host("cell copy")), "copy cell value");
         s.bind("G", Cmd::Fx(FxKind::Host("diagram")), "ER diagram of a schema or table");
+        s.bind("S", Cmd::Fx(FxKind::Host("schemacompare")), "compare two schemas, with a migration script");
     }
     for (key, name) in [("z", "View"), ("Z", "View")] {
         let z = r.sub_mut(key, name);

@@ -55,6 +55,7 @@ pub(crate) const LEADER: &[(&str, &str)] = &[
     ("v", "cell viewer"),
     ("V", "copy cell value"),
     ("G", "ER diagram of a schema or table"),
+    ("S", "compare two schemas, with a migration script"),
 ];
 
 impl Editor {
@@ -231,6 +232,7 @@ impl Editor {
             'v' => fx(self, FxKind::Host("cell")),
             'V' => fx(self, FxKind::Host("cell copy")),
             'G' => fx(self, FxKind::Host("diagram")),
+            'S' => fx(self, FxKind::Host("schemacompare")),
             'c' => {
                 if let Some(r) = self.visual_region() {
                     self.vis_exit();
