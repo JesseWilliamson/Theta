@@ -1177,3 +1177,104 @@ fn tab_without_an_abbreviation_is_not_taken(cx: &mut TestAppContext) {
     f.keys(cx, "xyz<tab>");
     assert!(!f.events.borrow().iter().any(|e| matches!(e, EditorEvent::ExpandSnippet { .. })));
 }
+
+fn two_problems(cx: &mut TestAppContext) -> Fixture {
+    let f = setup(cx, "select aa, bb from t", Keymap::Standard);
+    f.view.update(cx, |v, _| {
+        v.set_diagnostics_provider(Some(Arc::new(|sql: &str| {
+            // One problem per `aa` / `bb`, the second a Critical one, as the app's lint produces them.
+            let at = |w: &str| sql.find(w).unwrap();
+            vec![
+                theta_sql::Diagnostic {
+                    range: at("aa")..at("aa") + 2,
+                    severity: theta_sql::Severity::Warning,
+                    message: "first".into(),
+                    incomplete: false,
+                },
+                theta_sql::Diagnostic {
+                    range: at("bb")..at("bb") + 2,
+                    severity: theta_sql::Severity::Critical,
+                    message: "second".into(),
+                    incomplete: false,
+                },
+            ]
+        })));
+    });
+    f.render(cx);
+    cx.run_until_parked();
+    cx.executor().advance_clock(Duration::from_millis(500));
+    cx.run_until_parked();
+    f
+}
+
+#[gpui_kit::test]
+fn problems_are_listed_in_bytes_with_their_line(cx: &mut TestAppContext) {
+    let f = two_problems(cx);
+    let p = f.view.read_with(cx, |v, _| v.problems());
+    assert_eq!(p.len(), 2);
+    assert_eq!((p[0].range.clone(), p[0].line, p[0].message.as_str()), (7..9, 0, "first"));
+    assert_eq!((p[1].range.clone(), p[1].message.as_str()), (11..13, "second"));
+}
+
+#[gpui_kit::test]
+fn goto_problem_steps_and_wraps(cx: &mut TestAppContext) {
+    let f = two_problems(cx);
+    let step = |cx: &mut TestAppContext, fwd: bool| {
+        assert!(f.view.update(cx, |v, cx| v.goto_problem(fwd, cx)));
+        f.view.read_with(cx, |v, _| v.cursor_byte())
+    };
+    // The cursor starts at 0, before both.
+    assert_eq!(step(cx, true), 7);
+    assert_eq!(step(cx, true), 11);
+    assert_eq!(step(cx, true), 7, "wraps from the last to the first");
+    assert_eq!(step(cx, false), 11, "and backwards from the first to the last");
+    assert_eq!(step(cx, false), 7);
+}
+
+#[gpui_kit::test]
+fn goto_problem_without_problems_reports_none(cx: &mut TestAppContext) {
+    let f = setup(cx, "select 1", Keymap::Standard);
+    assert!(!f.view.update(cx, |v, cx| v.goto_problem(true, cx)));
+}
+
+#[gpui_kit::test]
+fn replace_byte_ranges_is_one_undo_step_and_handles_multibyte_text(cx: &mut TestAppContext) {
+    // `é` is two bytes: the ranges are bytes, the editor works in chars.
+    let f = setup(cx, "select é, é from t", Keymap::Standard);
+    let bytes = |s: &str, nth: usize| {
+        let i = s.match_indices('é').nth(nth).unwrap().0;
+        i..i + 'é'.len_utf8()
+    };
+    let text = f.text(cx);
+    let edits = vec![(bytes(&text, 0), "a".to_string()), (bytes(&text, 1), "bb".to_string())];
+    f.view.update(cx, |v, cx| v.replace_byte_ranges(edits, cx));
+    assert_eq!(f.text(cx), "select a, bb from t");
+    f.keys(cx, "<C-z>");
+    assert_eq!(f.text(cx), "select é, é from t", "both edits undo together");
+}
+
+#[gpui_kit::test]
+fn occurrences_follow_the_cursor_and_clear_without_a_provider(cx: &mut TestAppContext) {
+    let f = setup(cx, "select a, a from t", Keymap::Standard);
+    f.view.update(cx, |v, _| {
+        v.set_occurrence_provider(Some(Arc::new(|sql: &str, at: usize| {
+            // Every `a` as a word, but only when the cursor is on one.
+            if sql.as_bytes().get(at) != Some(&b'a') {
+                return Vec::new();
+            }
+            sql.match_indices(" a").map(|(i, _)| i + 1..i + 2).chain([7..8]).collect::<Vec<_>>()
+        })));
+    });
+    f.view.update(cx, |v, cx| v.goto_byte(7, cx));
+    f.render(cx);
+    cx.run_until_parked();
+    cx.executor().advance_clock(Duration::from_millis(500));
+    cx.run_until_parked();
+    assert!(f.view.read_with(cx, |v, _| v.occurrence_count()) >= 2);
+    f.view.update(cx, |v, cx| v.goto_byte(0, cx));
+    cx.executor().advance_clock(Duration::from_millis(500));
+    cx.run_until_parked();
+    assert_eq!(f.view.read_with(cx, |v, _| v.occurrence_count()), 0, "off a name nothing is highlighted");
+    f.view.update(cx, |v, _| v.set_occurrence_provider(None));
+    assert_eq!(f.view.read_with(cx, |v, _| v.occurrence_count()), 0);
+}
