@@ -95,11 +95,17 @@ impl Workspace {
                                 .icon(Icon::new(IconName::Menu))
                                 .dropdown_menu(|menu, window, _| {
                                     let menu = menu_entry(menu, "New Console", Box::new(NewConsole), window);
-                                    let menu = menu_entry(menu, "New Connection…", Box::new(NewConnection), window);
-                                    let menu = menu.separator();
                                     let menu =
-                                        menu_entry(menu, "Command Palette…", Box::new(OpenCommandPalette), window);
-                                    let menu = menu_entry(menu, "Go to Table…", Box::new(OpenTablePicker), window);
+                                        menu_entry(menu, "New Connection…", Box::new(NewConnection), window);
+                                    let menu = menu.separator();
+                                    let menu = menu_entry(
+                                        menu,
+                                        "Command Palette…",
+                                        Box::new(OpenCommandPalette),
+                                        window,
+                                    );
+                                    let menu =
+                                        menu_entry(menu, "Go to Table…", Box::new(OpenTablePicker), window);
                                     menu_entry(menu.separator(), "Quit", Box::new(Quit), window)
                                 }),
                         )
@@ -173,7 +179,8 @@ impl Workspace {
                                 let menu = menu_entry(menu, "Settings…", Box::new(OpenSettings), window);
                                 let menu = menu_entry(menu, "Select Theme…", Box::new(SelectTheme), window);
                                 let menu = menu_entry(menu, "Select Keymap…", Box::new(SelectKeymap), window);
-                                let menu = menu_entry(menu, "Import Zed Theme…", Box::new(ImportZedTheme), window);
+                                let menu =
+                                    menu_entry(menu, "Import Zed Theme…", Box::new(ImportZedTheme), window);
                                 let menu = menu.separator();
                                 let menu =
                                     menu_entry(menu, "Increase Editor Font Size", Box::new(ZoomIn), window);
@@ -181,7 +188,12 @@ impl Workspace {
                                     menu_entry(menu, "Decrease Editor Font Size", Box::new(ZoomOut), window);
                                 let menu =
                                     menu_entry(menu, "Reset Editor Font Size", Box::new(ZoomReset), window);
-                                menu_entry(menu.separator(), "Open Settings File", Box::new(OpenSettingsFile), window)
+                                menu_entry(
+                                    menu.separator(),
+                                    "Open Settings File",
+                                    Box::new(OpenSettingsFile),
+                                    window,
+                                )
                             },
                         )),
                 ),

@@ -84,7 +84,8 @@ impl Workspace {
         else {
             return;
         };
-        let kind = self.store.read(cx).config(&conn_id).map_or(theta_core::DatabaseKind::Postgres, |c| c.kind);
+        let kind =
+            self.store.read(cx).config(&conn_id).map_or(theta_core::DatabaseKind::Postgres, |c| c.kind);
         // Only what the user ran as a query is run again on their behalf, never a write.
         if !matches!(theta_sql::classify(&sql, kind), theta_sql::StatementClass::Query) {
             self.notify(NoticeKind::Info, "Only a query can be run again from its result", window, cx);
@@ -98,8 +99,10 @@ impl Workspace {
             self.notify(NoticeKind::Info, "The connection is closed", window, cx);
             return;
         };
-        self.runs
-            .insert(conn_id.clone(), RunInfo { console: id, started: Instant::now(), cancelled: false, failed: false });
+        self.runs.insert(
+            conn_id.clone(),
+            RunInfo { console: id, started: Instant::now(), cancelled: false, failed: false },
+        );
         grid.update(cx, |g, cx| g.set_loading_all(what == Rerun::LoadAll, cx));
         if what == Rerun::Refresh {
             grid.update(cx, |g, cx| g.set_loading(true, cx));

@@ -57,7 +57,17 @@ impl Workspace {
             );
         }
         if let Some(info) = self.status.result_info.clone() {
-            right.push(item(info));
+            right.push(if self.status.result_error {
+                div()
+                    .px_2()
+                    .text_size(CHROME_TEXT_SIZE)
+                    .text_color(theme.danger)
+                    .whitespace_nowrap()
+                    .child(info)
+                    .into_any_element()
+            } else {
+                item(info)
+            });
         }
         if let Some(st) = self.editor_status.clone().filter(|_| self.active_console().is_some()) {
             if st.selection_count > 1 {

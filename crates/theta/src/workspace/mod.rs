@@ -161,6 +161,8 @@ pub struct StatusSlots {
     pub selection_count: Option<usize>,
     /// e.g. "1,000 rows in 42 ms".
     pub result_info: Option<SharedString>,
+    /// `result_info` reports a failure (shown in the danger colour).
+    pub result_error: bool,
     /// Transaction state text for the title bar, e.g. "Transaction open".
     pub transaction: Option<SharedString>,
 }
@@ -589,6 +591,13 @@ impl Workspace {
     }
     pub fn set_result_info(&mut self, info: Option<SharedString>, cx: &mut Context<Self>) {
         self.status.result_info = info;
+        self.status.result_error = false;
+        cx.notify();
+    }
+    /// The status line for a run that ended in an error or was cancelled.
+    pub fn set_result_failure(&mut self, text: SharedString, cx: &mut Context<Self>) {
+        self.status.result_info = Some(text);
+        self.status.result_error = true;
         cx.notify();
     }
     pub fn set_transaction_state(&mut self, state: Option<SharedString>, cx: &mut Context<Self>) {
@@ -1254,7 +1263,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ShowChart, window, cx| this.show_chart(window, cx)))
             .on_action(cx.listener(|this, _: &ShowHistory, window, cx| this.show_history(window, cx)))
             .on_action(cx.listener(|this, _: &LoadAllRows, window, cx| this.load_all_active(window, cx)))
-            .on_action(cx.listener(|this, _: &RefreshResults, window, cx| this.refresh_active_result(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &RefreshResults, window, cx| this.refresh_active_result(window, cx)),
+            )
             .on_action(
                 cx.listener(|this, _: &ShowLocalHistory, window, cx| this.open_local_history(window, cx)),
             )

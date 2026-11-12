@@ -208,3 +208,48 @@ mod tests {
         assert_eq!(fmt_ms(std::time::Duration::from_millis(12_300)), "12.3 s");
     }
 }
+
+/// The closing line of a run that stopped before its last statement, or `None` when nothing was skipped.
+/// `index` is the 0-based statement that failed or was cancelled.
+pub fn stopped_summary(index: usize, total: usize) -> Option<String> {
+    let skipped = total.checked_sub(index + 1).filter(|n| *n > 0)?;
+    Some(format!(
+        "Stopped at statement {} of {total}: {} not run",
+        index + 1,
+        if skipped == 1 { "1 statement was".to_string() } else { format!("{skipped} statements were") }
+    ))
+}
+
+/// The status-bar text for a failed run: the first line of the error, kept short.
+pub fn failure_headline(error: &str) -> String {
+    let first = error.lines().next().unwrap_or(error).trim();
+    let mut chars = first.chars();
+    let head: String = chars.by_ref().take(90).collect();
+    if chars.next().is_some() { format!("{head}…") } else { head }
+}
+
+#[cfg(test)]
+mod stopped_tests {
+    use super::*;
+
+    #[test]
+    fn summary_counts_what_was_skipped() {
+        assert_eq!(
+            stopped_summary(2, 7).as_deref(),
+            Some("Stopped at statement 3 of 7: 4 statements were not run")
+        );
+        assert_eq!(
+            stopped_summary(5, 7).as_deref(),
+            Some("Stopped at statement 6 of 7: 1 statement was not run")
+        );
+        assert_eq!(stopped_summary(6, 7), None, "the last statement leaves nothing behind");
+        assert_eq!(stopped_summary(0, 1), None);
+    }
+
+    #[test]
+    fn headline_is_one_short_line() {
+        assert_eq!(failure_headline("boom\nCode: 1"), "boom");
+        let long = "x".repeat(200);
+        assert_eq!(failure_headline(&long).chars().count(), 91);
+    }
+}

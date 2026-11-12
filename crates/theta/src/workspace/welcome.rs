@@ -54,9 +54,10 @@ impl Workspace {
                     )
                     .child(div().text_size(px(28.)).font_weight(FontWeight::SEMIBOLD).child("Theta"))
                     .child(
-                        div().text_size(px(14.)).text_color(theme.muted_foreground).child(
-                            "A keyboard-first database IDE for PostgreSQL, MySQL, SQLite and more.",
-                        ),
+                        div()
+                            .text_size(px(14.))
+                            .text_color(theme.muted_foreground)
+                            .child("A keyboard-first database IDE for PostgreSQL, MySQL, SQLite and more."),
                     ),
             )
             .child(

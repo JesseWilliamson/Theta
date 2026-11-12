@@ -2,7 +2,10 @@
 //! execution, results, messages, history, transactions, editing results,
 //! export, map, explain and formatting.
 
-use super::console::{CatalogSlot, Console, PlanState, ResultItem, SqlCompletion, fmt_ms, plural, verb};
+use super::console::{
+    CatalogSlot, Console, PlanState, ResultItem, SqlCompletion, failure_headline, fmt_ms, plural,
+    stopped_summary, verb,
+};
 use super::{BottomTab, ConsoleTab, Workspace, WorkspaceEvent};
 use crate::connections::{ConnState, NoticeKind, StoreEvent};
 use crate::dialogs::confirm::{self, Choice, Tone};
@@ -892,6 +895,21 @@ impl Workspace {
                     })
                     .unwrap_or(true);
                 if cancelled {
+                    // Cancelled between two statements: say how many never started.
+                    let left = total - i;
+                    this.update(cx, |this, cx| {
+                        let line = format!(
+                            "Cancelled before statement {} of {total}: {} not run",
+                            i + 1,
+                            if left == 1 {
+                                "1 statement was".to_string()
+                            } else {
+                                format!("{left} statements were")
+                            }
+                        );
+                        this.log(&conn_id, &p.sql, MessageKind::Info, vec![line], None, cx);
+                    })
+                    .ok();
                     break;
                 }
                 let mut began = Vec::new();
@@ -1070,7 +1088,9 @@ impl Workspace {
                     if let Some(c) = self.consoles.get_mut(&id) {
                         c.summary = Some((line.clone(), true));
                     }
-                    self.log(conn_id, &p.sql, MessageKind::Info, vec![line], None, cx);
+                    let mut lines = vec![line];
+                    lines.extend(stopped_summary(index, total));
+                    self.log(conn_id, &p.sql, MessageKind::Info, lines, None, cx);
                     return false;
                 }
                 self.push_history(&conn_name, &p.sql, elapsed, None, Some(e.to_string()), cx);
@@ -1092,6 +1112,13 @@ impl Workspace {
                 // A dropped session was already reconnected by `recover_lost_session`; say what
                 // happened to this statement.
                 lines.extend(recovery.message());
+                // Say what the failure cost: a script stops at its first error.
+                if let Some(summary) = stopped_summary(index, total) {
+                    lines.push(summary);
+                }
+                if self.txn_config(conn_id, cx).manual && total > 1 {
+                    lines.push("The transaction is still open; commit it or roll it back.".to_string());
+                }
                 self.log(conn_id, &p.sql, MessageKind::Error, lines, Some(&e), cx);
                 false
             }
@@ -1335,6 +1362,7 @@ impl Workspace {
         let grid = c.grid.clone();
         self.results.update(cx, |r, cx| r.use_grid(Some(grid.clone()), cx));
         let running = self.runs.values().any(|r| r.console == id);
+        let failure = c.summary.clone().filter(|(_, error)| *error).map(|(t, _)| failure_headline(&t));
         let active = c.active_result.min(c.results.len().saturating_sub(1));
         if !c.results.is_empty() {
             let titles: Vec<String> = c.results.iter().map(|r| r.title.clone()).collect();
@@ -1355,7 +1383,12 @@ impl Workspace {
             if rs.truncated {
                 info += " · truncated";
             }
-            self.set_result_info(Some(info.into()), cx);
+            // A script that stopped on an error says so in the status bar; the rows of the statements
+            // that did run are still in the grid and its footer.
+            match failure.filter(|_| !running) {
+                Some(text) => self.set_result_failure(text.into(), cx),
+                None => self.set_result_info(Some(info.into()), cx),
+            }
             self.chart.update(cx, |c, cx| c.set_result(rs.clone(), window, cx));
             self.apply_map(id, active, window, cx);
         } else {
@@ -1367,7 +1400,11 @@ impl Workspace {
                     self.results.update(cx, |r, cx| r.show_running(cx));
                 }
                 Some((t, err)) => {
-                    self.set_result_info(Some(t.clone().into()), cx);
+                    if err {
+                        self.set_result_failure(failure_headline(&t).into(), cx);
+                    } else {
+                        self.set_result_info(Some(t.clone().into()), cx);
+                    }
                     self.results.update(cx, |r, cx| r.show_summary(t, err, cx));
                 }
                 None => {
