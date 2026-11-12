@@ -536,10 +536,10 @@ impl SettingsView {
             .gap_2()
             .child(Input::new(&self.filter).small().cleanable(true))
             .child(div().text_size(CHROME_TEXT_SIZE).text_color(theme.muted_foreground).child(format!(
-                "{} actions and {} editor keys ({} rows shown). Switch keymaps in Editor settings.",
+                "{} actions and {} editor keys ({} shown). Switch keymaps in Editor settings.",
                 self.rows.len(),
                 mode.label(),
-                rows.len()
+                theta_core::text::plural(rows.len() as u64, "row", "rows")
             )))
             .child(div().id("keymap-rows").h(px(380.)).overflow_y_scroll().child(v_flex().children(
                 rows.into_iter().take(600).map(|(section, action, keys)| {

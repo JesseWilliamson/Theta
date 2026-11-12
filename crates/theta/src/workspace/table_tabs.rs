@@ -445,7 +445,11 @@ impl Workspace {
                         }
                         lines.push(note.clone());
                         this.log_bulk(&conn, &title, MessageKind::Error, lines, cx);
-                        this.notify(NoticeKind::Error, format!("{title} failed: {message}"), window, cx);
+                        // The editor shows the failure where the user is looking; a toast only when it is
+                        // not on screen (the user moved to another tab while the statements ran).
+                        if this.active_tab != Some(tab) {
+                            this.notify(NoticeKind::Error, format!("{title} failed: {message}"), window, cx);
+                        }
                         editor.update(cx, |e, cx| e.set_failed(statement, message, note, cx));
                         if completed > 0 && !rolled_back {
                             // Something did change (MySQL commits each statement): show it in the explorer.
@@ -454,7 +458,10 @@ impl Workspace {
                     }
                     Err(e) => {
                         editor.update(cx, |e2, cx| e2.set_failed(None, e.to_string(), String::new(), cx));
-                        this.notify(NoticeKind::Error, format!("{title} failed: {e}"), window, cx);
+                        this.record_notice(MessageKind::Error, &title, &e.to_string(), cx);
+                        if this.active_tab != Some(tab) {
+                            this.notify(NoticeKind::Error, format!("{title} failed: {e}"), window, cx);
+                        }
                     }
                 }
             })
@@ -936,6 +943,9 @@ impl Workspace {
                     },
                     None => {
                         eprintln!("theta: --modify {name}: no such table");
+                        let message = format!("--modify: there is no table named {name} in this connection.");
+                        self.record_notice(MessageKind::Warning, "Start-up", &message, cx);
+                        self.notify(NoticeKind::Warning, message, window, cx);
                         return;
                     }
                 }

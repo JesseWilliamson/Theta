@@ -29,6 +29,14 @@ pub(super) struct Target {
     pub(super) read_only: bool,
 }
 
+/// " (about 1,234 rows, the catalog's estimate)" for a table whose row count the catalog knows.
+fn estimate_note(estimate: Option<u64>) -> String {
+    match estimate {
+        Some(n) => format!(" (about {}, the catalog's estimate)", theta_core::text::plural(n, "row", "rows")),
+        None => String::new(),
+    }
+}
+
 impl Workspace {
     pub(super) fn ddl_target(
         &self,
@@ -82,9 +90,24 @@ impl Workspace {
         } else if stmts.len() > 1 {
             lines.push("The statements run in one transaction: all of them or none.".into());
         }
-        for s in stmts {
-            if s.flags.contains(&Flag::Destructive) {
-                lines.push(format!("Destructive: {}", s.explanation));
+        let destructive: Vec<&Statement> = stmts.iter().filter(|s| s.flags.contains(&Flag::Destructive)).collect();
+        for s in &destructive {
+            lines.push(format!("{}.", s.explanation.trim_end_matches('.')));
+        }
+        if !destructive.is_empty() {
+            // Said once, and true for the way it will run: only a transaction you can still roll back keeps it
+            // undoable (MySQL commits by itself, already said above).
+            if kind.family() != Family::MySql {
+                lines.push(
+                    if self.txn.contains(conn_id) || self.manual_begin(conn_id, cx).is_some() {
+                        "Until you commit, you can still undo this by rolling back."
+                    } else {
+                        "This cannot be undone once it has run."
+                    }
+                    .into(),
+                );
+            } else {
+                lines.push("This cannot be undone once it has run.".into());
             }
         }
         lines.join("\n")
@@ -173,13 +196,13 @@ impl Workspace {
         );
         // SQLite has no TRUNCATE; DELETE without a WHERE is its (equally complete) spelling.
         let (sql, why) = match t.kind.family() {
-            Family::Sqlite => (format!("DELETE FROM {name}"), "Delete every row"),
-            _ => (format!("TRUNCATE TABLE {name}"), "Remove every row at once"),
+            Family::Sqlite => (format!("DELETE FROM {name}"), "Delete all rows from"),
+            _ => (format!("TRUNCATE TABLE {name}"), "Delete all rows from"),
         };
         let mut s = Statement {
             sql,
             flags: vec![Flag::Destructive],
-            explanation: format!("{why} of {}", t.table.name),
+            explanation: format!("{why} {}{}", t.table.name, estimate_note(t.table.row_estimate)),
         };
         if t.kind.family() == Family::MySql {
             s.flags.push(Flag::ImplicitCommit);
@@ -222,7 +245,17 @@ impl Workspace {
         let s = Statement {
             sql: format!("DROP {what} {name}"),
             flags: vec![Flag::Destructive],
-            explanation: format!("Drop {} and all of its data", t.table.name),
+            explanation: match t.table.kind {
+                TableKind::View | TableKind::MaterializedView => {
+                    format!("Drop the {} {}", what.to_lowercase(), t.table.name)
+                }
+                _ => format!(
+                    "Drop the {} {} and all of its data{}",
+                    what.to_lowercase(),
+                    t.table.name,
+                    estimate_note(t.table.row_estimate)
+                ),
+            },
         };
         // Foreign keys elsewhere that point here would block the drop (or, with CASCADE, be dropped).
         let dependents: Vec<String> = t

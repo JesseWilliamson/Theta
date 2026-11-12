@@ -436,25 +436,12 @@ impl SessionsView {
                 return;
             }
         };
-        let who = format!(
-            "session {} ({}{})",
-            s.id,
-            if s.user.is_empty() { "no user".to_string() } else { format!("user {}", s.user) },
-            if s.database.is_empty() { String::new() } else { format!(", database {}", s.database) }
+        let (intro, badge) = confirm_text(
+            action,
+            logic::effect_note(self.kind, action),
+            &s,
+            s.is_self && (s.application == "Theta" || !self.own_ids.contains(&s.id)),
         );
-        let mut intro = format!("{} on {who}?\n{}", action.label(), logic::effect_note(self.kind, action));
-        if s.is_self {
-            intro.push_str("\n\nThis is one of Theta's own connections");
-            intro.push_str(if s.application == "Theta" || !self.own_ids.contains(&s.id) {
-                " (this tab's session, or a console's): "
-            } else {
-                " (the session your consoles use for this connection): "
-            });
-            intro.push_str(match action {
-                Action::Cancel => "cancelling it stops whatever it is running for you.",
-                Action::Terminate => "terminating it makes the next statement reconnect, and any open transaction in it is lost.",
-            });
-        }
         let view = cx.entity().downgrade();
         let label = action.label().to_string();
         let sql_run = sql.clone();
@@ -466,7 +453,7 @@ impl SessionsView {
             intro,
             vec![Item {
                 sql: sql.clone(),
-                badges: vec![("affects another session".to_string(), true)],
+                badges: vec![(badge, true)],
                 note: None,
             }],
             vec![Choice::new(label, Tone::Danger, move |_, cx| {
@@ -976,5 +963,61 @@ impl SessionsView {
 impl Drop for SessionsView {
     fn drop(&mut self) {
         self.side.close();
+    }
+}
+
+
+/// The question and the badge of the Cancel Query / Terminate Session confirmation. The text and the badge
+/// agree: a session of Theta's own says so in both, any other session is "another session" in the badge
+/// and needs no further paragraph. `shared` is true for a console's or this tab's session, false for the
+/// session the consoles of this connection share.
+fn confirm_text(action: Action, effect: &str, s: &Session, shared: bool) -> (String, String) {
+    let who = format!(
+        "session {} ({}{})",
+        s.id,
+        if s.user.is_empty() { "no user".to_string() } else { format!("user {}", s.user) },
+        if s.database.is_empty() { String::new() } else { format!(", database {}", s.database) }
+    );
+    let verb = match action {
+        Action::Cancel => "Cancel the running query of",
+        Action::Terminate => "Terminate",
+    };
+    let mut intro = format!("{verb} {who}?\n{effect}");
+    if !s.is_self {
+        return (intro, "Affects another session".to_string());
+    }
+    intro.push_str(if shared {
+        "\n\nThis is one of Theta's own connections (this tab's session, or a console's): "
+    } else {
+        "\n\nThis is one of Theta's own connections (the session your consoles use for this connection): "
+    });
+    intro.push_str(match action {
+        Action::Cancel => "cancelling it stops whatever it is running for you.",
+        Action::Terminate => {
+            "terminating it makes the next statement reconnect, and any open transaction in it is lost."
+        }
+    });
+    (intro, "Theta's own connection".to_string())
+}
+
+#[cfg(test)]
+mod confirm_tests {
+    use super::*;
+
+    fn session(is_self: bool) -> Session {
+        Session { id: "12756".into(), user: "postgres".into(), database: "quarry_demo".into(), is_self, ..Default::default() }
+    }
+
+    #[test]
+    fn the_question_reads_once_and_the_badge_agrees() {
+        let (intro, badge) = confirm_text(Action::Terminate, "Ends the backend.", &session(false), false);
+        assert!(intro.starts_with("Terminate session 12756 (user postgres, database quarry_demo)?"), "{intro}");
+        assert!(!intro.contains("Theta's own"));
+        assert_eq!(badge, "Affects another session");
+        let (intro, badge) = confirm_text(Action::Terminate, "Ends the backend.", &session(true), true);
+        assert!(intro.contains("one of Theta's own connections"));
+        assert_eq!(badge, "Theta's own connection");
+        let (intro, _) = confirm_text(Action::Cancel, "Stops it.", &session(false), false);
+        assert!(intro.starts_with("Cancel the running query of session 12756"));
     }
 }

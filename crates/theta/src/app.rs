@@ -27,8 +27,19 @@ pub fn run(args: Args) {
         cx.set_app_identity("theta", "Theta");
         keymap::bind(cx);
         keymap::set_menus(cx);
+        // Problems with the command line or the files read at start-up are collected, printed to stderr for
+        // a terminal launch and shown in the window (toast and Messages) for a launcher that has no stderr.
+        let mut problems: Vec<String> = Vec::new();
         if let Some(theme) = &args.theme {
-            theta_ui::themes::set_theme(theme, cx);
+            let names: Vec<String> =
+                theta_ui::themes::available(cx).into_iter().map(|t| t.name.to_string()).collect();
+            match names.iter().find(|n| n.eq_ignore_ascii_case(theme)) {
+                Some(name) => theta_ui::themes::set_theme(name, cx),
+                None => problems.push(format!(
+                    "--theme: there is no theme called “{theme}”, so the current theme is kept. Select Theme lists the {} available.",
+                    names.len()
+                )),
+            }
         }
 
         let (store, warning) =
@@ -67,12 +78,20 @@ pub fn run(args: Args) {
                 window.set_window_title("Theta");
                 workspace.update(cx, |ws, cx| {
                     ws.focus_default(window, cx);
+                    for p in &problems {
+                        eprintln!("theta: {p}");
+                        ws.add_startup_warning(p.clone());
+                    }
+                    if let Some(w) = warning {
+                        ws.add_startup_warning(w);
+                    }
+                    for w in crate::templates::TemplateStore::global().warnings() {
+                        // The parser names the file by its short name; give the full path.
+                        let path = crate::templates::TemplateStore::global().path().display().to_string();
+                        ws.add_startup_warning(w.replacen("templates.json", &path, 1));
+                    }
                     ws.show_startup_warnings(window, cx);
                 });
-                if let Some(w) = warning {
-                    workspace
-                        .update(cx, |ws, cx| ws.notify(crate::connections::NoticeKind::Error, w, window, cx));
-                }
             })
             .ok();
         cx.activate(true);
@@ -105,7 +124,17 @@ pub fn run(args: Args) {
             (None, Some(path)) => match std::fs::read_to_string(path) {
                 Ok(t) => Some(t),
                 Err(e) => {
-                    eprintln!("theta: --script {path}: {e}");
+                    let why = theta_core::friendly::io_error(&e, std::path::Path::new(path), theta_core::friendly::IoOp::Read);
+                    eprintln!("theta: --script {path}: {}", why.details.as_deref().unwrap_or(&why.message));
+                    let message = format!("--script: {}", why.message);
+                    handle
+                        .update(cx, |_, window, cx| {
+                            workspace.update(cx, |ws, cx| {
+                                ws.record_notice(crate::panels::messages::MessageKind::Warning, "Start-up", &message, cx);
+                                ws.notify(crate::connections::NoticeKind::Warning, message.clone(), window, cx);
+                            })
+                        })
+                        .ok();
                     None
                 }
             },
@@ -125,11 +154,17 @@ pub fn run(args: Args) {
         if let Some(target) = startup_table {
             workspace.update(cx, |ws, _| ws.table_editor_at_startup(target));
         }
-        startup_connections(&args, &store, cx);
+        startup_connections(&args, &store, &workspace, handle, cx);
     });
 }
 
-fn startup_connections(args: &Args, store: &Entity<ConnectionStore>, cx: &mut gpui_kit::App) {
+fn startup_connections(
+    args: &Args,
+    store: &Entity<ConnectionStore>,
+    workspace: &Entity<Workspace>,
+    handle: gpui_kit::AnyWindowHandle,
+    cx: &mut gpui_kit::App,
+) {
     for url in &args.connect {
         match parse_connection_url(url) {
             Ok(parsed) => {
@@ -142,11 +177,23 @@ fn startup_connections(args: &Args, store: &Entity<ConnectionStore>, cx: &mut gp
                     s.connect(&id, cx);
                 });
             }
-            Err(e) => eprintln!("theta: --connect {url}: {e}"),
+            Err(e) => {
+                eprintln!("theta: --connect {url}: {e}");
+                let message = format!("--connect: “{url}” is not a connection URL ({e}).");
+                handle
+                    .update(cx, |_, window, cx| {
+                        workspace.update(cx, |ws, cx| {
+                            ws.record_notice(crate::panels::messages::MessageKind::Warning, "Start-up", &message, cx);
+                            ws.notify(crate::connections::NoticeKind::Warning, message.clone(), window, cx);
+                        })
+                    })
+                    .ok();
+            }
         }
     }
     if args.demo {
         let store = store.clone();
+        let workspace = workspace.clone();
         cx.spawn(async move |cx| {
             let result = demo::create_demo_database().await;
             cx.update(|cx| match result {
@@ -155,7 +202,26 @@ fn startup_connections(args: &Args, store: &Entity<ConnectionStore>, cx: &mut gp
                     let id = existing.unwrap_or_else(|| s.add(demo::demo_config(&new_connection_id()), cx));
                     s.connect(&id, cx);
                 }),
-                Err(e) => eprintln!("theta: could not create the demo database: {e}"),
+                Err(e) => {
+                    eprintln!("theta: could not create the demo database: {e}");
+                    let message = format!(
+                        "The demo database could not be created. {}",
+                        theta_core::friendly::plain(&e.to_string())
+                    );
+                    handle
+                        .update(cx, |_, window, cx| {
+                            workspace.update(cx, |ws, cx| {
+                                ws.record_notice(
+                                    crate::panels::messages::MessageKind::Error,
+                                    "Demo database",
+                                    &message,
+                                    cx,
+                                );
+                                ws.notify(crate::connections::NoticeKind::Error, message.clone(), window, cx);
+                            })
+                        })
+                        .ok();
+                }
             })
         })
         .detach();

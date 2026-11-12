@@ -41,8 +41,8 @@ impl Workspace {
             .unwrap_or_else(|| vec![p::ParamValue::default(); detected.slots.len()]);
         let note = if picks.len() > 1 {
             format!(
-                "Values apply to all {} statements. They are inserted into the SQL as literals.",
-                picks.len()
+                "Values apply to all {}. They are inserted into the SQL as literals.",
+                theta_core::text::plural(picks.len() as u64, "statement", "statements")
             )
         } else {
             "Values are inserted into the SQL as literals before it runs.".to_string()

@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use theta_core::Family;
+use theta_core::text::plural;
 use theta_core::{Catalog, ColumnInfo, DatabaseKind, TableKind};
 use theta_grid::{GridMeta, ResultGrid};
 use theta_import::plan::auto_map;
@@ -186,15 +187,12 @@ fn select_of(
 }
 
 pub(crate) fn fmt_count(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out.chars().rev().collect()
+    theta_core::text::count(n)
+}
+
+/// A file that could not be opened or read, as a sentence.
+fn read_problem(e: &std::io::Error, path: &str) -> String {
+    theta_core::friendly::io_message(e, std::path::Path::new(path), theta_core::friendly::IoOp::Read)
 }
 
 impl ImportView {
@@ -399,13 +397,13 @@ impl ImportView {
         cx.notify();
         let task = cx.background_spawn(async move {
             use std::io::Read;
-            let mut f = std::fs::File::open(&path).map_err(|e| format!("Cannot open {path}: {e}"))?;
+            let mut f = std::fs::File::open(&path).map_err(|e| read_problem(&e, &path))?;
             let size = f.metadata().map(|m| m.len()).ok();
             let mut head = Vec::new();
             f.by_ref()
                 .take(SAMPLE_BYTES as u64 + 1)
                 .read_to_end(&mut head)
-                .map_err(|e| format!("Cannot read {path}: {e}"))?;
+                .map_err(|e| read_problem(&e, &path))?;
             Ok::<_, String>((sniff(&head), size))
         });
         cx.spawn_in(window, async move |this, cx| {
@@ -461,7 +459,7 @@ impl ImportView {
         self.phase = Phase::Scanning;
         cx.notify();
         let task = cx.background_spawn(async move {
-            let f = std::fs::File::open(&path).map_err(|e| format!("Cannot open {path}: {e}"))?;
+            let f = std::fs::File::open(&path).map_err(|e| read_problem(&e, &path))?;
             scan(f, &csv, header, &conv, theta_import::scan::SAMPLE_ROWS).map_err(|e| e.to_string())
         });
         cx.spawn_in(window, async move |this, cx| {
@@ -615,6 +613,12 @@ impl ImportView {
         if importing && self.read_only {
             return;
         }
+        if let Some((_, blocks)) = self.emptiness(cx)
+            && (blocks || !importing)
+        {
+            // The footer already says why; there is nothing to run.
+            return;
+        }
         let Some(ws) = self.ws.upgrade() else { return };
         let plan = ws.read(cx).bulk_txn_plan(&self.conn_id, cx);
         let Some(plan) = plan else { return };
@@ -648,7 +652,7 @@ impl ImportView {
             cx.notify();
             let (cancel, progress) = (self.cancel.clone(), self.progress.clone());
             let task = cx.background_spawn(async move {
-                let f = std::fs::File::open(&path).map_err(|e| format!("Cannot open {path}: {e}"))?;
+                let f = std::fs::File::open(&path).map_err(|e| read_problem(&e, &path))?;
                 let cb = move |p: &RunProgress| *progress.lock().unwrap() = p.clone();
                 Ok::<_, String>(validate(f, &job, size, &cancel, &cb))
             });
@@ -705,7 +709,7 @@ impl ImportView {
         cx.notify();
         let (cancel, progress) = (self.cancel.clone(), self.progress.clone());
         let task = runtime::spawn(async move {
-            let f = std::fs::File::open(&path).map_err(|e| format!("Cannot open {path}: {e}"))?;
+            let f = std::fs::File::open(&path).map_err(|e| read_problem(&e, &path))?;
             let cb = move |p: &RunProgress| *progress.lock().unwrap() = p.clone();
             Ok::<_, String>(run_import(connection.as_ref(), f, &job, size, &cancel, &cb).await)
         });
@@ -751,31 +755,29 @@ impl ImportView {
                 return;
             }
         };
-        let rate = if rep.elapsed.as_secs_f64() > 0.0 {
-            rep.rows_read as f64 / rep.elapsed.as_secs_f64()
-        } else {
-            0.0
-        };
+        let rate = theta_core::text::rate(rep.rows_read, rep.elapsed);
+        // The report lists the problem rows; a failure that is one of them is not repeated in the footer.
+        let listed = |e: &str| rep.issues.iter().any(|i| i.to_string() == e);
         let (ok, text) = match (&rep.outcome, kind) {
             (Outcome::Completed, ReportKind::Validate) => (
                 rep.issue_count == 0,
                 if rep.issue_count == 0 {
-                    format!("Valid: all {} rows convert cleanly.", fmt_count(rep.rows_read))
+                    format!("Valid: all {} convert cleanly.", plural(rep.rows_read, "row", "rows"))
                 } else {
                     format!(
-                        "{} of {} rows have problems (see the report). Nothing was written.",
+                        "{} of {} have problems (see the report). Nothing was written.",
                         fmt_count(rep.issue_count),
-                        fmt_count(rep.rows_read)
+                        plural(rep.rows_read, "row", "rows")
                     )
                 },
             ),
             (Outcome::Completed, ReportKind::Import) => (
                 true,
                 format!(
-                    "Imported {} rows in {:.1}s ({} rows/s){}{}.",
-                    fmt_count(rep.rows_inserted),
-                    rep.elapsed.as_secs_f64(),
-                    fmt_count(rate as u64),
+                    "Imported {} in {}{}{}{}.",
+                    plural(rep.rows_inserted, "row", "rows"),
+                    theta_core::text::duration(rep.elapsed),
+                    rate.map(|r| format!(" ({r})")).unwrap_or_default(),
                     if rep.rows_skipped > 0 {
                         format!(", skipped {}", fmt_count(rep.rows_skipped))
                     } else {
@@ -791,11 +793,17 @@ impl ImportView {
             (Outcome::Cancelled, _) => {
                 (false, "Cancelled. Nothing was written (the transaction was rolled back).".into())
             }
+            (Outcome::Failed(e), ReportKind::Import) if listed(e) => {
+                (false, "The import failed and was rolled back. The report shows the row that failed.".into())
+            }
             (Outcome::Failed(e), ReportKind::Import) => {
-                (false, format!("Import failed and was rolled back: {e}"))
+                (false, format!("The import failed and was rolled back. {}", theta_core::friendly::plain(e)))
+            }
+            (Outcome::Failed(e), ReportKind::Validate) if listed(e) => {
+                (false, "The file could not be read to the end. The report shows where.".into())
             }
             (Outcome::Failed(e), ReportKind::Validate) => {
-                (false, format!("Could not read the whole file: {e}"))
+                (false, format!("The whole file could not be read. {}", theta_core::friendly::plain(e)))
             }
         };
         self.status = Some((ok, text.clone()));
@@ -897,16 +905,44 @@ impl ImportView {
             .into_any_element()
     }
 
+    /// What is wrong with a file that has no data, in words, and whether Import must stay off. A header with
+    /// no rows can still create the empty table in New table mode, and the note says so.
+    fn emptiness(&self, cx: &App) -> Option<(String, bool)> {
+        let sc = self.scan.as_ref()?;
+        if sc.width == 0 {
+            return Some(("The file is empty.".into(), true));
+        }
+        if self.has_header && sc.sampled == 0 {
+            return Some(match self.mode {
+                Mode::Existing => (
+                    "The file has a header but no rows, so there is nothing to import.".into(),
+                    true,
+                ),
+                Mode::New => {
+                    let name = self.new_name.read(cx).value().trim().to_string();
+                    (
+                        format!(
+                            "The file has a header but no rows. Create Table makes the empty table{}.",
+                            if name.is_empty() { String::new() } else { format!(" {name}") }
+                        ),
+                        false,
+                    )
+                }
+            });
+        }
+        None
+    }
+
     fn summary_line(&self, cx: &App) -> String {
         let Some(sc) = &self.scan else { return String::new() };
         let size = self.file_size.map(|b| format!(" · {}", human_bytes(b))).unwrap_or_default();
         format!(
-            "{} columns · {} sampled rows{}{}{}",
-            sc.width,
-            fmt_count(sc.sampled as u64),
+            "{} · {}{}{}{}",
+            plural(sc.width as u64, "column", "columns"),
+            plural(sc.sampled as u64, "sampled row", "sampled rows"),
             size,
             if sc.ragged > 0 {
-                format!(" · {} ragged rows in the sample", sc.ragged)
+                format!(" · {} in the sample", plural(sc.ragged as u64, "ragged row", "ragged rows"))
             } else {
                 String::new()
             },
@@ -1142,16 +1178,16 @@ impl ImportView {
         let Some((kind, rep)) = &self.report else {
             let running = matches!(self.phase, Phase::Validating | Phase::Importing);
             if running {
-                let rate = live.rows_per_second();
+                let rate = theta_core::text::rate(live.rows_read, live.elapsed);
                 return v_flex()
                     .gap_2()
                     .p_3()
                     .child(div().text_size(px(13.)).child(format!(
-                        "{} rows read · {} inserted · {} skipped · {} rows/s",
-                        fmt_count(live.rows_read),
+                        "{} read · {} inserted · {} skipped{}",
+                        plural(live.rows_read, "row", "rows"),
                         fmt_count(live.rows_inserted),
                         fmt_count(live.rows_skipped),
-                        fmt_count(rate as u64)
+                        rate.map(|r| format!(" · {r}")).unwrap_or_default()
                     )))
                     .into_any_element();
             }
@@ -1168,7 +1204,7 @@ impl ImportView {
         lines.push(stat("Rows read", fmt_count(rep.rows_read)).into_any_element());
         lines.push(stat(what, fmt_count(rep.rows_inserted)).into_any_element());
         lines.push(stat("Rows with problems", fmt_count(rep.issue_count)).into_any_element());
-        lines.push(stat("Time", format!("{:.2}s", rep.elapsed.as_secs_f64())).into_any_element());
+        lines.push(stat("Time", theta_core::text::duration(rep.elapsed)).into_any_element());
         if rep.encoding_warning {
             lines.push(div().text_color(theme.warning).child("Some bytes were not valid in the chosen encoding and were replaced; check the Encoding option.").into_any_element());
         }
@@ -1271,12 +1307,22 @@ impl Render for ImportView {
                 .into_any_element(),
             Mode::New => Input::new(&self.new_name).into_any_element(),
         };
-        let can_import = !busy && !self.read_only && self.scan.is_some();
+        let emptiness = self.emptiness(cx);
+        let can_import = !busy
+            && !self.read_only
+            && self.scan.is_some()
+            && !emptiness.as_ref().is_some_and(|(_, blocks)| *blocks);
         let fraction = live.fraction().map(|f| f * 100.).unwrap_or(0.);
         let can_open = !busy
             && self.last_table.is_some()
             && matches!(&self.report, Some((ReportKind::Import, r)) if matches!(r.outcome, Outcome::Completed) && r.rows_inserted > 0);
-        let import_label = if self.armed { "Confirm Import" } else { "Import" };
+        let import_label = if self.armed {
+            "Confirm Import"
+        } else if emptiness.is_some() {
+            "Create Table"
+        } else {
+            "Import"
+        };
         v_flex()
             .gap_2()
             .child(
@@ -1361,6 +1407,14 @@ impl Render for ImportView {
                     .when_some(self.scan_error.clone(), |d, e| {
                         d.child(div().text_size(px(12.)).text_color(theme.danger).child(e))
                     })
+                    .when_some(emptiness.clone().filter(|_| self.status.is_none()), |d, (text, blocks)| {
+                        d.child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(if blocks { theme.danger } else { theme.warning })
+                                .child(text),
+                        )
+                    })
                     .when_some(self.status.clone(), |d, (ok, text)| {
                         d.child(
                             div()
@@ -1383,11 +1437,13 @@ impl Render for ImportView {
                                 )
                                 .child(div().text_size(px(11.)).text_color(theme.muted_foreground).child(
                                     format!(
-                                        "{} read · {} inserted · {} skipped · {} rows/s",
+                                        "{} read · {} inserted · {} skipped{}",
                                         fmt_count(live.rows_read),
                                         fmt_count(live.rows_inserted),
                                         fmt_count(live.rows_skipped),
-                                        fmt_count(live.rows_per_second() as u64)
+                                        theta_core::text::rate(live.rows_read, live.elapsed)
+                                            .map(|r| format!(" · {r}"))
+                                            .unwrap_or_default()
                                     ),
                                 )),
                         )
@@ -1407,7 +1463,7 @@ impl Render for ImportView {
                     .child(
                         Button::new("validate")
                             .label("Validate")
-                            .disabled(busy || self.scan.is_none())
+                            .disabled(busy || self.scan.is_none() || emptiness.is_some())
                             .on_click(cx.listener(|this, _, window, cx| this.start(false, window, cx))),
                     )
                     .child(

@@ -145,13 +145,28 @@ impl Workspace {
         if let Err(e) = store.ensure_file() {
             self.notify(
                 NoticeKind::Error,
-                format!("Could not create {}: {e}", store.path().display()),
+                format!(
+                    "Could not create {}. {}",
+                    store.path().display(),
+                    theta_core::friendly::plain(&e.to_string())
+                ),
                 window,
                 cx,
             );
             return;
         }
+        // The platform gives no answer on whether an application took the file, so the message names the
+        // file and what to do when nothing opened.
         cx.open_with_system(store.path());
+        self.notify(
+            NoticeKind::Info,
+            format!(
+                "Asked the system to open {}. If nothing opens, no application is set for .json files: open the file by hand.",
+                store.path().display()
+            ),
+            window,
+            cx,
+        );
     }
 }
 

@@ -309,7 +309,7 @@ fn mark(s: Status) -> &'static str {
 }
 
 fn plural(n: usize, one: &str) -> String {
-    format!("{n} {one}{}", if n == 1 { "" } else { "s" })
+    theta_core::text::plural_s(n as u64, one)
 }
 
 impl Render for SchemaCompareView {
@@ -329,7 +329,9 @@ impl Render for SchemaCompareView {
                 let held = s.commented_count();
                 let mut parts = vec![plural(s.live_count(), "statement")];
                 if held > 0 {
-                    parts.push(format!("{held} destructive held back"));
+                    parts.push(format!("{held} destructive held back (d includes them)"));
+                } else if self.include_destructive {
+                    parts.push("destructive statements included".to_string());
                 }
                 if !s.manual.is_empty() {
                     parts.push(format!("{} to do by hand", s.manual.len()));
@@ -359,11 +361,7 @@ impl Render for SchemaCompareView {
                     .gap_4()
                     .text_size(px(11.))
                     .text_color(theme.muted_foreground)
-                    .child(script_line)
-                    .child(div().child(format!(
-                        "destructive statements: {}",
-                        if self.include_destructive { "included" } else { "held back" }
-                    ))),
+                    .child(script_line),
             );
 
         let sel_row = self.rows.get(self.sel).copied();
@@ -593,7 +591,11 @@ impl SchemaCompareView {
                 "The {} exists only in the target: the script drops it (destructive).",
                 o.kind.label()
             ),
-            (_, Status::Different) => format!("{} differences in this {}.", o.changes.len(), o.kind.label()),
+            (_, Status::Different) => format!(
+                "{} in this {}.",
+                theta_core::text::plural(o.changes.len() as u64, "difference", "differences"),
+                o.kind.label()
+            ),
         };
         let head = v_flex()
             .gap_1()

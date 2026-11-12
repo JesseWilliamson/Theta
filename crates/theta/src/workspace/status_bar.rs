@@ -51,7 +51,7 @@ impl Workspace {
                             .text_size(CHROME_TEXT_SIZE)
                             .text_color(theme.foreground)
                             .whitespace_nowrap()
-                            .child(format!("Running {:.1} s", elapsed.as_secs_f32())),
+                            .child(format!("Running {}", theta_core::text::duration(elapsed))),
                     )
                     .into_any_element(),
             );

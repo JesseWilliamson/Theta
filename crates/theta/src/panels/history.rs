@@ -233,11 +233,11 @@ impl HistoryPanel {
                     .whitespace_nowrap()
                     .child(match e.rows {
                         Some(r) => format!(
-                            "{} · {} ms",
+                            "{} · {}",
                             crate::workspace::console::plural(r, "row", "rows"),
-                            e.duration_ms
+                            theta_core::text::duration(std::time::Duration::from_millis(e.duration_ms))
                         ),
-                        None => format!("{} ms", e.duration_ms),
+                        None => theta_core::text::duration(std::time::Duration::from_millis(e.duration_ms)),
                     }),
             )
             .on_click(cx.listener(move |this, ev: &gpui_kit::ClickEvent, window, cx| {

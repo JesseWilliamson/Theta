@@ -193,7 +193,13 @@ impl Workspace {
                 conn_id,
                 &sql,
                 kind,
-                vec![format!("{}: {} ({} of {} statements)", o.name, status(o), o.ran, o.total)],
+                vec![format!(
+                    "{}: {} ({} of {})",
+                    o.name,
+                    status(o),
+                    o.ran,
+                    theta_core::text::plural(o.total as u64, "statement", "statements")
+                )],
                 None,
                 cx,
             );

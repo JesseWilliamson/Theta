@@ -120,11 +120,11 @@ pub fn build_rows(results: &[TableResult], skipped: &[Skipped], limit: Duration)
 /// The one line that sums a finished search up.
 pub fn summary(r: &SearchReport, skipped: usize) -> String {
     let mut s = format!(
-        "{} searched · {} with matches · {} matching rows · {:.1} s",
+        "{} searched · {} with matches · {} matching · {}",
         r.tables - r.not_run,
         r.matched_tables,
-        r.matched_rows,
-        r.elapsed.as_secs_f64()
+        theta_core::text::plural(r.matched_rows as u64, "row", "rows"),
+        theta_core::text::duration(r.elapsed)
     );
     for (n, what) in [(r.timed_out, "timed out"), (r.failed, "failed"), (skipped, "skipped")] {
         if n > 0 {
@@ -417,7 +417,7 @@ impl SearchView {
         self.sel = None;
         self.rows = build_rows(&[], &self.skipped, limit);
         self.searched = Some((opts.clone(), limit));
-        self.status = Some((true, format!("Searching {} tables…", planned.jobs.len())));
+        self.status = Some((true, format!("Searching {}…", theta_core::text::plural(planned.jobs.len() as u64, "table", "tables"))));
         cx.notify();
 
         let (shared, cancel, row_limit) = (self.shared.clone(), self.cancel.clone(), opts.row_limit);
@@ -526,9 +526,9 @@ impl SearchView {
         for r in &self.results {
             match &r.outcome {
                 SearchOutcome::Matched(c) => lines.push(format!(
-                    "{}: {} rows ({})",
+                    "{}: {} ({})",
                     qualified(&r.schema, &r.table),
-                    c.matched_rows,
+                    theta_core::text::plural(c.matched_rows as u64, "row", "rows"),
                     c.columns.iter().map(|(n, k)| format!("{n} {k}")).collect::<Vec<_>>().join(", ")
                 )),
                 SearchOutcome::TimedOut => {
@@ -605,7 +605,7 @@ impl SearchView {
                     notes.push("first rows only".to_string());
                 }
                 if res.columns_cut > 0 {
-                    notes.push(format!("{} columns left out", res.columns_cut));
+                    notes.push(format!("{} left out", theta_core::text::plural(res.columns_cut as u64, "column", "columns")));
                 }
                 base.cursor_pointer()
                     .on_click(cx.listener(move |this, ev: &gpui_kit::ClickEvent, window, cx| {
@@ -880,7 +880,7 @@ impl Render for SearchView {
                                 .child(if self.running {
                                     "Waiting for the first table…".to_string()
                                 } else if let Some(r) = &self.report {
-                                    format!("Nothing found in {} tables.", r.tables - r.not_run)
+                                    format!("Nothing found in {}.", theta_core::text::plural((r.tables - r.not_run) as u64, "table", "tables"))
                                 } else {
                                     "Matches are listed here as they are found.".to_string()
                                 })
@@ -1016,10 +1016,10 @@ mod tests {
         };
         assert_eq!(
             summary(&r, 2),
-            "7 searched · 2 with matches · 41 matching rows · 2.1 s · 1 timed out · 1 failed · 2 skipped · cancelled, 3 not started"
+            "7 searched · 2 with matches · 41 rows matching · 2.10 s · 1 timed out · 1 failed · 2 skipped · cancelled, 3 not started"
         );
         let clean = SearchReport { tables: 4, elapsed: Duration::from_millis(300), ..Default::default() };
-        assert_eq!(summary(&clean, 0), "4 searched · 0 with matches · 0 matching rows · 0.3 s");
+        assert_eq!(summary(&clean, 0), "4 searched · 0 with matches · 0 rows matching · 300 ms");
     }
 
     #[test]

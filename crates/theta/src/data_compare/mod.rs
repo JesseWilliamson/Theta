@@ -132,7 +132,7 @@ pub fn fmt_n(n: u64) -> String {
 }
 
 fn rows_word(n: u64) -> String {
-    format!("{} row{}", fmt_n(n), if n == 1 { "" } else { "s" })
+    theta_core::text::plural(n, "row", "rows")
 }
 
 pub fn title_of(ends: &Ends) -> String {
@@ -247,8 +247,8 @@ impl DataCompareView {
         let (cancel, progress) = (self.cancel.clone(), self.progress.clone());
         let work = runtime::spawn(async move {
             let (Some(l), Some(r)) = (l, r) else { return Err("A connection no longer exists".to_string()) };
-            let left = l.await.map_err(|e| format!("Could not open a session on the source: {e}"))?;
-            let right = r.await.map_err(|e| format!("Could not open a session on the target: {e}"))?;
+            let left = l.await.map_err(|e| format!("Could not open a session on the source. {e}"))?;
+            let right = r.await.map_err(|e| format!("Could not open a session on the target. {e}"))?;
             let report = compare_tables(left.as_ref(), right.as_ref(), &job, &cancel, &move |p| {
                 if let Ok(mut g) = progress.lock() {
                     *g = *p;
@@ -414,10 +414,7 @@ impl Render for DataCompareView {
                         "Reading… {} from the source, {} from the target · {} so far",
                         rows_word(p.left_rows),
                         rows_word(p.right_rows),
-                        match p.differences {
-                            1 => "1 difference".to_string(),
-                            n => format!("{} differences", fmt_n(n)),
-                        }
+                        theta_core::text::plural(p.differences as u64, "difference", "differences")
                     ),
                     vec![("esc cancels".to_string(), false)],
                 )
@@ -474,10 +471,10 @@ impl Render for DataCompareView {
             let n = |k: DiffKind| s.statements.iter().filter(|x| x.kind == k).map(|x| x.rows).sum::<usize>();
             let (ins, upd, del) = (n(DiffKind::OnlyLeft), n(DiffKind::Different), n(DiffKind::OnlyRight));
             format!(
-                "Sync script: {ins} insert{}, {upd} update{}, {del} delete{} · deletes are {} (d)",
-                if ins == 1 { "" } else { "s" },
-                if upd == 1 { "" } else { "s" },
-                if del == 1 { "" } else { "s" },
+                "Sync script: {}, {}, {} · deletes are {} (d)",
+                theta_core::text::plural(ins as u64, "insert", "inserts"),
+                theta_core::text::plural(upd as u64, "update", "updates"),
+                theta_core::text::plural(del as u64, "delete", "deletes"),
                 if self.include_deletes { "included" } else { "commented out" },
             )
         });

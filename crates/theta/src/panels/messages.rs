@@ -12,6 +12,7 @@ use theta_ui::{CHROME_TEXT_SIZE, EmptyState, tool_button};
 pub enum MessageKind {
     Ok,
     Info,
+    Warning,
     Error,
 }
 
@@ -35,7 +36,7 @@ impl Message {
             s += &format!("  {l}\n");
         }
         if let Some(c) = &self.code {
-            s += &format!("  code: {c}\n");
+            s += &format!("  {c}\n");
         }
         if let Some(d) = &self.detail {
             s += &format!("  detail: {d}\n");
@@ -115,6 +116,7 @@ impl Render for MessagesPanel {
                 MessageKind::Error => theme.danger,
                 MessageKind::Ok => theme.foreground,
                 MessageKind::Info => theme.muted_foreground,
+                MessageKind::Warning => theme.warning,
             };
             let text = m.plain_text();
             v_flex()
@@ -149,10 +151,7 @@ impl Render for MessagesPanel {
                     }),
                 )
                 .children(m.code.iter().filter(|c| shows_code(c)).map(|c| {
-                    div()
-                        .text_size(CHROME_TEXT_SIZE)
-                        .text_color(theme.muted_foreground)
-                        .child(format!("Code: {c}"))
+                    div().text_size(CHROME_TEXT_SIZE).text_color(theme.muted_foreground).child(c.clone())
                 }))
                 .children(m.detail.iter().map(|d| {
                     div()
@@ -198,6 +197,24 @@ impl Render for MessagesPanel {
     }
 }
 
+/// One way to say which error the server reported, whatever the engine: PostgreSQL gives the SQLSTATE as
+/// its code, MySQL and MariaDB a vendor number plus a `SQLSTATE x` detail. Returns the muted line
+/// ("SQLSTATE 42P01", "Error 1305 · SQLSTATE 42000") and the server's own DETAIL, if it has one beyond that.
+pub fn uniform_code(code: Option<&str>, detail: Option<&str>) -> (Option<String>, Option<String>) {
+    let detail = detail.map(str::trim).filter(|d| !d.is_empty());
+    let code = code.map(str::trim).filter(|c| shows_code(c));
+    match (code, detail) {
+        (Some(c), Some(d)) if d.starts_with("SQLSTATE ") && c.chars().all(|ch| ch.is_ascii_digit()) => {
+            (Some(format!("Error {c} · {d}")), None)
+        }
+        (Some(c), d) if c.len() == 5 && c.chars().all(|ch| ch.is_ascii_digit() || ch.is_ascii_uppercase()) => {
+            (Some(format!("SQLSTATE {c}")), d.map(str::to_string))
+        }
+        (Some(c), d) => (Some(c.to_string()), d.map(str::to_string)),
+        (None, d) => (None, d.map(str::to_string)),
+    }
+}
+
 /// Drivers without a meaningful error code leave it out or say "Unknown".
 fn shows_code(code: &str) -> bool {
     let c = code.trim();
@@ -214,5 +231,21 @@ mod tests {
         assert!(!shows_code(" "));
         assert!(shows_code("42601"));
         assert!(shows_code("ConstraintViolation"));
+    }
+
+    #[test]
+    fn codes_read_the_same_for_every_engine() {
+        use super::uniform_code;
+        assert_eq!(uniform_code(Some("42P01"), None), (Some("SQLSTATE 42P01".into()), None));
+        assert_eq!(
+            uniform_code(Some("1305"), Some("SQLSTATE 42000")),
+            (Some("Error 1305 · SQLSTATE 42000".into()), None)
+        );
+        assert_eq!(
+            uniform_code(Some("23505"), Some("Key (id)=(1) already exists.")),
+            (Some("SQLSTATE 23505".into()), Some("Key (id)=(1) already exists.".into()))
+        );
+        assert_eq!(uniform_code(Some("Unknown"), None), (None, None));
+        assert_eq!(uniform_code(Some("ConstraintViolation"), None).0.as_deref(), Some("ConstraintViolation"));
     }
 }

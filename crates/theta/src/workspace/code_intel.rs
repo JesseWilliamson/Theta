@@ -428,7 +428,11 @@ impl PeekPicker {
             theta_core::TableKind::ForeignTable => "foreign table",
         };
         PeekPicker {
-            title: format!("{schema}.{} · {kind} · {} columns", table.name, rows.len()),
+            title: format!(
+                "{schema}.{} · {kind} · {}",
+                table.name,
+                theta_core::text::plural(rows.len() as u64, "column", "columns")
+            ),
             rows,
             selected,
             workspace,

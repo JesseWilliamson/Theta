@@ -243,10 +243,17 @@ impl CopyView {
             return Err(format!("{}: {why}", t.kind.label()));
         }
         let plan = plan_copy(self.source.kind, &self.source.table, t.kind, &schema, &name)?;
-        if t.catalog.find_table(Some(&schema), &name).is_some() {
+        if name.is_empty() {
+            return Err("Enter a name for the new table.".into());
+        }
+        // The live catalog, not the one from when the dialog opened: a copy made a moment ago is in it.
+        let catalog = self.store.read(cx).catalog(&t.id).unwrap_or_else(|| t.catalog.clone());
+        if let Some((_, existing)) = catalog.find_table(Some(&schema), &name) {
+            let what = if existing.kind == theta_core::TableKind::View { "A view" } else { "A table" };
             return Err(format!(
-                "{} already exists in the target; choose another name.",
-                qualified(&schema, &name)
+                "{what} named {} already exists in {}. Choose another name.",
+                existing.name,
+                if schema.is_empty() { "the target".to_string() } else { format!("the schema {schema}") }
             ));
         }
         Ok(plan)
@@ -337,7 +344,7 @@ impl CopyView {
                         closers.push(c.clone());
                         c
                     }
-                    Err(e) => return Err(format!("could not open a session on the source: {e}")),
+                    Err(e) => return Err(format!("Could not open a session on the source. {e}")),
                 },
                 _ => return Err("the source connection no longer exists".into()),
             };
@@ -348,7 +355,7 @@ impl CopyView {
                         closers.push(c.clone());
                         c
                     }
-                    Err(e) => return Err(format!("could not open a session on the target: {e}")),
+                    Err(e) => return Err(format!("Could not open a session on the target. {e}")),
                 },
                 _ => return Err("the target connection no longer exists".into()),
             };
@@ -402,15 +409,31 @@ impl CopyView {
                 CopyOutcome::Completed => {
                     // The explorer must show the new table.
                     self.store.update(cx, |s, cx| s.refresh_catalog(&dst_id, cx));
-                    (true, format!("Copied {} rows to {label} in {:.1} s.", r.rows, r.elapsed.as_secs_f64()))
+                    (
+                        true,
+                        format!(
+                            "Copied {} to {label} in {}.",
+                            theta_core::text::plural(r.rows, "row", "rows"),
+                            theta_core::text::duration(r.elapsed)
+                        ),
+                    )
                 }
                 CopyOutcome::Cancelled => (
                     false,
-                    format!("Cancelled after {} rows. {}", r.rows, describe_cleanup(&r.cleanup, &label)),
+                    format!(
+                        "Cancelled after {}. {}",
+                        theta_core::text::plural(r.rows, "row", "rows"),
+                        describe_cleanup(&r.cleanup, r.created, &label)
+                    ),
                 ),
-                CopyOutcome::Failed(e) => {
-                    (false, format!("The copy failed: {e}. {}", describe_cleanup(&r.cleanup, &label)))
-                }
+                CopyOutcome::Failed(e) => (
+                    false,
+                    format!(
+                        "The copy failed. {} {}",
+                        theta_core::friendly::plain(e),
+                        describe_cleanup(&r.cleanup, r.created, &label)
+                    ),
+                ),
             },
             Err(e) => (false, e),
         };
@@ -427,12 +450,22 @@ impl CopyView {
     }
 }
 
-fn describe_cleanup(c: &Cleanup, label: &str) -> String {
+/// What became of the target table, true in every outcome: made by this copy and removed again, refused
+/// before anything was made (so a table of that name that already existed is untouched), or left behind.
+fn describe_cleanup(c: &Cleanup, created: bool, label: &str) -> String {
     match c {
-        Cleanup::NotNeeded => String::new(),
-        Cleanup::RolledBack => format!("The transaction was rolled back; {label} does not exist."),
+        Cleanup::NotNeeded if created => String::new(),
+        Cleanup::NotNeeded => format!("Nothing was changed in the target; any table named {label} is as it was."),
+        Cleanup::RolledBack if created => {
+            format!("The transaction was rolled back, so the new table {label} was not kept.")
+        }
+        Cleanup::RolledBack => {
+            format!("The transaction was rolled back and nothing was changed; any table named {label} is as it was.")
+        }
         Cleanup::Dropped => format!("The half-made table {label} was dropped."),
-        Cleanup::Failed(e) => format!("Clean-up failed: {e}"),
+        Cleanup::Failed(e) => format!(
+            "Cleaning up failed ({e}), so {label} may be left behind. Drop it by hand if it is there."
+        ),
     }
 }
 
@@ -472,13 +505,17 @@ impl Render for CopyView {
                     .child(caption("Copy"))
                     .child(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).child(src_label))
                     .child(div().text_size(px(11.)).text_color(theme.muted_foreground).child(format!(
-                            "{} · {} columns{}",
+                            "{} · {}{}",
                             self.source.kind.label(),
-                            self.source.table.columns.len(),
+                            theta_core::text::plural(
+                                self.source.table.columns.len() as u64,
+                                "column",
+                                "columns"
+                            ),
                             self.source
                                 .table
                                 .row_estimate
-                                .map(|n| format!(" · about {n} rows"))
+                                .map(|n| format!(" · about {}", theta_core::text::plural(n, "row", "rows")))
                                 .unwrap_or_default()
                         ))),
             )
@@ -562,9 +599,12 @@ impl Render for CopyView {
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme.warning)
                                     .child(format!(
-                                        "{} column{} will not keep an exact type",
-                                        p.substitutions.len(),
-                                        if p.substitutions.len() == 1 { "" } else { "s" }
+                                        "{} will not keep an exact type",
+                                        theta_core::text::plural(
+                                            p.substitutions.len() as u64,
+                                            "column",
+                                            "columns"
+                                        )
                                     )),
                             )
                             .child(div().id("copy-subs").max_h(px(120.)).overflow_y_scroll().child(
@@ -634,7 +674,7 @@ impl Render for CopyView {
                                     div()
                                         .text_size(px(11.))
                                         .text_color(theme.muted_foreground)
-                                        .child(format!("{} rows", live.rows)),
+                                        .child(theta_core::text::plural(live.rows, "row", "rows")),
                                 ),
                         )
                     }),

@@ -30,6 +30,7 @@ mod status_bar;
 mod table_tabs;
 mod tabs;
 mod templates;
+mod toasts;
 mod title_bar;
 mod tool_tabs;
 pub(crate) use tool_tabs::is_system_schema;
@@ -60,14 +61,13 @@ use crate::exec::history::HistoryStore;
 use crate::explorer::{Explorer, ExplorerEvent};
 use crate::palette;
 use crate::panels::history::{HistoryEvent, HistoryPanel};
-use crate::panels::messages::MessagesPanel;
+use crate::panels::messages::{MessageKind, MessagesPanel};
 use crate::panels::problems::{ProblemsEvent, ProblemsPanel};
 use crate::panels::results::{ResultsEvent, ResultsPanel};
 use crate::sqlgen;
 use console::Console;
 use gpui_kit::assets::IconName;
-use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{ActiveTheme as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyView, App, AppContext as _, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, Focusable,
@@ -410,12 +410,37 @@ impl Workspace {
     }
 
     /// Show the settings/theme load warnings collected at start-up (once).
+    /// Every warning is recorded in Messages (so the tab does not claim there were none once the toast is
+    /// gone) and shown as a toast; the toasts queue, so none hides another.
     pub fn show_startup_warnings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        for warning in std::mem::take(&mut self.startup_warnings) {
-            if !self.quiet {
-                window.push_notification(Notification::warning(warning), cx);
-            }
+        let warnings = std::mem::take(&mut self.startup_warnings);
+        for warning in &warnings {
+            self.record_notice(MessageKind::Warning, "Start-up", warning, cx);
         }
+        match warnings.as_slice() {
+            [] => {}
+            [one] => self.notify(NoticeKind::Warning, one.clone(), window, cx),
+            many => self.notify(
+                NoticeKind::Warning,
+                format!(
+                    "{} found while starting. They are listed in the Messages tab.",
+                    theta_core::text::plural(many.len() as u64, "problem", "problems")
+                ),
+                window,
+                cx,
+            ),
+        }
+    }
+
+    /// A problem found while starting (a bad command-line argument, a broken settings file): shown with the
+    /// other start-up warnings.
+    pub fn add_startup_warning(&mut self, warning: String) {
+        self.startup_warnings.push(warning);
+    }
+
+    /// An entry in Messages that belongs to no connection.
+    pub fn record_notice(&mut self, kind: MessageKind, title: &str, text: &str, cx: &mut Context<Self>) {
+        self.log("", title, kind, vec![text.to_string()], None, cx);
     }
 
     // ---------------------------------------------------------------- seams
@@ -624,13 +649,7 @@ impl Workspace {
             t.notification.margins.bottom = STATUS_BAR_HEIGHT + px(12.);
             t.notification.margins.right = px(12.);
         }
-        let note = match kind {
-            NoticeKind::Info => Notification::info(message),
-            NoticeKind::Success => Notification::success(message),
-            NoticeKind::Warning => Notification::warning(message),
-            NoticeKind::Error => Notification::error(message),
-        };
-        window.push_notification(note, cx);
+        toasts::show(kind, message, window, cx);
     }
 
     // ------------------------------------------------------------ internals
@@ -1028,7 +1047,11 @@ impl Workspace {
             if let Err(e) = Settings::get(cx).save(&path) {
                 self.notify(
                     NoticeKind::Error,
-                    format!("Could not create {}: {e}", path.display()),
+                    format!(
+                        "Could not create {}. {}",
+                        path.display(),
+                        theta_core::friendly::plain(&e.to_string())
+                    ),
                     window,
                     cx,
                 );
@@ -1046,15 +1069,35 @@ impl Workspace {
             prompt: Some("Import Zed Theme".into()),
         });
         cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(paths))) = paths.await else { return };
+            let paths = match paths.await {
+                Ok(Ok(Some(paths))) => paths,
+                // The picker was dismissed: nothing to say.
+                Ok(Ok(None)) => return,
+                Ok(Err(e)) => {
+                    this.update_in(cx, |this, window, cx| {
+                        this.notify(
+                            NoticeKind::Error,
+                            format!(
+                                "The file picker could not be opened, so no theme was imported. {}",
+                                theta_core::friendly::plain(&e.to_string())
+                            ),
+                            window,
+                            cx,
+                        )
+                    })
+                    .ok();
+                    return;
+                }
+                Err(_) => return,
+            };
             let Some(path) = paths.into_iter().next() else { return };
             this.update_in(cx, |this, window, cx| match theta_ui::import_zed_theme_file(&path, cx) {
                 Ok(names) => {
                     let list = names.join(", ");
-                    this.notify(NoticeKind::Success, format!("Imported {list}"), window, cx);
+                    this.notify(NoticeKind::Success, format!("Imported the theme {list}."), window, cx);
                     this.open_theme_picker(window, cx);
                 }
-                Err(e) => this.notify(NoticeKind::Error, format!("Could not import theme: {e}"), window, cx),
+                Err(e) => this.notify(NoticeKind::Error, format!("No theme was imported. {e}"), window, cx),
             })
             .ok();
         })

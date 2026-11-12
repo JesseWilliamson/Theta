@@ -112,7 +112,7 @@ enum TestState {
     Idle,
     Testing,
     Ok(TestOutcome),
-    Failed(String),
+    Failed(String, Option<String>),
 }
 
 /// One row of the database-type dropdown, drawn from the kind's descriptor.
@@ -686,9 +686,16 @@ impl ConnectionForm {
         {
             let path = PathBuf::from(&config.path);
             if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                std::fs::create_dir_all(dir).map_err(|e| {
+                    format!(
+                        "The folder {} could not be created. {}",
+                        dir.display(),
+                        theta_core::friendly::plain(&e.to_string())
+                    )
+                })?;
             }
-            std::fs::File::create(&path).map_err(|e| format!("Could not create {}: {e}", path.display()))?;
+            std::fs::File::create(&path)
+                .map_err(|e| theta_core::friendly::io_message(&e, &path, theta_core::friendly::IoOp::Write))?;
         }
         Ok(())
     }
@@ -727,7 +734,7 @@ impl ConnectionForm {
         };
         if self.kind.is_file_based() && self.create_if_missing && !std::path::Path::new(&config.path).exists()
         {
-            self.test = TestState::Failed("The file will be created when you save the connection.".into());
+            self.test = TestState::Failed("The file will be created when you save the connection.".into(), None);
             cx.notify();
             return;
         }
@@ -736,6 +743,7 @@ impl ConnectionForm {
         self.test = TestState::Testing;
         cx.notify();
         let _ = window;
+        let shown_config = config.clone();
         cx.spawn(async move |this, cx| {
             let result = test_connection(config).await;
             this.update(cx, |this, cx| {
@@ -744,7 +752,10 @@ impl ConnectionForm {
                 }
                 this.test = match result {
                     Ok(outcome) => TestState::Ok(outcome),
-                    Err(e) => TestState::Failed(e.to_string()),
+                    Err(e) => TestState::Failed(
+                        crate::connections::connect_failure_reason(&e, Some(&shown_config)),
+                        crate::connections::connect_failure_details(&e, Some(&shown_config)),
+                    ),
                 };
                 cx.notify();
             })
@@ -823,13 +834,13 @@ impl Render for ConnectionForm {
                     .bg(theme.success.opacity(0.1))
                     .child(Icon::new(IconName::CircleCheck).size(px(14.)).text_color(theme.success))
                     .child(div().text_size(px(12.)).child(format!(
-                        "Connection successful · {} · {} ms",
+                        "Connection successful · {} · {}",
                         o.server_version,
-                        o.latency.as_millis()
+                        theta_core::text::duration(o.latency)
                     )))
                     .into_any_element(),
             ),
-            TestState::Failed(e) => Some(
+            TestState::Failed(e, details) => Some(
                 h_flex()
                     .gap_2()
                     .items_start()
@@ -839,7 +850,21 @@ impl Render for ConnectionForm {
                     .border_color(theme.danger.opacity(0.5))
                     .bg(theme.danger.opacity(0.1))
                     .child(Icon::new(IconName::CircleAlert).size(px(14.)).text_color(theme.danger).mt(px(1.)))
-                    .child(div().flex_1().min_w_0().text_size(px(12.)).child(e.clone()))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_0p5()
+                            .child(div().text_size(px(12.)).child(e.clone()))
+                            .when_some(details.clone(), |d, t| {
+                                d.child(
+                                    div()
+                                        .text_size(px(11.))
+                                        .text_color(theme.muted_foreground)
+                                        .child(format!("Details: {t}")),
+                                )
+                            }),
+                    )
                     .into_any_element(),
             ),
         };

@@ -761,11 +761,15 @@ impl Workspace {
                     }
                     Err(e) => {
                         let name = this.conn_name(&conn_id, cx);
+                        let reason = crate::connections::connect_failure_reason(
+                            &e,
+                            this.store.read(cx).config_with_secrets(&conn_id).as_ref(),
+                        );
                         this.log(
                             &conn_id,
                             &what,
                             MessageKind::Error,
-                            vec![format!("Could not connect to {name}: {e}")],
+                            vec![format!("Could not connect to {name}. {reason}")],
                             Some(&e),
                             cx,
                         );
@@ -1272,9 +1276,10 @@ impl Workspace {
             Some(Error::Query { code, detail, hint, .. }) => (code.clone(), detail.clone(), hint.clone()),
             _ => (None, None, None),
         };
+        let (code, detail) = crate::panels::messages::uniform_code(code.as_deref(), detail.as_deref());
         let m = Message {
             time: clock_now(),
-            connection: self.conn_name(conn_id, cx),
+            connection: Some(self.conn_name(conn_id, cx)).filter(|c| !c.is_empty()).unwrap_or_else(|| "Theta".into()),
             statement: pick::first_line(sql),
             kind,
             lines,
@@ -1592,7 +1597,7 @@ impl Workspace {
             format!("{} will be applied in one transaction.", plural(n as u64, "statement", "statements")),
             stmts,
             vec![Choice::new(
-                format!("Apply {n} {}", if n == 1 { "change" } else { "changes" }),
+                format!("Apply {n} {}", if n == 1 { "Change" } else { "Changes" }),
                 Tone::Primary,
                 move |window, cx| {
                     let (stmts, conn, connection) = (stmts2.clone(), conn2.clone(), connection2.clone());
@@ -1834,7 +1839,7 @@ impl Workspace {
                 Ok(()) => this.notify(NoticeKind::Success, format!("{ok}: {}", path.display()), window, cx),
                 Err(e) => this.notify(
                     NoticeKind::Error,
-                    format!("Could not write {}: {e}", path.display()),
+                    theta_core::friendly::io_message(&e, &path, theta_core::friendly::IoOp::Write),
                     window,
                     cx,
                 ),
@@ -2334,7 +2339,12 @@ impl Workspace {
                 self.notify(NoticeKind::Success, format!("Saved {}", path.display()), window, cx);
             }
             Err(e) => {
-                self.notify(NoticeKind::Error, format!("Could not save {}: {e}", path.display()), window, cx)
+                self.notify(
+                    NoticeKind::Error,
+                    theta_core::friendly::io_message(&e, &path, theta_core::friendly::IoOp::Write),
+                    window,
+                    cx,
+                )
             }
         }
     }
@@ -2372,7 +2382,12 @@ impl Workspace {
                 self.save_all_consoles(cx);
             }
             Err(e) => {
-                self.notify(NoticeKind::Error, format!("Could not open {}: {e}", path.display()), window, cx)
+                self.notify(
+                    NoticeKind::Error,
+                    theta_core::friendly::io_message(&e, &path, theta_core::friendly::IoOp::Read),
+                    window,
+                    cx,
+                )
             }
         }
     }
@@ -2441,7 +2456,18 @@ impl Workspace {
                     });
                     this.set_active_connection(Some(id), cx);
                 }
-                Err(e) => eprintln!("theta: could not create the demo database: {e}"),
+                Err(e) => {
+                    let message = format!(
+                        "The demo database could not be created. {}",
+                        theta_core::friendly::plain(&e.to_string())
+                    );
+                    this.record_notice(MessageKind::Error, "Demo database", &message, cx);
+                    if let Some(window) = cx.active_window() {
+                        let _ = window.update(cx, |_, window, cx| {
+                            this.notify(NoticeKind::Error, message.clone(), window, cx)
+                        });
+                    }
+                }
             })
             .ok();
         })
@@ -2786,12 +2812,15 @@ impl Recovery {
     fn message(&self) -> Option<String> {
         match self {
             Recovery::None => None,
-            Recovery::Reran => Some("Connection lost — reconnected and re-ran the statement".into()),
+            Recovery::Reran => Some("Connection lost, then reconnected and re-ran the statement".into()),
             Recovery::NotRerun(why) => {
-                Some(format!("Connection lost — reconnected. The statement was NOT re-run: {why}."))
+                Some(format!("Connection lost, then reconnected. The statement was NOT re-run: {why}."))
             }
             Recovery::ReconnectFailed(e) => {
-                Some(format!("Connection lost — reconnecting failed: {e}. The statement was NOT re-run."))
+                Some(format!(
+                    "Connection lost. Reconnecting failed: {} The statement was NOT re-run.",
+                    theta_core::friendly::connect_error(e, None).message
+                ))
             }
         }
     }

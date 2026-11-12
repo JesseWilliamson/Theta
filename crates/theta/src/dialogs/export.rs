@@ -269,11 +269,11 @@ impl ExportView {
                 ExportOutcome::Completed => (
                     true,
                     format!(
-                        "Exported {} rows ({}) to {} in {:.1}s.{}",
-                        r.rows,
+                        "Exported {} ({}) to {} in {}.{}",
+                        theta_core::text::plural(r.rows, "row", "rows"),
                         human(r.bytes),
                         path.display(),
-                        r.elapsed.as_secs_f64(),
+                        theta_core::text::duration(r.elapsed),
                         if r.paging == Paging::Offset {
                             " The table has no primary key, so it was read with OFFSET paging: rows changing during the export may repeat or be missed."
                         } else {
@@ -282,7 +282,7 @@ impl ExportView {
                     ),
                 ),
                 ExportOutcome::Cancelled => (false, "Cancelled. No file was written.".to_string()),
-                ExportOutcome::Failed(e) => (false, format!("Export failed, no file was written: {e}")),
+                ExportOutcome::Failed(e) => (false, format!("The export failed and no file was written. {}", theta_core::friendly::plain(e))),
             },
             Err(e) => (false, e.clone()),
         };
@@ -328,7 +328,7 @@ impl Render for ExportView {
                 if self.schema.is_empty() { String::new() } else { format!("{}.", self.schema) },
                 self.table,
                 match self.estimate {
-                    Some(n) => format!("about {} rows", crate::dialogs::import::fmt_count(n)),
+                    Some(n) => format!("about {}", theta_core::text::plural(n, "row", "rows")),
                     None => "row count unknown".to_string(),
                 }
             )))
@@ -409,7 +409,7 @@ impl Render for ExportView {
                                     div()
                                         .text_size(px(11.))
                                         .text_color(theme.muted_foreground)
-                                        .child(format!("{} rows · {}", live.rows, human(live.bytes))),
+                                        .child(format!("{} · {}", theta_core::text::plural(live.rows, "row", "rows"), human(live.bytes))),
                                 ),
                         )
                     }),

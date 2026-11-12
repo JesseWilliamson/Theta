@@ -137,30 +137,16 @@ pub fn result_title(number: usize, sql: &str, columns: &[theta_core::Column]) ->
 }
 
 pub fn plural(n: u64, one: &str, many: &str) -> String {
-    format!("{} {}", fmt_int(n), if n == 1 { one } else { many })
+    theta_core::text::plural(n, one, many)
 }
 
 pub fn fmt_int(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
+    theta_core::text::count(n)
 }
 
+/// The one duration format (see `theta_core::text::duration`).
 pub fn fmt_ms(d: std::time::Duration) -> String {
-    let ms = d.as_secs_f64() * 1000.0;
-    if ms >= 10_000.0 {
-        format!("{:.1} s", ms / 1000.0)
-    } else if ms >= 100.0 {
-        format!("{ms:.0} ms")
-    } else {
-        format!("{ms:.1} ms").replace(".0 ms", " ms")
-    }
+    theta_core::text::duration(d)
 }
 
 #[cfg(test)]
@@ -205,7 +191,7 @@ mod tests {
         assert_eq!(plural(1, "row", "rows"), "1 row");
         assert_eq!(plural(1000, "row", "rows"), "1,000 rows");
         assert_eq!(fmt_ms(std::time::Duration::from_millis(42)), "42 ms");
-        assert_eq!(fmt_ms(std::time::Duration::from_millis(12_300)), "12.3 s");
+        assert_eq!(fmt_ms(std::time::Duration::from_millis(12_300)), "12.30 s");
     }
 }
 

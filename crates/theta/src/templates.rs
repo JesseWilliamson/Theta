@@ -63,7 +63,7 @@ impl TemplateStore {
             }
             Err(e) => {
                 st.user.clear();
-                st.warnings = vec![format!("could not read {}: {e}", self.path.display())];
+                st.warnings = vec![theta_core::friendly::io_message(&e, &self.path, theta_core::friendly::IoOp::Read)];
             }
         }
         st.mtime = mtime;

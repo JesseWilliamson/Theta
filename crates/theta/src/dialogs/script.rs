@@ -24,6 +24,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use theta_core::text::plural;
 use theta_core::{DatabaseKind, Feature};
 use theta_import::script::{ScriptOptions, ScriptOutcome, ScriptProgress, ScriptReport, run_script};
 
@@ -153,7 +154,7 @@ impl ScriptView {
         let file = match std::fs::File::open(&path) {
             Ok(f) => f,
             Err(e) => {
-                self.status = Some((false, format!("Cannot open {}: {e}", path.display())));
+                self.status = Some((false, theta_core::friendly::io_message(&e, &path, theta_core::friendly::IoOp::Read)));
                 cx.notify();
                 return;
             }
@@ -222,11 +223,11 @@ impl ScriptView {
                     String::new()
                 };
                 let base = format!(
-                    "{} statements, {} rows affected in {:.1}s, {} error(s){more}.",
-                    r.statements,
-                    r.rows_affected,
-                    r.elapsed.as_secs_f64(),
-                    r.error_count
+                    "{}, {} affected in {}, {}{more}.",
+                    plural(r.statements, "statement", "statements"),
+                    plural(r.rows_affected, "row", "rows"),
+                    theta_core::text::duration(r.elapsed),
+                    plural(r.error_count, "error", "errors")
                 );
                 match r.outcome {
                     ScriptOutcome::Completed if r.error_count == 0 => (true, format!("Done: {base}")),
@@ -245,7 +246,7 @@ impl ScriptView {
                             if r.rolled_back { " Everything was rolled back." } else { "" }
                         ),
                     ),
-                    ScriptOutcome::Failed(e) => (false, format!("Failed: {e} ({base})")),
+                    ScriptOutcome::Failed(e) => (false, format!("The script failed: {e}. Before that: {base}")),
                 }
             }
             Err(e) => (false, e),
@@ -329,11 +330,11 @@ impl Render for ScriptView {
                                 .gap_1()
                                 .child(Progress::new("script-progress").value(live.fraction().map(|f| f * 100.).unwrap_or(0.)).loading(live.total_bytes.is_none()))
                                 .child(div().text_size(px(11.)).text_color(theme.muted_foreground).child(format!(
-                                    "statement {} · {} / {} read · {} error(s)",
+                                    "statement {} · {} / {} read · {}",
                                     live.statements + 1,
                                     human(live.bytes_read),
                                     live.total_bytes.map(human).unwrap_or_else(|| "?".into()),
-                                    live.errors
+                                    plural(live.errors as u64, "error", "errors")
                                 )))
                                 .child(div().text_size(px(11.)).truncate().child(live.current.clone())),
                         )

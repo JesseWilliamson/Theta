@@ -375,16 +375,16 @@ impl DumpView {
                     DumpOutcome::Completed => (
                         true,
                         format!(
-                            "Dumped {} table(s), {} rows ({}) to {} in {:.1}s.",
-                            r.tables,
-                            r.rows,
+                            "Dumped {}, {} ({}) to {} in {}.",
+                            theta_core::text::plural(r.tables as u64, "table", "tables"),
+                            theta_core::text::plural(r.rows, "row", "rows"),
                             human(r.bytes),
                             path.display(),
-                            r.elapsed.as_secs_f64()
+                            theta_core::text::duration(r.elapsed)
                         ),
                     ),
                     DumpOutcome::Cancelled => (false, "Cancelled. No file was written.".to_string()),
-                    DumpOutcome::Failed(e) => (false, format!("The dump failed, no file was written: {e}")),
+                    DumpOutcome::Failed(e) => (false, format!("The dump failed and no file was written. {}", theta_core::friendly::plain(&e))),
                 }
             }
             Err(e) => (false, e),
@@ -432,7 +432,13 @@ impl DumpView {
             if let Some((name, value)) = env {
                 c.env(name, value);
             }
-            let mut child = c.spawn().map_err(|e| format!("could not start {}: {e}", program.display()))?;
+            let mut child = c.spawn().map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    format!("{} was not found. Install it or add it to your PATH.", program.display())
+                } else {
+                    format!("{} could not be started. {}", program.display(), theta_core::friendly::plain(&e.to_string()))
+                }
+            })?;
             loop {
                 if cancel.load(Ordering::Relaxed) {
                     let _ = child.kill();
@@ -453,7 +459,7 @@ impl DumpView {
                         };
                     }
                     Ok(None) => tokio::time::sleep(Duration::from_millis(100)).await,
-                    Err(e) => return Err(e.to_string()),
+                    Err(e) => return Err(theta_core::friendly::plain(&e.to_string())),
                 }
             }
         });
@@ -653,11 +659,11 @@ impl Render for DumpView {
                                 .items_center()
                                 .child(div().flex_1().child(Progress::new("dump-progress").value(fraction)))
                                 .child(div().text_size(px(11.)).text_color(theme.muted_foreground).child(format!(
-                                    "{}{}/{} · {} rows · {}",
+                                    "{}{} of {} · {} · {}",
                                     live.table.as_deref().map(|t| format!("{t} · ")).unwrap_or_default(),
                                     live.tables_done,
-                                    live.tables_total,
-                                    live.rows,
+                                    theta_core::text::plural(live.tables_total as u64, "table", "tables"),
+                                    theta_core::text::plural(live.rows, "row", "rows"),
                                     human(live.bytes)
                                 ))),
                         )
