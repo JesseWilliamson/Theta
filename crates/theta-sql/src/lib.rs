@@ -10,6 +10,7 @@ pub mod analysis;
 pub mod assist;
 pub mod complete;
 pub mod copy;
+pub mod data_diff;
 pub mod ddl;
 pub mod export;
 pub mod fk;

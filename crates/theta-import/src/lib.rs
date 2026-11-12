@@ -4,6 +4,7 @@
 //! inference, conversion to typed values, and the import and export pipelines that drive a
 //! [`theta_core::Connection`]. Pure Rust, no UI; the application only shows progress and asks questions.
 
+pub mod compare;
 pub mod convert;
 pub mod copy;
 pub mod decode;
@@ -22,6 +23,7 @@ pub mod search;
 pub mod setup;
 pub mod sniff;
 
+pub use compare::{CompareJob, CompareOutcome, CompareProgress, CompareReport, KeyOrder, compare_tables};
 pub use convert::{ConvertError, ConvertOptions, Target, convert};
 pub use copy::{Cleanup, CopyJob, CopyOutcome, CopyProgress, CopyReport, copy_table};
 pub use decode::Encoding;
