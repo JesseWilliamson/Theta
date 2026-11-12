@@ -1735,7 +1735,7 @@ impl Workspace {
                             &conn_id,
                             &stmts[0],
                             MessageKind::Error,
-                            vec![format!("Nothing was changed: {message}")],
+                            vec![format!("Changes rolled back: {message}")],
                             Some(&e),
                             cx,
                         );
