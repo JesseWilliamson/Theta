@@ -168,7 +168,8 @@ impl TableEditor {
                         this.commit_name(cx);
                         window.focus(&this.focus, cx);
                     }
-                    InputEvent::Blur => this.commit_name(cx),
+                    // Live: the preview, the toolbar and the duplicate-name check follow every keystroke.
+                    InputEvent::Blur | InputEvent::Change => this.commit_name(cx),
                     _ => {}
                 }
             })];
@@ -480,6 +481,7 @@ impl TableEditor {
             self.cursors.insert(self.section, (r, 0));
             self.scroll.scroll_to_item(r, gpui_kit::ScrollStrategy::Nearest);
         }
+        self.status = None;
         self.after_edit(cx);
         // A new column wants its name; a new index its columns; a new check its expression.
         let spec = self.model.spec(self.section);
@@ -579,18 +581,22 @@ impl TableEditor {
 
     pub fn undo(&mut self, cx: &mut Context<Self>) {
         if self.model.undo() {
+            // "Column will be dropped…" described the state that was just undone.
+            self.status = None;
             self.after_edit(cx);
         }
     }
 
     pub fn redo(&mut self, cx: &mut Context<Self>) {
         if self.model.redo() {
+            self.status = None;
             self.after_edit(cx);
         }
     }
 
     pub fn revert(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.model.revert();
+        self.status = None;
         let name = self.model.draft().name.clone();
         self.name_input.update(cx, |s, cx| s.set_value(name, window, cx));
         self.after_edit(cx);

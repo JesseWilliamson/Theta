@@ -50,6 +50,10 @@ impl Section {
         }
     }
 
+    pub(crate) fn scope_of(self) -> Scope {
+        self.scope()
+    }
+
     /// The validation scope that belongs to this section.
     fn scope(self) -> Scope {
         match self {
@@ -229,7 +233,13 @@ impl Analysis {
     pub fn worst(&self, section: Section) -> Option<Severity> {
         let scope = section.scope();
         let mut worst = None;
-        for i in self.issues.iter().filter(|i| i.scope == scope) {
+        // A problem with the name is shown at the name box and in the preview; it must not make the Options
+        // tab carry a red dot nobody can explain.
+        let about_name = |i: &Issue| {
+            section == Section::Options
+                && (i.message.starts_with("The table needs a name") || i.message.contains("already exists"))
+        };
+        for i in self.issues.iter().filter(|i| i.scope == scope && !about_name(i)) {
             match i.severity {
                 Severity::Error => return Some(Severity::Error),
                 Severity::Warning => worst = Some(Severity::Warning),

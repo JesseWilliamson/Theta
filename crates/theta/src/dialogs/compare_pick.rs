@@ -83,6 +83,8 @@ pub struct Model {
     ticked: Vec<String>,
     /// Typed prefix while `/` is active.
     pub typing: Option<String>,
+    /// The user has changed something: until then a missing choice is an instruction, not an error.
+    pub touched: bool,
 }
 
 impl Model {
@@ -96,6 +98,7 @@ impl Model {
             key_choice: 0,
             ticked: Vec::new(),
             typing: None,
+            touched: false,
         };
         if let Some(s) = start
             && let Some(ci) = m.choices.iter().position(|c| c.conn_id == s.conn_id)
@@ -120,15 +123,32 @@ impl Model {
         let n_schemas = m.choices.get(m.sel[1].conn).map_or(0, |c| c.schemas.len());
         match mode {
             Mode::Schema if n_schemas > 1 => m.sel[1].schema = (m.sel[0].schema + 1) % n_schemas,
-            Mode::Table => {
-                let n = m.tables(1).len();
-                if n > 1 {
-                    m.sel[1].table = (m.sel[0].table + 1) % n;
-                }
-            }
+            // Data is compared between two copies of one table, so the target starts on the same table: in
+            // another schema (or connection) that has one of that name. Failing that it starts on the
+            // source itself and the dialog says a second table or schema has to be chosen.
+            Mode::Table => m.pair_same_table(),
             _ => {}
         }
         m
+    }
+
+    /// Point the target at a table with the source table's name in another schema, if there is one.
+    fn pair_same_table(&mut self) {
+        let Some(name) = self.table(0).map(|t| t.name.clone()) else { return };
+        let conn = self.sel[1].conn;
+        let current = self.sel[0].schema;
+        let found = self.choices[conn].schemas.iter().enumerate().find_map(|(si, sc)| {
+            let ti = sc
+                .tables
+                .iter()
+                .filter(|t| t.kind == TableKind::Table)
+                .position(|t| t.name.eq_ignore_ascii_case(&name))?;
+            (si != current).then_some((si, ti))
+        });
+        if let Some((si, ti)) = found {
+            self.sel[1].schema = si;
+            self.sel[1].table = ti;
+        }
     }
 
     fn schema_of(&self, side: usize) -> Option<&SchemaChoice> {
@@ -168,17 +188,21 @@ impl Model {
     pub fn key_options(&self) -> Vec<String> {
         let mut v = Vec::new();
         if let Some(t) = self.table(0) {
-            v.push(if t.primary_key.is_empty() {
-                "primary key (the source table has none)".to_string()
-            } else {
-                format!("primary key ({})", t.primary_key.join(", "))
-            });
+            // A table without a primary key does not offer one: it would be a choice that can only fail.
+            if !t.primary_key.is_empty() {
+                v.push(format!("primary key ({})", t.primary_key.join(", ")));
+            }
             for u in &t.unique_constraints {
                 v.push(format!("unique {} ({})", u.name, u.columns.join(", ")));
             }
         }
         v.push("choose columns".to_string());
         v
+    }
+
+    /// Whether the first key option is the source table's primary key.
+    fn has_pk(&self) -> bool {
+        self.table(0).is_some_and(|t| !t.primary_key.is_empty())
     }
 
     fn key_is_custom(&self) -> bool {
@@ -242,13 +266,31 @@ impl Model {
     }
 
     pub fn set(&mut self, row: RowKind, to: usize) {
+        self.touched = true;
+        // What was chosen below the row that changes is kept when the new parent has the same thing:
+        // switching schema keeps the table of that name, switching connection keeps schema and table.
+        let (keep_schema, keep_table) = match row {
+            RowKind::Connection(s) => (
+                self.schema_of(s).map(|x| x.name.clone()),
+                self.table(s).map(|t| t.name.clone()),
+            ),
+            RowKind::Schema(s) => (None, self.table(s).map(|t| t.name.clone())),
+            _ => (None, None),
+        };
         match row {
             RowKind::Connection(s) => {
                 self.sel[s] = Sel { conn: to, ..Sel::default() };
+                if let Some(name) = keep_schema
+                    && let Some(i) = self.choices[to].schemas.iter().position(|x| x.name.eq_ignore_ascii_case(&name))
+                {
+                    self.sel[s].schema = i;
+                }
+                self.keep_table(s, keep_table);
             }
             RowKind::Schema(s) => {
                 self.sel[s].schema = to;
                 self.sel[s].table = 0;
+                self.keep_table(s, keep_table);
             }
             RowKind::Table(s) => self.sel[s].table = to,
             RowKind::Key => self.key_choice = to,
@@ -262,6 +304,14 @@ impl Model {
         self.clamp_cursor();
     }
 
+    fn keep_table(&mut self, side: usize, name: Option<String>) {
+        if let Some(name) = name
+            && let Some(i) = self.tables(side).iter().position(|t| t.name.eq_ignore_ascii_case(&name))
+        {
+            self.sel[side].table = i;
+        }
+    }
+
     /// Jump the current row to the first option that starts with `prefix` (case-insensitive).
     pub fn jump_to_prefix(&mut self, prefix: &str) {
         let Some(row) = self.rows().get(self.cursor).copied() else { return };
@@ -273,6 +323,7 @@ impl Model {
 
     pub fn toggle(&mut self) {
         let Some(RowKind::KeyColumn(i)) = self.rows().get(self.cursor).copied() else { return };
+        self.touched = true;
         let Some(name) = self.common_columns().get(i).cloned() else { return };
         if let Some(p) = self.ticked.iter().position(|t| t.eq_ignore_ascii_case(&name)) {
             self.ticked.remove(p);
@@ -298,9 +349,16 @@ impl Model {
             return Some("There is nothing to choose from: connect first".into());
         };
         if a == b {
-            return Some(match self.mode {
-                Mode::Schema => "The source and the target are the same schema".into(),
-                Mode::Table => "The source and the target are the same table".into(),
+            // Not a mistake before the user has done anything: say what is needed.
+            let one_schema = self.choices.get(self.sel[0].conn).is_some_and(|c| c.schemas.len() == 1);
+            return Some(match (self.mode, self.touched) {
+                (Mode::Schema, false) if one_schema => {
+                    "Choose another schema or another connection as the target. This connection has one schema.".into()
+                }
+                (Mode::Schema, false) => "Choose a different schema or connection as the target.".into(),
+                (Mode::Table, false) => "Choose a different table, schema or connection as the target.".into(),
+                (Mode::Schema, true) => "The source and the target are the same schema".into(),
+                (Mode::Table, true) => "The source and the target are the same table".into(),
             });
         }
         if self.mode == Mode::Table {
@@ -309,16 +367,6 @@ impl Model {
             }
             if self.key_is_custom() && self.ticked.is_empty() {
                 return Some("Tick at least one key column (space)".into());
-            }
-            if !self.key_is_custom()
-                && self.key_options().len() > 1
-                && self.key_choice == 0
-                && self.table(0).is_some_and(|t| t.primary_key.is_empty())
-            {
-                return Some(
-                    "The source table has no primary key: pick a unique constraint or choose the key columns"
-                        .into(),
-                );
             }
         }
         None
@@ -342,11 +390,12 @@ impl Model {
         }
         let key = if self.key_is_custom() {
             self.common_columns().into_iter().filter(|c| self.is_ticked(c)).collect()
-        } else if self.key_choice == 0 {
+        } else if self.has_pk() && self.key_choice == 0 {
             Vec::new()
         } else {
+            let unique = self.key_choice - usize::from(self.has_pk());
             self.table(0)
-                .and_then(|t| t.unique_constraints.get(self.key_choice - 1))
+                .and_then(|t| t.unique_constraints.get(unique))
                 .map(|u| u.columns.clone())
                 .unwrap_or_default()
         };
@@ -370,7 +419,7 @@ pub fn choices(store: &Entity<ConnectionStore>, cx: &App) -> Vec<Choice> {
             schemas.sort_by_key(|x| (crate::workspace::is_system_schema(&x.name), x.name.to_lowercase()));
             (!schemas.is_empty()).then(|| Choice {
                 conn_id: c.id.clone(),
-                name: c.name.clone(),
+                name: s.label(&c.id).unwrap_or_else(|| c.name.clone()),
                 kind: c.kind,
                 schemas,
             })
@@ -579,7 +628,13 @@ impl Render for ComparePickView {
                 d.child(div().text_size(px(11.)).text_color(theme.warning).child(c))
             })
             .when_some(self.error.clone().or(problem.clone()), |d, e| {
-                d.child(div().text_size(px(11.)).text_color(theme.danger).child(e))
+                // An instruction until the user has changed something, an error afterwards.
+                let colour = if self.error.is_some() || self.model.touched {
+                    theme.danger
+                } else {
+                    theme.muted_foreground
+                };
+                d.child(div().text_size(px(11.)).text_color(colour).child(e))
             })
 ;
         let footer = 
@@ -699,13 +754,13 @@ mod tests {
         let mut m = Model::new(Mode::Table, choices(), Some(&Side { table: Some("t1".into()), ..start() }));
         assert_eq!(m.rows().len(), 7);
         assert_eq!(m.side(0).unwrap().table.as_deref(), Some("t1"));
-        assert_eq!(m.side(1).unwrap().table.as_deref(), Some("t2"), "the target starts on another table");
+        assert_eq!(m.side(1).unwrap().table.as_deref(), Some("t1"), "the target starts on the same table");
+        assert_eq!(m.side(1).unwrap().schema, "staging", "in the other schema that has it");
         assert_eq!(m.key_options(), ["primary key (id)", "choose columns"]);
-        // The target t2 has no primary key but the source does: fine, the source's key is used.
         assert!(m.problem().is_none());
         m.cursor = 6;
         m.change(1);
-        assert_eq!(m.rows().len(), 7 + 1, "the checklist appears: the one column both tables have is `id`");
+        assert_eq!(m.rows().len(), 7 + 2, "the checklist appears: both tables have `id` and `x`");
         assert_eq!(m.problem().as_deref(), Some("Tick at least one key column (space)"));
         m.step(1);
         m.toggle();
@@ -718,14 +773,42 @@ mod tests {
         ch[0].schemas[0].tables[1].unique_constraints =
             vec![UniqueConstraint { name: "uq".into(), columns: vec!["y".into()] }];
         let mut m = Model::new(Mode::Table, ch, Some(&Side { table: Some("t2".into()), ..start() }));
-        // Source t2 (no key), target t1.
-        assert!(m.problem().unwrap().contains("no primary key"));
-        m.cursor = 6;
+        // Source t2 has no primary key, so none is offered: its unique constraint is, and choosing columns.
+        assert_eq!(m.key_options(), ["unique uq (y)", "choose columns"]);
+        // No other schema has a t2: the target starts on the source and the dialog asks for a second table,
+        // in words, not as a mistake.
+        assert!(m.problem().unwrap().starts_with("Choose a different table"));
+        assert!(!m.touched);
+        m.cursor = 5; // target table
         m.change(1);
-        assert_eq!(m.key_options()[1], "unique uq (y)");
-        // `y` is not a column of the target: a unique key of the source alone cannot pair the rows... the
-        // dialog accepts it, the comparison itself refuses a key the target lacks.
+        assert_eq!(m.side(1).unwrap().table.as_deref(), Some("t1"));
         assert_eq!(m.picked().unwrap().key, ["y"]);
+    }
+
+    #[test]
+    fn changing_the_schema_keeps_the_table_of_that_name() {
+        let mut m = Model::new(Mode::Table, choices(), Some(&Side { table: Some("t1".into()), ..start() }));
+        m.cursor = 4; // target schema
+        m.change(-1); // back to public
+        m.change(1); // and to staging again
+        assert_eq!(m.side(1).unwrap().schema, "staging");
+        assert_eq!(m.side(1).unwrap().table.as_deref(), Some("t1"));
+    }
+
+    #[test]
+    fn an_untouched_same_schema_dialog_explains_instead_of_complaining() {
+        let m = Model::new(
+            Mode::Schema,
+            vec![Choice {
+                conn_id: "a".into(),
+                name: "lite".into(),
+                kind: DatabaseKind::Sqlite,
+                schemas: vec![SchemaChoice { name: "main".into(), tables: vec![] }],
+            }],
+            None,
+        );
+        assert!(!m.touched);
+        assert!(m.problem().unwrap().contains("another connection"));
     }
 
     #[test]

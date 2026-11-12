@@ -57,7 +57,7 @@ pub fn open(
             .filter(|c| s.state(&c.id).is_connected())
             .map(|c| Item {
                 id: c.id.clone(),
-                name: c.name.clone(),
+                name: s.label(&c.id).unwrap_or_else(|| c.name.clone()),
                 product: c.kind.label(),
                 read_only: c.read_only,
                 checked: first.as_deref() == Some(c.id.as_str()),

@@ -131,7 +131,7 @@ impl CopyView {
                 .filter_map(|c| {
                     Some(Target {
                         id: c.id.clone(),
-                        name: c.name.clone(),
+                        name: s.label(&c.id).unwrap_or_else(|| c.name.clone()),
                         kind: c.kind,
                         catalog: s.catalog(&c.id)?,
                     })

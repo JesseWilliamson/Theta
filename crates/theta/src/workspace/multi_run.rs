@@ -116,7 +116,7 @@ impl Workspace {
         let mut jobs: Vec<Job> = Vec::new();
         for conn_id in conn_ids {
             let (name, kind, read_only) = match self.store.read(cx).config(&conn_id) {
-                Some(c) => (c.name.clone(), c.kind, c.read_only),
+                Some(c) => (self.store.read(cx).label(&conn_id).unwrap_or_else(|| c.name.clone()), c.kind, c.read_only),
                 None => continue,
             };
             let product = kind.label().to_string();

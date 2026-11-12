@@ -132,6 +132,49 @@ pub fn connect_failure_details(e: &theta_core::Error, config: Option<&Connection
     theta_core::friendly::connect_error(e, config).details
 }
 
+/// What tells two connections with the same name apart.
+pub struct LabelParts {
+    pub name: String,
+    pub product: &'static str,
+    pub address: String,
+    pub user: String,
+}
+
+/// The names of `parts`, each made unique only if it is shared: the product if that separates the
+/// namesakes, else the address, else the user, else all three.
+pub fn disambiguated_labels(parts: &[LabelParts]) -> Vec<String> {
+    let same = |a: &LabelParts, b: &LabelParts| a.name.eq_ignore_ascii_case(&b.name);
+    parts
+        .iter()
+        .map(|p| {
+            let group: Vec<&LabelParts> = parts.iter().filter(|q| same(p, q)).collect();
+            if group.len() == 1 {
+                return p.name.clone();
+            }
+            let distinct = |f: &dyn Fn(&LabelParts) -> String| {
+                let mut seen: Vec<String> = group.iter().map(|q| f(q)).collect();
+                seen.sort();
+                seen.dedup();
+                seen.len() == group.len()
+            };
+            let product = |q: &LabelParts| q.product.to_string();
+            let address = |q: &LabelParts| q.address.clone();
+            let user = |q: &LabelParts| q.user.clone();
+            let all = |q: &LabelParts| format!("{} · {} · {}", q.product, q.address, q.user);
+            let pick: &dyn Fn(&LabelParts) -> String = if distinct(&product) {
+                &product
+            } else if distinct(&address) {
+                &address
+            } else if distinct(&user) {
+                &user
+            } else {
+                &all
+            };
+            format!("{} · {}", p.name, pick(p))
+        })
+        .collect()
+}
+
 pub fn new_connection_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
@@ -284,12 +327,33 @@ impl ConnectionStore {
         &self.layout
     }
 
-    /// `Folder / Name` for pickers.
+    /// `Folder / Name` for pickers, with the product or address appended when another connection has the
+    /// same name (two `quarry_demo @ 127.0.0.1`, one PostgreSQL and one MariaDB).
     pub fn display_name(&self, id: &str) -> String {
         match self.config(id) {
-            Some(c) => self.layout.display_name(id, &c.name),
+            Some(c) => self.layout.display_name(id, &self.label(id).unwrap_or_else(|| c.name.clone())),
             None => String::new(),
         }
+    }
+
+    /// The connection's name, made unique among the saved connections only where it has to be.
+    pub fn label(&self, id: &str) -> Option<String> {
+        let parts: Vec<LabelParts> = self
+            .configs()
+            .iter()
+            .map(|c| LabelParts {
+                name: c.name.clone(),
+                product: c.kind.label(),
+                address: if c.kind.is_file_based() {
+                    c.path.clone()
+                } else {
+                    format!("{}:{}", c.host, c.port)
+                },
+                user: c.user.clone(),
+            })
+            .collect();
+        let at = self.configs().iter().position(|c| c.id == id)?;
+        disambiguated_labels(&parts).into_iter().nth(at)
     }
 
     fn layout_changed(&mut self, cx: &mut Context<Self>) {
@@ -809,5 +873,36 @@ mod tests {
             assert!(s.layout().folder_of.is_empty(), "the copy went back to the top level");
             assert!(s.config(&copy).is_some(), "deleting a folder never deletes connections");
         });
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+
+    fn part(name: &str, product: &'static str, address: &str, user: &str) -> LabelParts {
+        LabelParts { name: name.into(), product, address: address.into(), user: user.into() }
+    }
+
+    #[test]
+    fn unique_names_are_left_alone() {
+        let l = disambiguated_labels(&[part("a", "PostgreSQL", "h:1", "u"), part("b", "PostgreSQL", "h:1", "u")]);
+        assert_eq!(l, ["a", "b"]);
+    }
+
+    #[test]
+    fn namesakes_get_the_product_then_the_address_then_the_user() {
+        let l = disambiguated_labels(&[
+            part("db @ 127.0.0.1", "PostgreSQL", "127.0.0.1:5432", "u"),
+            part("db @ 127.0.0.1", "MySQL / MariaDB", "127.0.0.1:3306", "u"),
+        ]);
+        assert_eq!(l, ["db @ 127.0.0.1 · PostgreSQL", "db @ 127.0.0.1 · MySQL / MariaDB"]);
+        let l = disambiguated_labels(&[
+            part("db", "PostgreSQL", "h:5432", "a"),
+            part("DB", "PostgreSQL", "h:5433", "a"),
+        ]);
+        assert_eq!(l, ["db · h:5432", "DB · h:5433"]);
+        let l = disambiguated_labels(&[part("db", "PostgreSQL", "h:1", "a"), part("db", "PostgreSQL", "h:1", "b")]);
+        assert_eq!(l, ["db · a", "db · b"]);
     }
 }

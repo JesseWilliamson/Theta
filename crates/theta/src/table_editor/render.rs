@@ -267,6 +267,25 @@ impl TableEditor {
                         this.switch_section(s, w, cx);
                         w.focus(&this.focus, cx);
                     }))
+                    .tooltip({
+                        // A dot on a tab says what it is about.
+                        let scope_issues: Vec<String> = self
+                            .model
+                            .analysis()
+                            .issues
+                            .iter()
+                            .filter(|i| worst.is_some() && i.scope == s.scope_of())
+                            .map(|i| i.message.clone())
+                            .collect();
+                        move |window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new(if scope_issues.is_empty() {
+                                s.label().to_string()
+                            } else {
+                                scope_issues.join("\n")
+                            })
+                            .build(window, cx)
+                        }
+                    })
                     .child(s.label())
                     .when(count > 0, |d| {
                         d.child(
@@ -535,10 +554,13 @@ impl TableEditor {
         width: f32,
         row: &Row,
         active: bool,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme().clone();
+        // One focus ring at a time: while the name box (or anything else) has the keyboard, the grid's
+        // current cell is marked quietly.
+        let grid_focused = self.focus.is_focused(window) || self.editing.is_some();
         let cell: &Cell = &row.cells[ci];
         let mono = Settings::get(cx).buffer_font_family.clone();
         let text_color = if row.struck {
@@ -686,7 +708,7 @@ impl TableEditor {
                         .left_0()
                         .right_0()
                         .border_1()
-                        .border_color(theme.ring),
+                        .border_color(if grid_focused { theme.ring } else { theme.border }),
                 )
             })
             .into_any_element()
