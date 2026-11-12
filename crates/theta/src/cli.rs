@@ -10,7 +10,10 @@ usage: theta [OPTIONS]
 
 Options:
   --connect URL          Add a temporary connection and connect to it. Repeatable.
-                         URL: postgres://user:pass@host:port/db, mysql://..., sqlite:///path
+                         URL: scheme://user:pass@host:port/db, where scheme is postgres,
+                         mysql, mariadb, sqlserver, clickhouse, cockroachdb, redshift,
+                         timescaledb, yugabytedb or tidb; sqlite:///path/to/file.db and
+                         duckdb:///path/to/file.db open a file.
   --ssh USER@HOST[:PORT] Tunnel the --connect connections through this SSH server (port 22
                          by default). Without --ssh-key the running ssh-agent
                          (SSH_AUTH_SOCK) authenticates.
