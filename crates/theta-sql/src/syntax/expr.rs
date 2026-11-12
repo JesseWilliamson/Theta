@@ -1067,8 +1067,34 @@ impl Parser<'_> {
         } else if self.at_end() {
             // Every dialect closes a CASE expression with END.
             self.error(case_span, "CASE is missing END", true);
+        } else if self.case_cannot_continue() {
+            // The branches ended at a token that can only belong to what encloses the CASE (`FROM`, a comma,
+            // a closing paren...), so END was forgotten rather than the CASE being exotic.
+            self.error(case_span, "CASE is missing END", false);
         }
         self.wrap(m, Kind::Case);
+    }
+
+    /// A token after the last branch of a CASE that no dialect allows there.
+    fn case_cannot_continue(&self) -> bool {
+        self.punct(0, ",")
+            || self.punct(0, ")")
+            || self.kw_any(
+                0,
+                &[
+                    "FROM",
+                    "WHERE",
+                    "GROUP",
+                    "HAVING",
+                    "ORDER",
+                    "LIMIT",
+                    "OFFSET",
+                    "UNION",
+                    "EXCEPT",
+                    "INTERSECT",
+                    "WINDOW",
+                ],
+            )
     }
 
     fn interval_follows(&self) -> bool {

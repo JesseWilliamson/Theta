@@ -369,6 +369,12 @@ impl<'a> Parser<'a> {
         self.frames.last().expect("frame").kind
     }
 
+    /// The four families whose engines (PostgreSQL, MariaDB, SQLite, DuckDB) were available to check a rule
+    /// against. A rule about a form that T-SQL or ClickHouse might spell differently is limited to these.
+    pub(super) fn engines_checked(&self) -> bool {
+        matches!(self.fam, Family::Postgres | Family::MySql | Family::Sqlite | Family::DuckDb)
+    }
+
     // ---- errors
 
     pub(super) fn error(&mut self, span: Range<usize>, message: impl Into<String>, incomplete: bool) {

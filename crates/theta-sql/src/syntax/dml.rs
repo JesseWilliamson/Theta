@@ -311,6 +311,16 @@ impl Parser<'_> {
             self.error_here("Expected '=' after the column in SET");
         } else {
             // `SET a = 1` is the only form; anything else is not understood here.
+            if self.engines_checked()
+                && self.tok(0).is_some_and(|t| {
+                    matches!(t.kind, TokenKind::Word | TokenKind::String | TokenKind::Number)
+                        || (t.kind == TokenKind::Punct && self.text(&t) == ",")
+                })
+            {
+                // The target is always followed by `=` in these four (`SET col 'x'`, `SET col WHERE`,
+                // `SET a, b = 1`).
+                self.error_here("Expected '=' after the column in SET");
+            }
             self.start(Kind::Unknown);
             while let Some(t) = self.peek() {
                 if t.kind == TokenKind::Punct && matches!(self.text(&t), "," | ")" | ";") {
@@ -478,6 +488,11 @@ impl Parser<'_> {
                 self.error_here("Expected FROM after DELETE");
             }
             self.table_ref_list("DELETE");
+            if self.fam == Family::MySql && !self.kw(0, "FROM") && self.tok(0).is_some() {
+                // MySQL's multi-table form is `DELETE t1 FROM t1 JOIN ...`; without a FROM it is not a statement
+                // (T-SQL alone allows `DELETE t WHERE ...`).
+                self.error_here("Expected FROM after the DELETE target");
+            }
         }
         while let Some(t) = self.peek() {
             if t.kind == TokenKind::Punct && matches!(self.text(&t), ")" | ";") {

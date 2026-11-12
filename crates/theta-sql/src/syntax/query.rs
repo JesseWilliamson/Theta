@@ -573,6 +573,12 @@ impl Parser<'_> {
         }
         self.bump();
         if self.punct(0, "(") && !self.paren_starts_query(0) {
+            if select_item && self.engines_checked() {
+                // A column list belongs to a table alias (`FROM f x(a, b)`). After a select item the usual
+                // cause is a missing comma before a function call: `SELECT a count(*)`.
+                let span = self.next_span();
+                self.error(span, "Unexpected '(' after a column alias; is a comma missing?", false);
+            }
             self.column_list();
         }
         self.finish();
@@ -586,8 +592,11 @@ impl Parser<'_> {
 
     /// Tokens after a complete select item that are neither `,` nor the start of the next clause.
     fn select_item_leftover(&mut self) {
-        // DuckDB is left out: it accepts `SELECT * fro` (a star followed by a word), which PostgreSQL does not.
-        let strict = matches!(self.fam, Family::Postgres | Family::MySql | Family::Sqlite);
+        // DuckDB accepts `SELECT * fro` (a star followed by one word), which PostgreSQL does not; there a word
+        // right after a star is let through and the second one is the error (`SELECT * form customers`).
+        let strict = matches!(self.fam, Family::Postgres | Family::MySql | Family::Sqlite | Family::DuckDb);
+        let one_word_free = self.fam == Family::DuckDb && self.last_child_is_star();
+        let mut free_used = false;
         let mut flagged = false;
         let mut started = false;
         while let Some(t) = self.peek() {
@@ -618,11 +627,23 @@ impl Parser<'_> {
                     && !flagged
                     && matches!(t.kind, TokenKind::Word | TokenKind::Number)
                     && !self.glued_to_previous(&t)
+                    && !(one_word_free
+                        && t.kind == TokenKind::Word
+                        && !std::mem::replace(&mut free_used, true))
                 {
                     flagged = true;
                     let text = self.text(&t).to_string();
                     self.error(t.start..t.end, format!("Unexpected '{text}'; expected ',' or FROM"), false);
                 }
+            } else if one_word_free
+                && free_used
+                && !flagged
+                && matches!(t.kind, TokenKind::Word | TokenKind::Number)
+                && !self.glued_to_previous(&t)
+            {
+                flagged = true;
+                let text = self.text(&t).to_string();
+                self.error(t.start..t.end, format!("Unexpected '{text}'; expected ',' or FROM"), false);
             }
             if self.punct(0, "(") {
                 self.skip_group();
@@ -652,6 +673,12 @@ impl Parser<'_> {
                 self.where_clause();
             } else if self.kw(0, "GROUP") && self.kw(1, "BY") {
                 self.group_by();
+            } else if self.kw(0, "GROUP") && self.engines_checked() {
+                // GROUP is reserved in all four; only GROUP BY can follow it.
+                let span = self.next_span();
+                self.bump();
+                let incomplete = self.at_end();
+                self.error(span, "Expected BY after GROUP", incomplete);
             } else if self.kw(0, "HAVING") {
                 self.simple_clause(Kind::Having, "HAVING");
             } else if self.kw(0, "QUALIFY") {
@@ -689,7 +716,10 @@ impl Parser<'_> {
         // A plain word or number where a clause keyword or the end belongs (`FROM t wher x`, `LIMIT 1 2`) is
         // an error in PostgreSQL, MySQL and SQLite. Other dialects have more trailing syntax than this
         // parser models, so they stay silent.
-        if matches!(self.fam, Family::Postgres | Family::MySql | Family::Sqlite)
+        // DuckDB has much more trailing syntax (`FROM t SELECT ...`, `* LIKE`, `TABLESAMPLE 10%`), so there only a
+        // qualified name (`o c.id`: a join condition after the alias, `ON` forgotten) is certain.
+        let duck_qualified = self.fam == Family::DuckDb && self.is_word_tok(0) && self.punct(1, ".");
+        if (matches!(self.fam, Family::Postgres | Family::MySql | Family::Sqlite) || duck_qualified)
             && let Some(t) = self.peek()
             && matches!(t.kind, TokenKind::Word | TokenKind::Number)
             && !self.glued_to_previous(&t)
@@ -871,6 +901,12 @@ impl Parser<'_> {
         loop {
             if self.kw(0, "ORDER") && self.kw(1, "BY") {
                 self.order_by();
+            } else if self.kw(0, "ORDER") && self.engines_checked() {
+                // ORDER is reserved in all four, so it is not an alias here either; it can only start ORDER BY.
+                let span = self.next_span();
+                self.bump();
+                let incomplete = self.at_end();
+                self.error(span, "Expected BY after ORDER", incomplete);
             } else if self.kw_any(0, &["LIMIT", "OFFSET", "FETCH"]) {
                 self.limit_clause();
             } else if self.is_tail_start() || self.kw(0, "INTO") {

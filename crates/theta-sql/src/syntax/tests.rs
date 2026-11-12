@@ -469,3 +469,75 @@ fn lexer_kinds_survive_in_the_tree() {
     assert!(kinds.contains(&TokenKind::LineComment));
     assert!(kinds.contains(&TokenKind::QuotedIdent));
 }
+
+// ---- typos found in real use: the general causes, each with its valid neighbours
+
+const CHECKED: [K; 4] = [K::Postgres, K::MySql, K::Sqlite, K::DuckDb];
+
+#[test]
+fn a_keyword_that_must_be_followed_by_by() {
+    for k in CHECKED {
+        has_error("select * from t order id", k, "BY after ORDER");
+        has_error("select * from t where a = 1 order", k, "BY after ORDER");
+        has_error("select * from t group country", k, "BY after GROUP");
+        no_errors("select * from t order by id", k);
+        no_errors("select a, count(*) over (order by a) from t group by a", k);
+    }
+    // T-SQL and ClickHouse are not checked against a live server: silent.
+    no_errors("select * from t order id", K::SqlServer);
+    no_errors("select * from t order id", K::ClickHouse);
+}
+
+#[test]
+fn an_assignment_target_without_an_equals_sign() {
+    for k in CHECKED {
+        has_error("update t set email 'a' where id = 1", k, "Expected '='");
+        has_error("update t set email where id = 1", k, "Expected '='");
+        has_error("update t set a, b = 1", k, "Expected '='");
+        no_errors("update t set email = 'a', city = 'b' where id = 1", k);
+        no_errors("update t set (a, b) = (1, 2)", k);
+    }
+    no_errors("update t set email 'a'", K::SqlServer);
+}
+
+#[test]
+fn a_call_after_a_select_item_means_a_missing_comma() {
+    for k in CHECKED {
+        has_error("select c.country count(*) from c", k, "comma");
+        has_error("select 1 x(1)", k, "comma");
+        no_errors("select c.country, count(*) from c", k);
+        no_errors("select count(*) cnt, sum(a) total from c", k);
+        no_errors("select a x from c", k);
+    }
+    // A column list after a table alias is real (PostgreSQL, DuckDB; the others reject it, which is not claimed).
+    no_errors("select * from f x(a, b)", K::Postgres);
+    no_errors("select * from generate_series(1, 2) x(a)", K::DuckDb);
+}
+
+#[test]
+fn a_case_that_is_never_closed() {
+    for k in [K::Postgres, K::MySql, K::Sqlite, K::DuckDb, K::SqlServer, K::ClickHouse] {
+        has_error("select case when a = 1 then 'x' from t", k, "missing END");
+        has_error("select case when a = 1 then 'x', b from t", k, "missing END");
+        has_error("select (case when a = 1 then 'x') from t", k, "missing END");
+        has_error("select case a from t", k, "missing END");
+        no_errors("select case when a = 1 then 'x' end from t", k);
+        no_errors("select case when a = 1 then 'x' else 'y' end x from t", k);
+        no_errors("select sum(case when a = 1 then 1 else 0 end) from t", k);
+    }
+}
+
+#[test]
+fn delete_without_from_in_mysql() {
+    has_error("delete t where id = 1", K::MySql, "FROM after the DELETE target");
+    no_errors("delete t1 from t1 join t2 on t1.id = t2.id", K::MySql);
+    no_errors("delete t where id = 1", K::SqlServer);
+}
+
+#[test]
+fn duckdb_allows_one_word_after_a_star_and_flags_the_second() {
+    no_errors("select * fro", K::DuckDb);
+    has_error("select * form customers", K::DuckDb, "Unexpected 'customers'");
+    no_errors("from t select a", K::DuckDb);
+    no_errors("select * like '%a' from t", K::DuckDb);
+}

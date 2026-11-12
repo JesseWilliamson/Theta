@@ -41,6 +41,8 @@ fn corpus() -> Vec<String> {
         "duckdb.sql",
         "clickhouse.sql",
         "tsql.sql",
+        "typos.sql",
+        "neighbours.sql",
         "broken.sql",
     ] {
         let text = std::fs::read_to_string(dir.join(f)).unwrap();
