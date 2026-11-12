@@ -8953,6 +8953,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "theta-chart",
  "theta-core",
  "theta-drivers",
  "theta-editor",
@@ -8967,6 +8968,13 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "theta-chart"
+version = "0.1.0-alpha.8"
+dependencies = [
+ "theta-core",
 ]
 
 [[package]]

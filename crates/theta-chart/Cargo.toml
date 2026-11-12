@@ -1,0 +1,11 @@
+[package]
+name = "theta-chart"
+description = "Chart data shaping for Theta: column defaults, grouping and aggregation, bucketing, ticks and scales. Pure Rust, no UI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+theta-core.workspace = true
