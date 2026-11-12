@@ -1,11 +1,15 @@
 <h1 align="center"><img src="packaging/icons/theta.svg" alt="" width="64" align="absmiddle"> Theta</h1>
 
-Theta, a keyboard-first database IDE, is written in Rust on [GPUI](https://www.gpui.rs/) (through the
-[`gpui-kit`](https://github.com/longbridge/gpui-kit) component crate). It connects to PostgreSQL,
-MySQL/MariaDB, SQLite and (see [Supported databases](#supported-databases) for how far each is tested)
-CockroachDB, Amazon Redshift, TimescaleDB, YugabyteDB, TiDB, DuckDB, SQL Server and ClickHouse, gives you a SQL editor with Helix, Vim or standard key bindings, and shows results
-as an editable grid, as a query plan, or on a map. The name comes from the theta join (θ-join) of relational
-algebra, the general form of JOIN: suggesting joins is what Theta is best at.
+Theta is a keyboard-first database IDE for PostgreSQL, MySQL, SQLite and more.
+
+It is written in Rust on [GPUI](https://www.gpui.rs/) (through the [`gpui-kit`](https://github.com/longbridge/gpui-kit)
+component crate). Besides PostgreSQL, MySQL/MariaDB and SQLite it connects to CockroachDB, Amazon Redshift, TimescaleDB,
+YugabyteDB, TiDB, DuckDB, SQL Server and ClickHouse; [Supported databases](#supported-databases) says how far each one
+has been tested. It gives you a SQL editor with Helix, Vim or standard key bindings and a parser behind it
+(diagnostics, quick fixes, rename), and shows results as an editable grid, a chart, a query plan or a map. Around that
+are an ER-diagram view, schema and data compare, import and export, a table editor and server administration.
+The name comes from the theta join (θ-join) of relational algebra, the general form of JOIN: suggesting joins is what
+Theta is best at.
 
 It is also a codebase meant to be read: the database drivers, SQL tooling, geometry code and the text
 editor are plain Rust libraries with ordinary tests, and the UI crates are thin layers on top. See
@@ -15,9 +19,10 @@ editor are plain Rust libraries with ordinary tests, and the UI crates are thin 
 
 Theta 0.1.0-alpha.9 is an alpha. The application is fully wired together: every feature below is
 implemented and was run by hand on Linux (X11) against PostgreSQL 16 with PostGIS, MariaDB 10.11 and
-SQLite. SSH tunnelling is covered by the driver integration tests only. The macOS and Windows builds are
-compiled and unit-tested in CI but nobody has used them by hand yet. See
-[Known limitations](#known-limitations).
+SQLite; DuckDB and ClickHouse 18.16 were also run by hand, though not every feature on them. The other products
+pass live driver tests in CI or are unverified (see [Supported databases](#supported-databases)). SSH tunnelling is
+covered by the driver integration tests only. The macOS and Windows builds are compiled and unit-tested in CI but
+nobody has used them by hand yet. See [Known limitations](#known-limitations).
 
 <!-- screenshots -->
 | | |
@@ -34,7 +39,8 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 | ![Search across tables](docs/screenshots/22-search-tables.png) **Search Across Tables: hits by table and column, skipped tables listed** | ![Chart](docs/screenshots/23-chart.png) **Chart tab: an area chart with the hover readout** |
 | ![Copy table](docs/screenshots/24-copy-table.png) **Copy Table: DDL and type substitutions shown before it runs** | ![Local history](docs/screenshots/25-local-history.png) **Local History: snapshots and a diff against the editor** |
 | ![Run on several connections](docs/screenshots/26-multi-run.png) **Run on Several Connections: a summary per connection** | ![ER diagram](docs/screenshots/27-er-diagram.png) **ER diagram of a schema: keys, types, foreign keys ending at their columns** |
-| ![Data compare](docs/screenshots/30-data-compare.png) **Data compare: changed cells highlighted, source value above target value** | |
+| ![Data compare](docs/screenshots/30-data-compare.png) **Data compare: changed cells highlighted, source value above target value** | ![Theme picker](docs/screenshots/08-theme-picker.png) **Theme picker, filtered by name** |
+| ![Diagnostics](docs/screenshots/19-diagnostics.png) **Diagnostics: problems underlined in the editor and listed in the Problems tab** | ![Quick fix](docs/screenshots/20-quick-fix.png) **Quick fix: a suggested correction applied from the editor** |
 | ![ER diagram, Theta Light](docs/screenshots/28-er-diagram-light.png) **ER diagram in Theta Light: a selected table dims the rest** | ![Schema compare](docs/screenshots/29-schema-compare.png) **Schema compare: the differences as a tree, each one side by side, and the migration script one key away** |
 
 ## Supported databases
@@ -260,11 +266,12 @@ from a `v*` tag and attaches them to a draft release that the maintainer publish
 | macOS Intel | `Theta-<version>-macos-x86_64.zip` | unzip, drag `Theta.app` to Applications |
 | Windows x86_64 | `theta-<version>-windows-x86_64.zip` | unzip and run `theta.exe` |
 
-Every release also has a `SHA256SUMS` file.
+Every release also has a `SHA256SUMS` file; after downloading, check the file with
+`sha256sum -c SHA256SUMS --ignore-missing` (`shasum -a 256 -c SHA256SUMS --ignore-missing` on macOS).
 
-- **macOS**: the app is ad-hoc signed but **not notarised**, so Gatekeeper blocks the first launch.
-  Right-click the app, choose *Open*, then *Open* again; or run
-  `xattr -dr com.apple.quarantine /Applications/Theta.app`.
+- **macOS**: the app is ad-hoc signed but **not notarised**, so Gatekeeper blocks the first launch. Either run
+  `xattr -dr com.apple.quarantine /Applications/Theta.app`, or try to open the app once and then choose *Open Anyway*
+  in System Settings, Privacy & Security. Older macOS versions also accept right-click, *Open*, *Open*.
 - **Windows**: the executable is not code-signed, so SmartScreen warns on first launch (*More info*, then
   *Run anyway*).
 - **Linux** needs a working Vulkan driver (Mesa `libvulkan_radeon`/`intel`/`lvp`, or the proprietary one)
@@ -295,7 +302,7 @@ cargo run --release -p theta -- --demo
 ```
 
 `mold` is optional; CI uses it through `-C link-arg=-fuse-ld=mold` to link faster (the release workflow
-does not). The libraries (`theta-core`, `theta-sql`, `theta-geo`, `theta-editor`, `theta-drivers`) build
+does not). The libraries (`theta-core`, `theta-sql`, `theta-geo`, `theta-editor`, `theta-drivers`, `theta-import`) build
 and test without any of the GUI packages: `cargo test -p theta-sql`.
 
 ## Quick start
@@ -329,11 +336,15 @@ Command-line flags:
 | Flag | Meaning |
 | --- | --- |
 | `--demo` | create and connect the demo database (`THETA_DEMO=1` does the same) |
-| `--connect URL` | open a temporary connection; repeatable; `postgres://`, `mysql://`, `mariadb://` or `sqlite://` URLs |
+| `--connect URL` | open a temporary connection; repeatable; `postgres://`, `mysql://`, `mariadb://`, `sqlite://`, `duckdb://`, `sqlserver://`, `clickhouse://`, `cockroachdb://`, `redshift://`, `timescaledb://`, `yugabytedb://` or `tidb://` URLs (`user:pass@host:port/db`, or a file path for SQLite and DuckDB) |
 | `--run SQL` | run this SQL (every statement) once the first start-up connection is ready |
 | `--script FILE` | the same, from a file |
 | `--ssh user@host[:port]` | tunnel the `--connect` connections through SSH; without `--ssh-key` the running ssh-agent authenticates (Theta prints which) |
 | `--ssh-key PATH` | authenticate the `--ssh` tunnel with this private key file |
+| `--import FILE` | once the first start-up connection is ready, open the Import Data dialog on a `.csv` / `.tsv` file |
+| `--into [SCHEMA.]TABLE` | with `--import`: import into this existing table instead of a new one |
+| `--modify [SCHEMA.]TABLE` | once connected, open the Modify Table editor on this table |
+| `--new-table [SCHEMA]` | once connected, open the New Table editor |
 | `--theme NAME` | start with this theme |
 | `--stress-catalog[=N]` | debug: add a synthetic connection with N (default 5,000) empty tables |
 | `--version`, `-V` | print the version and exit |
@@ -433,10 +444,12 @@ The complete tables (and the `space` leader menu that reaches every application 
 
 ## Known limitations
 
-Databases added in 0.1.0-alpha.7
-- Only DuckDB and (against a 2018 server) ClickHouse have been run. SQL Server, CockroachDB, TiDB and TimescaleDB
-  are covered by live tests that exist but have not been run yet; Redshift and YugabyteDB have no test server at
-  all. Read the table under [Supported databases](#supported-databases) before trusting a product.
+Grouped by area. Read the table under [Supported databases](#supported-databases) before trusting a product.
+
+**Databases**
+- Run by hand: PostgreSQL, MariaDB, SQLite, DuckDB and ClickHouse 18.16 (the version Ubuntu packages; modern
+  ClickHouse types and `EXPLAIN` were not run locally). SQL Server, CockroachDB, TiDB and TimescaleDB pass the live
+  driver tests in CI but have not been driven by hand; Redshift and YugabyteDB are unverified.
 - SQL Server: SQL authentication only; cancelling a statement ends the session (temp tables and an open
   transaction are lost); a result with several result sets shows the first; the table editor and CSV import are
   disabled. ClickHouse: read-only grid, no transactions, no *Explain Analyze*. DuckDB: no row editing in the grid,
@@ -445,8 +458,22 @@ Databases added in 0.1.0-alpha.7
   address (127.0.0.1) and fails; use *Require* there.
 - A DuckDB build adds about 55 MB to the binary and about 15 minutes to a clean build; `cargo build
   --no-default-features` leaves it out.
+- MySQL 8 `EXPLAIN` parsing is tested from captured fixtures only; live testing was against MariaDB 10.11.
+- MySQL/MariaDB: `execute` refuses text that holds a second statement; scripts are split before they are sent.
+  MySQL commits DDL implicitly, so *Rename / Truncate / Drop* and a multi-statement table edit there cannot be rolled
+  back (the editor names the statements that were already applied if one fails), and importing into a new
+  table commits the `CREATE TABLE` (a failed import drops it again).
+- Read-only connections are enforced by Theta, which classifies each statement before it runs; it refuses
+  data changes and schema changes. It is not a server-side guarantee: a `SELECT` that calls a function with
+  side effects, or a `CALL`, runs. Use a read-only database account when that matters.
+- Statements on one connection run one at a time, and all consoles bound to a connection share its single
+  server session (and its transaction).
+- In manual transaction mode a plain `SELECT` also starts a transaction (as JDBC does); an open transaction on
+  a busy production database holds locks and a snapshot until you end it.
+- Connection folders are one level deep and have no drag and drop (the tree list has no drop target); use the
+  menus, `alt-up` / `alt-down` and the palette.
 
-Server administration (Sessions, Roles, Export Database, Run SQL Script)
+**Server administration** (Sessions, Roles, Export Database, Run SQL Script)
 - Verified live on PostgreSQL 16 (sessions with a blocked session and Cancel Query, every role action, dump and
   restore), MariaDB 10.11 (sessions with InnoDB lock waits and Cancel Query, create / alter / password / drop of a
   user, dump and restore) and ClickHouse 18.16 (sessions and Cancel Query). On MariaDB, *grant* and *revoke*
@@ -463,8 +490,8 @@ Server administration (Sessions, Roles, Export Database, Run SQL Script)
   not support `COPY … FROM stdin`, `DELIMITER` or `/*! … */`. Roles lists explicit grants only. The Sessions list
   has no horizontal scroll: below 1250 px wide the Database, Client and Application columns move to the detail pane.
 
-Editor
-- No soft wrap and no code folding. Long lines scroll horizontally.
+**Editor**
+- No soft wrap and no code folding. Long lines scroll horizontally. Undo is linear (no undo tree).
 - Diagnostics stay quiet rather than flag valid SQL, so they miss errors: against real servers the parser flags
   52-65% of the statements the engine rejects for syntax and the resolver 74-88% of the unknown-name errors
   (see [ARCHITECTURE](docs/ARCHITECTURE.md)). Name checks need a loaded catalog and are silent for schemas that
@@ -473,6 +500,8 @@ Editor
   The database remains the judge: a failed statement is underlined from the server's error position.
 - Rename covers aliases, CTEs and select aliases in one statement. Renaming a table or column of the database is
   not offered. Usages of a catalog object are searched in open consoles only, not in saved files that are closed.
+- Query parameters are substituted by Theta, not bound by the server: they stand where a literal can, and a
+  parameter for an identifier needs the *Raw SQL* type.
 - In the editor the engine's keys win over the application's shortcuts, so a few application chords
   (`ctrl-b`, `ctrl-o`, `ctrl-w`, `ctrl-k`, `F5`) do something else while the editor has focus in the Helix key
   map, and in the Vim key map the `ctrl-` letters Vim uses (`ctrl-w`, `ctrl-b`, `ctrl-e`, `ctrl-n`, `ctrl-o`,
@@ -484,9 +513,18 @@ Editor
   moves right), the options are fixed (`shiftwidth=4`, `expandtab`, `ignorecase` with `smartcase`), and
   typing `(` inserts `()`. The full list is in the
   [engine README](crates/theta-editor/README.md#deviations-from-vim).
-- Undo is linear (no undo tree).
 
-Import, export and DDL
+**Results and map**
+- Results are not saved across restarts (console text is).
+- Exporting a result grid covers the rows that were loaded into it, which the row limit caps; *Export Data…* on a
+  table is not limited.
+- The grid cannot reorder or hide columns.
+- Curved geometry types (`CIRCULARSTRING`, `COMPOUNDCURVE`, `CURVEPOLYGON`) are not decoded and are not
+  drawn. Z and M ordinates are read but dropped.
+- The basemap needs network access to the tile server. Tiles that were fetched before are cached on disk;
+  without network the geometry is still drawn, on a grey background.
+
+**Tools** (table editor, import and export, compare, copy)
 - The table editor changes tables, not views, routines or sequences. It cannot reorder the columns of an existing
   table (no dialect's `ALTER TABLE` does; reordering is available while a table is new), edit generated columns
   (they are shown and kept) or author an expression index (one is shown with its definition and can be kept or
@@ -497,40 +535,15 @@ Import, export and DDL
 - Import does not use PostgreSQL `COPY`; it sends batched multi-row `INSERT`s (about 70k rows/s). TSV files whose
   values use backslash escapes (`\t`, `\n`) are read literally. Browse… and Open use the system file dialog, which
   has not been tried on macOS or Windows; the path field always works.
-- MySQL commits DDL implicitly, so *Rename / Truncate / Drop* and a multi-statement table edit there cannot be rolled
-  back (the editor names the statements that were already applied if one fails), and importing into a new
-  table commits the `CREATE TABLE` (a failed import drops it again).
+- Schema compare does not compare triggers, routine bodies, sequences, collations, privileges, partitioning, custom
+  types or column order; across two different products it shows the differences but writes no migration script.
+- Data compare needs a key (a table without a usable one is refused), reads PostgreSQL, MySQL / MariaDB and SQLite
+  only, keeps the first 10,000 differences (the counts stay exact), and cannot open an in-memory SQLite or a DuckDB
+  database a second time, so those cannot be compared.
+- Copy Table maps types between PostgreSQL, MySQL / MariaDB, SQLite and DuckDB only; an inexact type is shown
+  in the preview before anything runs.
 
-Databases
-- Read-only connections are enforced by Theta, which classifies each statement before it runs; it refuses
-  data changes and schema changes. It is not a server-side guarantee: a `SELECT` that calls a function with
-  side effects, or a `CALL`, runs. Use a read-only database account when that matters.
-- Statements on one connection run one at a time, and all consoles bound to a connection share its single
-  server session (and its transaction).
-- MySQL 8 `EXPLAIN` parsing is tested from captured fixtures only. Live testing was against MariaDB 10.11.
-- MySQL/MariaDB: `execute` refuses text that holds a second statement; scripts are split before they are sent.
-
-Results and map
-- Curved geometry types (`CIRCULARSTRING`, `COMPOUNDCURVE`, `CURVEPOLYGON`) are not decoded and are not
-  drawn. Z and M ordinates are read but dropped.
-- The basemap needs network access to the tile server. Tiles that were fetched before are cached on disk;
-  without network the geometry is still drawn, on a grey background.
-- Results are not saved across restarts (console text is).
-- Exporting a result grid covers the rows that were loaded into it, which the row limit caps; *Export Data…* on a
-  table is not limited.
-- The grid cannot reorder or hide columns.
-
-Added in 0.1.0-alpha.5
-- Query parameters are substituted by Theta, not bound by the server: they stand where a literal can, and a
-  parameter for an identifier needs the *Raw SQL* type.
-- Connection folders are one level deep and have no drag and drop (the tree list has no drop target); use the
-  menus, `alt-up` / `alt-down` and the palette.
-- In manual transaction mode a plain `SELECT` also starts a transaction (as JDBC does); an open transaction on
-  a busy production database holds locks and a snapshot until you end it.
-- CSV / TSV import, whole-table export and the Modify Table / New Table editor arrived in 0.1.0-alpha.6 (see
-  Import, export and DDL above for what the editor does not do).
-
-Platform and packaging
+**Platforms and packaging**
 - Without a keychain (a bare Linux session) passwords are not persisted. Saved connections open without
   their password, and the connection dialog says "Password will not be saved".
 - Saved connections are not opened at start-up; open one from the explorer or run a statement in its console.
@@ -538,16 +551,21 @@ Platform and packaging
 - The macOS and Windows builds are compiled and unit-tested in CI, but nobody has exercised them by hand.
   Only X11 has been tested on Linux; Wayland has not.
 - The AppImage does not bundle the Vulkan, Wayland, xkbcommon and fontconfig libraries.
+- `theta` takes no file argument: it is not registered as the handler for `.sql` or `.csv` files. Use `--script`
+  or `--import`.
 
 ## Architecture
 
 ```text
 crates/
   theta-core         contracts: Value, ResultSet, Catalog, Plan, ConnectionConfig, Driver/Connection traits
-  theta-drivers      PostgreSQL, MySQL/MariaDB, SQLite and SSH tunnelling (Tokio)
-  theta-sql          splitting, formatting, completion, FK joins, plan insights, lint, SQL generation, export
+  theta-drivers      the eleven database drivers (PostgreSQL, MySQL/MariaDB, SQLite, DuckDB, SQL Server, ClickHouse and the rest) and SSH tunnelling (Tokio)
+  theta-sql          splitting, formatting, parser and diagnostics, completion, FK joins, plan insights, lint, SQL generation, export, schema and data diff
   theta-geo          WKB/EWKB/WKT/GeoJSON, projections, tile maths, measuring
-  theta-editor       text buffer, selections, Helix and Standard keymaps, SQL highlighting (no GPUI)
+  theta-editor       text buffer, selections, Helix, Vim and Standard keymaps, SQL highlighting (no GPUI)
+  theta-import       CSV / TSV import, export, SQL dump, table copy and the compare runners (no GPUI)
+  theta-chart        chart model: scales, aggregation, time axes (no GPUI)
+  theta-diagram      ER-diagram layout and routing (no GPUI)
   theta-ui           theme, settings, fonts and icons, pickers, small shared widgets
   theta-editor-view  GPUI widget that paints theta-editor
   theta-grid         results grid with editing, filtering, export requests
