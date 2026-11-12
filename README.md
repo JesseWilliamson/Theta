@@ -17,7 +17,7 @@ editor are plain Rust libraries with ordinary tests, and the UI crates are thin 
 
 ## What works today
 
-Theta 0.1.0-alpha.9 is an alpha. The application is fully wired together: every feature below is
+Theta 0.1.0-alpha.10 is an alpha. The application is fully wired together: every feature below is
 implemented and was run by hand on Linux (X11) against at least one of PostgreSQL 16 with PostGIS, MariaDB 10.11
 and SQLite, and the everyday ones (editor, results, explorer, plans) against all three; DuckDB and ClickHouse 18.16 were also run by hand, though not every feature on them. The other products
 pass live driver tests in CI or are unverified (see [Supported databases](#supported-databases)). SSH tunnelling is

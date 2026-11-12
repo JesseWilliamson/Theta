@@ -14,7 +14,9 @@ fn main() {
     let date = git(&["log", "-1", "--format=%cs"]).unwrap_or_default();
     println!("cargo:rustc-env=THETA_BUILD_COMMIT={commit}");
     println!("cargo:rustc-env=THETA_BUILD_DATE={date}");
-    // A new commit or checkout changes HEAD; that is when the values go stale.
+    // HEAD changes on a checkout; on a branch it only names the branch, so a new commit shows in
+    // the reflog instead. Watching both keeps the commit in About true in a developer build.
     println!("cargo:rerun-if-changed=../../.git/HEAD");
+    println!("cargo:rerun-if-changed=../../.git/logs/HEAD");
     println!("cargo:rerun-if-changed=build.rs");
 }

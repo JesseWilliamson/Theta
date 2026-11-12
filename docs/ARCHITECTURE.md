@@ -832,7 +832,7 @@ compare. What it cannot do, it says: in-memory SQLite and DuckDB cannot be opene
 
 ## Status
 
-0.1.0-alpha.9 is the ninth pre-release (0.1.0-alpha.1 to -alpha.8 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
+0.1.0-alpha.10 is the tenth pre-release (0.1.0-alpha.1 to -alpha.9 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
 that every crate in the workspace is wired into it and used:
 
 - All fourteen crates exist and are used (the three added since alpha.5 are `theta-import`, `theta-chart` and `theta-diagram`); the application runs against PostgreSQL, MySQL/MariaDB and SQLite, and (since alpha.7) CockroachDB, Redshift, TimescaleDB, YugabyteDB, TiDB, DuckDB, SQL Server and ClickHouse. DuckDB runs locally; ClickHouse, CockroachDB, TimescaleDB, TiDB and SQL Server pass live tests in CI; Redshift and YugabyteDB are unverified. See the README's table.

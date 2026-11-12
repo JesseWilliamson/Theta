@@ -1,6 +1,6 @@
 # Theta user guide
 
-Task-oriented notes for using Theta 0.1.0-alpha.9. Key bindings are summarised where they matter and
+Task-oriented notes for using Theta 0.1.0-alpha.10. Key bindings are summarised where they matter and
 listed in full in [KEYBINDINGS.md](KEYBINDINGS.md). `mod` means `cmd` on macOS and `ctrl` elsewhere.
 Names of menu items, buttons and dialog fields are written the way the application shows them. The
 examples use the demo database (`theta --demo`).

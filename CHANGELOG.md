@@ -6,6 +6,11 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+## [0.1.0-alpha.10] - 2026-11-12
+
+A polish release: no new features, about seventy fixes from an audit of keyboard handling, data
+correctness, error wording, layout and consistency.
+
 ### Fixed
 
 - Errors are worded for people. `Connection refused (os error 111)`, `failed to lookup address information`, `password authentication failed`, `No such file or directory (os error 2)` and the temporary `.part` name no longer reach the screen: a connection says "Nothing is listening on 127.0.0.1:5999. Is the server running, and is the port right?", "The host db.internal could not be found. Check the name or your VPN." or "The server rejected the password for user postgres."; a file says "The file /x/y.csv does not exist." or "The folder /nonexistent/dir does not exist.". One mapping (`theta_core::friendly`) serves Test Connection, the explorer, toasts, Import, Export, Export Database, Run SQL Script, Open and Save, theme import and `--script`; Test Connection keeps the driver's own text on a "Details" line.
@@ -714,7 +719,8 @@ Packaging and docs
 - The AppImage does not bundle the Vulkan or Wayland libraries.
 - The map basemap needs network access (cached tiles still draw offline).
 
-[Unreleased]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.9...HEAD
+[Unreleased]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.10...HEAD
+[0.1.0-alpha.10]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.9...v0.1.0-alpha.10
 [0.1.0-alpha.9]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.8...v0.1.0-alpha.9
 [0.1.0-alpha.8]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.7...v0.1.0-alpha.8
 [0.1.0-alpha.7]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.6...v0.1.0-alpha.7
