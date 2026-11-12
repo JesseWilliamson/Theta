@@ -387,22 +387,36 @@ pub fn wrap_text(text: &str, cols: usize, max_lines: usize) -> Vec<String> {
     lines
 }
 
-/// An error under a connection: the first line on the status row, the whole text wrapped in
-/// detail rows below it when it does not fit on that one line.
+/// An error under a connection. A message that fits goes on the status row itself. A longer one
+/// gets a short headline there and its whole text wrapped in detail rows below: putting the first
+/// line on the status row as well showed the same words twice, once cut off and once in full.
 fn push_error(conn: &str, message: &str, wrap_cols: usize, children: &mut Vec<Row>) {
     let first = message.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(message).to_string();
-    let mut r = Row::new(NodeKey::Status(conn.to_string()), 1, RowIcon::Error, first.clone());
+    let multi_line = message.lines().filter(|l| !l.trim().is_empty()).count() > 1;
+    let needs_block = multi_line || first.chars().count() > wrap_cols;
+    let headline = if needs_block { ERROR_HEADLINE.to_string() } else { first };
+    let mut r = Row::new(NodeKey::Status(conn.to_string()), 1, RowIcon::Error, headline);
     r.is_error = true;
     r.retry = true;
     r.tooltip = Some(message.to_string());
     children.push(r);
-    let multi_line = message.lines().filter(|l| !l.trim().is_empty()).count() > 1;
-    if multi_line || first.chars().count() > wrap_cols {
-        for (i, line) in wrap_text(message, wrap_cols, MAX_DETAIL_LINES).into_iter().enumerate() {
+    if needs_block {
+        // The drivers start their text with the same words as the headline.
+        let body = strip_prefix_ignore_case(message.trim(), "could not connect:").trim_start();
+        for (i, line) in wrap_text(body, wrap_cols, MAX_DETAIL_LINES).into_iter().enumerate() {
             let mut d = Row::new(NodeKey::Detail(conn.to_string(), i), 1, RowIcon::None, line);
             d.is_error = true;
             children.push(d);
         }
+    }
+}
+
+const ERROR_HEADLINE: &str = "Could not connect";
+
+fn strip_prefix_ignore_case<'a>(text: &'a str, prefix: &str) -> &'a str {
+    match text.get(..prefix.len()) {
+        Some(head) if head.eq_ignore_ascii_case(prefix) => &text[prefix.len()..],
+        _ => text,
     }
 }
 
@@ -906,7 +920,8 @@ mod tests {
         assert!(details.len() >= 3);
         assert!(details.iter().all(|d| d.label.chars().count() <= 30 && d.icon == RowIcon::None));
         let joined = details.iter().map(|d| d.label.as_str()).collect::<Vec<_>>().join(" ");
-        assert_eq!(joined, long);
+        assert_eq!(r[1].label, "Could not connect");
+        assert_eq!(joined, long.trim_start_matches("could not connect: "));
         // A short one-liner needs no block.
         let r = flatten_wrapped(
             &[ConnView { phase: Phase::Failed("refused".into()), ..view(&c).remove(0) }],

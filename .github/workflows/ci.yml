@@ -210,10 +210,10 @@ jobs:
         if: runner.os != 'Linux'
         run: cargo test --workspace --exclude theta-drivers --exclude theta-import && cargo test -p theta-import --lib
 
-  # Non-blocking until the whole workspace is warning-free.
+  # Blocking: a job with continue-on-error still lets the run report "success", which is how a
+  # lint failure once reached a release commit unnoticed.
   clippy:
     runs-on: ubuntu-24.04
-    continue-on-error: true
     env:
       RUSTFLAGS: -C debuginfo=0 -C link-arg=-fuse-ld=mold
     steps:

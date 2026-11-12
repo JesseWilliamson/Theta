@@ -1045,7 +1045,9 @@ impl EditorView {
                     underline: None,
                     strikethrough: None,
                 };
-                (self.text_system.shape_line(text, px(self.font_size), &[run], None), 0.0)
+                // One cell to the right: in Normal mode the block cursor sits on column 0 and would
+                // otherwise cover the first letter ("rite SQL").
+                (self.text_system.shape_line(text, px(self.font_size), &[run], None), cell_w)
             });
 
         // ---- popups
@@ -1164,8 +1166,8 @@ fn paint_frame(f: &Frame, window: &mut Window, cx: &mut App) {
                 }
             }
         }
-        if let Some((line, _)) = &f.placeholder {
-            let _ = line.paint(point(text_left, origin.y), line_h, TextAlign::Left, None, window, cx);
+        if let Some((line, dx)) = &f.placeholder {
+            let _ = line.paint(point(text_left + px(*dx), origin.y), line_h, TextAlign::Left, None, window, cx);
         }
         for v in &f.lines {
             let _ = v.entry.shaped.paint(

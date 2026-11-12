@@ -160,7 +160,10 @@ fn map_err(e: rusqlite::Error) -> Error {
             Error::Query {
                 message: msg.clone().unwrap_or_else(|| e.to_string()),
                 code: code_name(f.code),
-                detail: Some(format!("extended result code {}", f.extended_code)),
+                // The extended code repeats the primary one for most errors ("extended result code 1"
+                // says nothing). It is worth a line only when it carries more, e.g. 787 for a
+                // foreign-key violation or 2067 for a unique one.
+                detail: (f.extended_code > 255).then(|| format!("SQLite extended result code {}", f.extended_code)),
                 hint: None,
                 position: None,
             }

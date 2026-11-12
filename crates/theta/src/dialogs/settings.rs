@@ -648,7 +648,7 @@ impl SettingsView {
             .gap_2()
             .child(div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child("Theta"))
             .child(line(format!("Version {}", env!("CARGO_PKG_VERSION"))))
-            .child(line("A keyboard-first database IDE for PostgreSQL, MySQL, MariaDB and SQLite.".into()))
+            .child(line("A keyboard-first database IDE for PostgreSQL, MySQL, SQLite and more.".into()))
             .child(line(
                 "The name comes from the theta join (\u{3b8}-join) of relational algebra, the general form of JOIN."
                     .into(),
