@@ -270,7 +270,7 @@ impl ResultGrid {
         let count = if self.view_busy {
             "filtering…".to_string()
         } else {
-            format!("{} of {} rows", format_count(shown), format_count(total))
+            format!("{} of {}", format_count(shown), theta_core::text::plural(total as u64, "row", "rows"))
         };
         h_flex()
             .key_context("GridFilter")

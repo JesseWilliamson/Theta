@@ -364,7 +364,7 @@ fn build_trie() -> Sub {
         g.bind("l", LineEnd, "line end");
         g.bind("s", FirstNonBlank, "first non-blank in line");
         g.bind("t", WindowTop, "window top");
-        g.bind("c", WindowCenter, "window center");
+        g.bind("c", WindowCenter, "window centre");
         g.bind("b", WindowBottom, "window bottom");
         g.bind("j", LineDown, "move down");
         g.bind("k", LineUp, "move up");
@@ -432,10 +432,10 @@ fn build_trie() -> Sub {
     }
     for (key, name) in [("z", "View"), ("Z", "View")] {
         let z = r.sub_mut(key, name);
-        z.bind("z c", Scroll(ScrollRequest::CursorCenter), "center cursor");
+        z.bind("z c", Scroll(ScrollRequest::CursorCenter), "centre cursor");
         z.bind("t", Scroll(ScrollRequest::CursorTop), "cursor to top");
         z.bind("b", Scroll(ScrollRequest::CursorBottom), "cursor to bottom");
-        z.bind("m", Scroll(ScrollRequest::CursorCenter), "center cursor");
+        z.bind("m", Scroll(ScrollRequest::CursorCenter), "centre cursor");
         z.bind("j down", Scroll(ScrollRequest::Lines(1)), "scroll down");
         z.bind("k up", Scroll(ScrollRequest::Lines(-1)), "scroll up");
         z.bind("ctrl-b pageup", PageUp, "page up");

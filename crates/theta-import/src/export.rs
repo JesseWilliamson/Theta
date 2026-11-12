@@ -129,7 +129,7 @@ pub async fn export_table<W: Write + Send>(
             let s: String = $s;
             if !s.is_empty() {
                 if let Err(e) = out.write_all(s.as_bytes()) {
-                    rep.outcome = ExportOutcome::Failed(format!("writing the file failed: {e}"));
+                    rep.outcome = ExportOutcome::Failed(format!("Writing the file failed. {}", theta_core::friendly::plain(&e.to_string())));
                     rep.elapsed = started.elapsed();
                     return rep;
                 }
@@ -201,7 +201,7 @@ pub async fn export_table<W: Write + Send>(
             write_out!(tail);
         }
         if let Err(e) = out.flush() {
-            rep.outcome = ExportOutcome::Failed(format!("writing the file failed: {e}"));
+            rep.outcome = ExportOutcome::Failed(format!("Writing the file failed. {}", theta_core::friendly::plain(&e.to_string())));
         }
     }
     rep.elapsed = started.elapsed();
@@ -224,7 +224,7 @@ pub async fn export_table_to_path(
         Ok(f) => f,
         Err(e) => {
             return ExportReport {
-                outcome: ExportOutcome::Failed(format!("cannot create {}: {e}", part.display())),
+                outcome: ExportOutcome::Failed(theta_core::friendly::io_message(&e, path, theta_core::friendly::IoOp::Write)),
                 rows: 0,
                 bytes: 0,
                 pages: 0,
@@ -237,7 +237,7 @@ pub async fn export_table_to_path(
     let mut rep = export_table(conn, writer, job, rows_estimate, cancel, progress).await;
     if rep.outcome == ExportOutcome::Completed {
         if let Err(e) = std::fs::rename(&part, path) {
-            rep.outcome = ExportOutcome::Failed(format!("cannot move the finished file into place: {e}"));
+            rep.outcome = ExportOutcome::Failed(format!("The finished file could not be moved to {}. {}", path.display(), theta_core::friendly::plain(&e.to_string())));
             let _ = std::fs::remove_file(&part);
         }
     } else {

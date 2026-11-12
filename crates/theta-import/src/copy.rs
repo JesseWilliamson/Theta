@@ -60,7 +60,8 @@ pub enum CopyOutcome {
 pub enum Cleanup {
     /// Nothing had been made, or the copy completed.
     NotNeeded,
-    /// The transaction was rolled back: the target table does not exist.
+    /// The transaction was rolled back. Whatever `CopyReport::created` says was made went with it; a table
+    /// that already existed under the target name was never touched.
     RolledBack,
     /// The half-made table was dropped.
     Dropped,
@@ -74,6 +75,9 @@ pub struct CopyReport {
     pub rows: u64,
     pub elapsed: Duration,
     pub cleanup: Cleanup,
+    /// Whether this copy got as far as creating the target table (false when `CREATE TABLE` was refused,
+    /// for instance because the name was taken).
+    pub created: bool,
 }
 
 /// Whether the target can undo a `CREATE TABLE` with `ROLLBACK`.
@@ -96,7 +100,13 @@ pub async fn copy_table(
     let opts = ExecOptions { row_limit: None };
     let transactional = transactional_ddl(job.dst_kind);
     let mut rows = 0u64;
-    let report = |outcome, rows, cleanup| CopyReport { outcome, rows, elapsed: started.elapsed(), cleanup };
+    let report = |outcome, rows, cleanup, created| CopyReport {
+        outcome,
+        rows,
+        elapsed: started.elapsed(),
+        cleanup,
+        created,
+    };
 
     if transactional {
         if dst.in_transaction().await {
@@ -106,6 +116,7 @@ pub async fn copy_table(
                 ),
                 0,
                 Cleanup::NotNeeded,
+                false,
             );
         }
         if let Err(e) = dst.execute(begin_sql(job.dst_kind), &opts).await {
@@ -113,6 +124,7 @@ pub async fn copy_table(
                 CopyOutcome::Failed(format!("could not start a transaction: {e}")),
                 0,
                 Cleanup::NotNeeded,
+                false,
             );
         }
     }
@@ -225,5 +237,5 @@ pub async fn copy_table(
         Cleanup::NotNeeded
     };
     progress(&CopyProgress { rows, rows_estimate: job.rows_estimate, elapsed: started.elapsed() });
-    report(outcome, rows, cleanup)
+    report(outcome, rows, cleanup, created)
 }

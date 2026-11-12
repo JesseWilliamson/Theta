@@ -558,7 +558,7 @@ fn the_text_has_headings_markers_and_every_line_of_a_commented_statement_comment
     assert!(text.starts_with("-- Migration script: make tgt look like src (PostgreSQL)."), "{text}");
     assert!(
         text.contains(
-            "-- table gone\n-- destructive: Drop table gone and all of its rows\n-- DROP TABLE a.gone\n-- ;\n"
+            "-- table gone\n-- destructive: Drop table gone and all of its rows\n-- DROP TABLE a.gone;\n"
         ),
         "{text}"
     );

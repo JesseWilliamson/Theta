@@ -463,7 +463,7 @@ pub async fn dump<W: Write + Send>(
             Step::Sql(s) => {
                 let text = if s.starts_with("--") { format!("{s}\n") } else { format!("{s};\n\n") };
                 if let Err(e) = out.write_all(text.as_bytes()) {
-                    fail(&mut rep, format!("writing the file failed: {e}"));
+                    fail(&mut rep, format!("Writing the file failed. {}", theta_core::friendly::plain(&e.to_string())));
                     break;
                 }
                 rep.bytes += text.len() as u64;
@@ -522,7 +522,7 @@ pub async fn dump<W: Write + Send>(
     if rep.outcome == DumpOutcome::Completed
         && let Err(e) = out.flush()
     {
-        fail(&mut rep, format!("writing the file failed: {e}"));
+        fail(&mut rep, format!("Writing the file failed. {}", theta_core::friendly::plain(&e.to_string())));
     }
     rep.elapsed = started.elapsed();
     progress(&DumpProgress {
@@ -552,7 +552,7 @@ pub async fn dump_to_path(
         Ok(f) => f,
         Err(e) => {
             return DumpReport {
-                outcome: DumpOutcome::Failed(format!("cannot create {}: {e}", part.display())),
+                outcome: DumpOutcome::Failed(theta_core::friendly::io_message(&e, path, theta_core::friendly::IoOp::Write)),
                 tables: 0,
                 rows: 0,
                 bytes: 0,
@@ -565,7 +565,7 @@ pub async fn dump_to_path(
     let mut rep = dump(conn, catalog, opts, writer, cancel, progress).await;
     if rep.outcome == DumpOutcome::Completed {
         if let Err(e) = std::fs::rename(&part, path) {
-            rep.outcome = DumpOutcome::Failed(format!("cannot move the finished file into place: {e}"));
+            rep.outcome = DumpOutcome::Failed(format!("The finished file could not be moved to {}. {}", path.display(), theta_core::friendly::plain(&e.to_string())));
             let _ = std::fs::remove_file(&part);
         }
     } else {

@@ -81,8 +81,8 @@ impl Script {
         let held = self.commented_count();
         if held > 0 {
             out.push_str(&format!(
-                "-- {held} destructive statement{} {} commented out and marked `destructive:`; uncomment them in order, or generate the script again with destructive statements included.\n",
-                if held == 1 { "" } else { "s" },
+                "-- {} {} commented out and marked `destructive:`; uncomment them in order, or generate the script again with destructive statements included.\n",
+                theta_core::text::plural_s(held as u64, "destructive statement"),
                 if held == 1 { "is" } else { "are" }
             ));
         }
@@ -99,10 +99,12 @@ impl Script {
             let sql = s.sql.trim_end().trim_end_matches(';');
             if s.commented {
                 out.push_str(&format!("-- destructive: {}\n", s.explanation));
-                for line in sql.lines() {
-                    out.push_str(&format!("-- {line}\n"));
+                // The terminating `;` stays on the last commented line so that removing the comment marks
+                // gives a complete statement.
+                let n = sql.lines().count();
+                for (i, line) in sql.lines().enumerate() {
+                    out.push_str(&format!("-- {line}{}\n", if i + 1 == n { ";" } else { "" }));
                 }
-                out.push_str("-- ;\n");
             } else {
                 out.push_str(&format!("-- {}\n{sql};\n", s.explanation));
             }

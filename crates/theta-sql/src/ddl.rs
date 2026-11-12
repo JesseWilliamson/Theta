@@ -261,7 +261,7 @@ pub fn summarize(stmts: &[Statement]) -> String {
         return "No changes".to_string();
     }
     let count = |f: fn(&Flag) -> bool| stmts.iter().filter(|s| s.flags.iter().any(f)).count();
-    let mut parts = vec![format!("{} statement{}", stmts.len(), if stmts.len() == 1 { "" } else { "s" })];
+    let mut parts = vec![theta_core::text::plural_s(stmts.len() as u64, "statement")];
     for (n, label) in [
         (count(|f| *f == Flag::Destructive), "destructive"),
         (count(|f| *f == Flag::TableRewrite), "table rewrite"),

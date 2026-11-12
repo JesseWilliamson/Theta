@@ -48,16 +48,7 @@ pub fn format_number(v: f64) -> String {
 /// `42 ms`, `1.24 s`, `2 min 05 s`. Sub-millisecond runs say `<1 ms` rather
 /// than a misleading `0 ms`.
 pub fn format_duration(d: Duration) -> String {
-    let ms = d.as_secs_f64() * 1000.0;
-    if ms < 1.0 {
-        "<1 ms".into()
-    } else if ms < 1000.0 {
-        format!("{} ms", ms.round() as u64)
-    } else if d.as_secs() < 60 {
-        format!("{:.2} s", d.as_secs_f64())
-    } else {
-        format!("{} min {:02} s", d.as_secs() / 60, d.as_secs() % 60)
-    }
+    theta_core::text::duration(d)
 }
 
 /// How a cell is styled; decided by the value, not the column type, because a

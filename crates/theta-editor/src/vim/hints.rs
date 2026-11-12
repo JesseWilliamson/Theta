@@ -103,7 +103,7 @@ impl Editor {
                     return Some((
                         "View".into(),
                         vec![
-                            h("z .", "center cursor"),
+                            h("z .", "centre cursor"),
                             h("t", "cursor to top"),
                             h("b -", "cursor to bottom"),
                         ],
