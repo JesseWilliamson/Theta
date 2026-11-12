@@ -8,6 +8,10 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Added
 
+- **Run on Several Connections** (`mod-alt-enter`, `space m`, `:multirun`): run the current statement or script on
+  each chosen connection concurrently. Each keeps its read-only setting and its transaction mode; a failure,
+  refusal or busy connection is reported for that connection only. The result is a Summary tab (statements, rows,
+  time and status per connection) and one tab per connection that returned rows.
 - **Local history for consoles** (`mod-alt-h`, `space h`, `:lhistory`): every console's text is snapshotted when a
   statement runs and after a pause in typing, stored under the config folder with per-console and total size caps
   and pruning, written atomically so a killed process loses nothing it had saved. A dialog lists the snapshots with

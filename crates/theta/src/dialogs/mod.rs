@@ -5,6 +5,7 @@ pub mod dump;
 pub mod export;
 pub mod import;
 pub mod local_history;
+pub mod multi_run;
 pub mod name;
 pub mod params;
 pub mod script;

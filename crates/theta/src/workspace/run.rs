@@ -551,6 +551,7 @@ impl Workspace {
             }
             "chart" => self.show_chart(window, cx),
             "lhistory" | "localhistory" | "lh" => self.open_local_history(window, cx),
+            "multirun" | "multi" => self.open_multi_run(window, cx),
             "grep" | "search" => self.search_from_palette(window, cx),
             "cell" | "viewer" if arg == "copy" => self.copy_cell_value(window, cx),
             "cell" | "viewer" => self.toggle_cell_viewer(window, cx),
@@ -599,7 +600,7 @@ impl Workspace {
     }
 
     /// Text, cursor byte offset and the selection (start byte, text) of a console.
-    fn editor_snapshot(&self, id: u64, cx: &App) -> Option<Snapshot> {
+    pub(super) fn editor_snapshot(&self, id: u64, cx: &App) -> Option<Snapshot> {
         let c = self.consoles.get(&id)?;
         let ed = c.editor.read(cx).editor();
         let text = ed.text();
@@ -2679,7 +2680,7 @@ pub(super) fn txn_statement_kind(class: StatementClass) -> theta_core::txn::Stat
 /// Manual mode: start the transaction before the first statement that needs one, unless the session
 /// already has one (the user typed `BEGIN`, or an earlier statement started it). Returns the statements
 /// that were run.
-async fn begin_transaction_if_needed(
+pub(super) async fn begin_transaction_if_needed(
     connection: &Arc<dyn Connection>,
     manual: Option<&ManualBegin>,
     p: &Picked,
@@ -2701,7 +2702,7 @@ async fn begin_transaction_if_needed(
     .await
 }
 
-async fn exec_statement(
+pub(super) async fn exec_statement(
     connection: &Arc<dyn Connection>,
     p: &Picked,
     opts: &ExecOptions,

@@ -30,7 +30,10 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 | ![Record view](docs/screenshots/12-record-view.png) **Record view: one row as a list, JSON pretty-printed** | ![Query parameters](docs/screenshots/13-query-parameters.png) **Query parameters: values asked for before the run** |
 | ![Import](docs/screenshots/14-import-csv.png) **CSV import: detected format, column mapping, sample values and type checks** | ![Modify table](docs/screenshots/15-modify-table.png) **Modify Table: a rename, an added column and a dropped one, with the exact SQL and its warnings** |
 | ![New table](docs/screenshots/16-new-table.png) **New Table: columns, a foreign key and the `CREATE TABLE` it makes** | ![Sessions](docs/screenshots/17-sessions.png) **Sessions: a blocked session, its blocker and Cancel Query** |
-| ![Roles](docs/screenshots/18-roles.png) **Roles: attributes, memberships and privileges by object** | |
+| ![Roles](docs/screenshots/18-roles.png) **Roles: attributes, memberships and privileges by object** | ![Cell viewer](docs/screenshots/21-cell-viewer.png) **Cell viewer: pretty JSON with folding next to the grid** |
+| ![Search across tables](docs/screenshots/22-search-tables.png) **Search Across Tables: hits by table and column, skipped tables listed** | ![Chart](docs/screenshots/23-chart.png) **Chart tab: an area chart with the hover readout** |
+| ![Copy table](docs/screenshots/24-copy-table.png) **Copy Table: DDL and type substitutions shown before it runs** | ![Local history](docs/screenshots/25-local-history.png) **Local History: snapshots and a diff against the editor** |
+| ![Run on several connections](docs/screenshots/26-multi-run.png) **Run on Several Connections: a summary per connection** | |
 
 ## Supported databases
 
@@ -181,6 +184,9 @@ Per-product behaviour (what is disabled and why) is in the [user guide](docs/USE
   generated `UPDATE`/`INSERT`/`DELETE` statements and applies them in one transaction. A result is editable
   only when it comes from one table whose primary key is in the result; otherwise the grid shows a lock and
   says why.
+- Run on several connections: the same statement or script on each connection you tick, concurrently, each with
+  its own read-only setting and transaction mode, a summary tab (rows, time, error per connection) and one result
+  tab per connection; a failure on one never hides the others.
 - Local history for consoles: snapshots on every run and after pauses in typing, kept on disk under size caps,
   with a line diff against the editor and one-step, undoable restore; the text survives a killed process.
 - Charts: a Chart tab draws the result as bar, line, area, scatter or pie with sensible column defaults, grouping,

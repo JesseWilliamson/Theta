@@ -215,6 +215,31 @@ opened it; the title-bar switcher (or `:connect NAME` in Helix) rebinds it. Cons
   reconnected and re-ran the statement". Anything else (a write, a DDL statement, a statement inside a
   transaction) is not re-run: *Messages* says so, and open transactions are gone with the session.
 
+### Run on several connections
+
+*Run on Several Connections…* (palette, `mod-alt-enter`, `space m` in Helix and Vim, `:multirun`) runs the current
+statement (or selection), or the whole script, on every connection you tick, for example the same check on
+staging and production. The dialog lists the open connections with their product and a *read-only* badge, and warns
+when the statement writes.
+
+- Every connection runs the **same text on its own session**, concurrently. The script is split once, with the dialect of
+  the console's connection.
+- Each connection keeps its own **terms**: its *read-only* setting refuses a write on that connection only, and
+  its transaction mode applies exactly as in a console (in manual mode Theta starts the transaction before the first
+  statement and leaves it open; the title bar and Messages say so). A connection that is busy, or not connected, is
+  skipped and listed as such.
+- **A failure on one connection does not stop or hide the others.** A script stops at its first error on the connection where it
+  failed, and that is all that stops.
+- The answer is a **Summary** tab, one row per connection in the order you ticked them (statements run out of the
+  total, rows, time in milliseconds and the status: `ok`, `error: …`, `refused: …`, `not connected`, `busy`),
+  followed by one tab per connection that returned rows, titled `prod · 12 rows`. Messages gets a line per
+  connection and a notice sums it up (`3 connections: 2 ok, 1 failed`).
+
+The rows column is the rows of the last statement that returned rows, or the rows the statements affected when none
+did. Tabs show the usual row limit. Connections used by a run are marked busy until it ends, so a console on one of
+them cannot slip a statement into the run. A run cannot be cancelled once started (each statement finishes or
+fails on its own).
+
 ### Query parameters
 
 A statement that contains placeholders asks for their values before it runs: `?` (MySQL, SQLite), `$1`

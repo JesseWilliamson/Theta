@@ -536,7 +536,11 @@ fn focused_views_win_their_own_keys_and_leave_the_rest_to_the_application(cx: &m
     }
 }
 
-fn wait_for(vcx: &mut VisualTestContext, what: &str, mut done: impl FnMut(&mut VisualTestContext) -> bool) {
+pub(super) fn wait_for(
+    vcx: &mut VisualTestContext,
+    what: &str,
+    mut done: impl FnMut(&mut VisualTestContext) -> bool,
+) {
     for _ in 0..800 {
         vcx.run_until_parked();
         if done(vcx) {

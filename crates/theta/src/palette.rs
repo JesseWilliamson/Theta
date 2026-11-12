@@ -36,6 +36,7 @@ fn commands() -> Vec<Command> {
         cmd!("Go to Table…", "Connection", IconName::Table, OpenTablePicker),
         cmd!("Run Statement", "Query", IconName::Play, RunStatement),
         cmd!("Run All", "Query", IconName::ListVideo, RunAll),
+        cmd!("Run on Several Connections…", "Query", IconName::ListVideo, RunOnSeveral),
         cmd!("Cancel Query", "Query", IconName::Square, CancelQuery),
         cmd!("Explain", "Query", IconName::Network, Explain),
         cmd!("Explain Analyze", "Query", IconName::Activity, ExplainAnalyze),

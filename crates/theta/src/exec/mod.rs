@@ -11,5 +11,6 @@ pub mod history;
 pub mod intel;
 pub mod keyref;
 pub mod local_history;
+pub mod multi;
 pub mod params;
 pub mod pick;

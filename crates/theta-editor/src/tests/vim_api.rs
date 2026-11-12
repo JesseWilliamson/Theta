@@ -270,7 +270,7 @@ fn leader_menu_hints_mirror_the_helix_space_menu() {
     assert_eq!(title, "Space");
     for key in [
         "f", "b", "? space", "r", "R", "e", "E", "k", "t", "y", "p", "c", "x", "g", "d", "T", "j", "a", "n",
-        "D", "s", "h", "C", "v", "V",
+        "D", "s", "h", "m", "C", "v", "V",
     ] {
         assert!(hints.iter().any(|h| h.key == key), "missing {key}");
     }
@@ -300,6 +300,7 @@ fn leader_actions() {
         ("<space>j", Effect::ToggleBottomPanel),
         ("<space>s", Effect::HostCommand("search".into())),
         ("<space>h", Effect::HostCommand("lhistory".into())),
+        ("<space>m", Effect::HostCommand("multirun".into())),
         ("<space>C", Effect::HostCommand("chart".into())),
         ("<space>v", Effect::HostCommand("cell".into())),
         ("<space>V", Effect::HostCommand("cell copy".into())),
@@ -503,6 +504,7 @@ fn host_commands_match_the_helix_table() {
         (":search", vec![Effect::HostCommand("search".into())]),
         (":chart", vec![Effect::HostCommand("chart".into())]),
         (":lhistory", vec![Effect::HostCommand("lhistory".into())]),
+        (":multirun", vec![Effect::HostCommand("multirun".into())]),
         (":localhistory", vec![Effect::HostCommand("localhistory".into())]),
         (":new", vec![Effect::NewTab]),
         (":cancel", vec![Effect::CancelQuery]),

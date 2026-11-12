@@ -652,6 +652,19 @@ and `copy_cell_value` for the palette actions, the global chords and the `:cell`
 space menus use the new `FxKind::Host`, a generic "send this `:` command to the application", so a menu entry for
 an application feature needs no engine change beyond one line in each menu.
 
+#### Multi-source run
+
+`workspace/multi_run.rs` reuses the two functions a console run is made of, `begin_transaction_if_needed` (the
+lazy `BEGIN` of manual transaction mode) and `exec_statement`, so a connection behaves in a multi-run exactly as it
+does in its own console, and adds what is specific: the pre-checks that turn a connection into a `Skipped`
+(`NotConnected`, `Busy` because `runs` already holds it, `ReadOnly` from `pick::read_only_refusal` with the class
+recomputed for *that* connection's dialect), a `RunInfo` with the bulk marker per connection so consoles stay off
+it, and one `runtime::spawn` per connection so they run concurrently while the UI thread awaits. `run_one` stops at
+the first error of a connection and says how many statements ran. The pure half is `exec/multi.rs`
+(`ConnOutcome`, `summary` which builds the Summary `ResultSet`, `tab_title`, `status`, `headline`), tested without a
+window; `workspace/multi_run_tests.rs` runs the real path against in-memory SQLite connections, one failing, one
+read-only.
+
 #### Local history
 
 `exec/local_history.rs` is the store and its whole policy (identical text skipped, edit snapshots coalesced for

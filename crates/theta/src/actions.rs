@@ -25,6 +25,7 @@ actions!(
         ToggleCellViewer,
         ShowChart,
         ShowLocalHistory,
+        RunOnSeveral,
         CopyCellValue,
         // Command surfaces
         OpenCommandPalette,

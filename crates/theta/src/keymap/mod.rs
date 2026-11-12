@@ -150,6 +150,7 @@ pub fn global_bindings() -> Vec<KeyBinding> {
         kb("mod-alt-f", SearchTables, None),
         kb("mod-shift-g", ShowChart, None),
         kb("mod-alt-h", ShowLocalHistory, None),
+        kb("mod-alt-enter", RunOnSeveral, None),
         // F5 is "run all" in the editor; the explorer (and a chord everywhere) refreshes.
         kb("f5", RefreshSchema, Some("Explorer")),
         kb("mod-alt-r", RefreshSchema, None),

@@ -44,6 +44,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-alt-f` | Search Across Tables (also from the explorer's context menu) |
 | `mod-shift-g` | show the Chart tab for the active result (and focus it) |
 | `mod-alt-h` | Local History of the active console |
+| `mod-alt-enter` | Run on Several Connections (the current statement or the script on every connection you tick) |
 | `F5` | refresh schema, only while the explorer has focus (in the editor `F5` is *run all*) |
 | `mod-alt-r` | refresh schema, from anywhere |
 | `mod-k mod-t` | select theme (a two-chord sequence) |
@@ -497,6 +498,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `space s` | search across tables (`:grep`, `:search`) |
 | `space C` | chart of the result (`:chart`) |
 | `space h` | local history of the console (`:lhistory`, `:localhistory`) |
+| `space m` | run on several connections (`:multirun`) |
 | `space v` `space V` | cell viewer / copy cell value (`:cell`, `:cell copy`) |
 
 #### Command line (`:`)
@@ -525,6 +527,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `:grep` `:search` | Search Across Tables on the active connection |
 | `:chart` | show the Chart tab for the active result |
 | `:lhistory` `:localhistory` | Local History of the console |
+| `:multirun` | Run on Several Connections |
 
 `tab` completes command names (repeat to cycle). An unknown command shows "Unknown command".
 
@@ -702,6 +705,7 @@ work. `n` / `N` keep the direction; `*` `#` search the word under the cursor.
 | `space s` | search across tables (`HostCommand("search")`) |
 | `space C` | chart of the result (`HostCommand("chart")`) |
 | `space h` | local history of the console (`HostCommand("lhistory")`) |
+| `space m` | run on several connections (`HostCommand("multirun")`) |
 | `space v` `space V` | cell viewer / copy cell value (`HostCommand("cell")`, `"cell copy"`) |
 
 #### Command line (`:`)
