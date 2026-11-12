@@ -37,6 +37,7 @@ fn commands() -> Vec<Command> {
         cmd!("Run Statement", "Query", IconName::Play, RunStatement),
         cmd!("Run All", "Query", IconName::ListVideo, RunAll),
         cmd!("Run on Several Connections…", "Query", IconName::ListVideo, RunOnSeveral),
+        cmd!("ER Diagram…", "Data", IconName::Network, ShowDiagram),
         cmd!("Cancel Query", "Query", IconName::Square, CancelQuery),
         cmd!("Explain", "Query", IconName::Network, Explain),
         cmd!("Explain Analyze", "Query", IconName::Activity, ExplainAnalyze),
@@ -518,5 +519,40 @@ impl PickerDelegate for FolderPicker {
         let folder = (!item.id.is_empty()).then(|| item.id.to_string());
         let conn = self.connection_id.clone();
         self.store.update(cx, |s, cx| s.move_to_folder(&conn, folder.as_deref(), cx));
+    }
+}
+
+/// A picker over a fixed list of choices that calls back with the chosen item's id. For the small "which
+/// schema or table" questions that several commands ask, so each does not need its own delegate.
+type OnPick = std::rc::Rc<dyn Fn(String, &mut Window, &mut App)>;
+
+pub struct ChoicePicker {
+    placeholder: SharedString,
+    items: Vec<PickerItem>,
+    on_pick: OnPick,
+}
+
+impl ChoicePicker {
+    pub fn new(
+        placeholder: impl Into<SharedString>,
+        items: Vec<PickerItem>,
+        on_pick: impl Fn(String, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        Self { placeholder: placeholder.into(), items, on_pick: std::rc::Rc::new(on_pick) }
+    }
+}
+
+impl PickerDelegate for ChoicePicker {
+    fn placeholder(&self) -> SharedString {
+        self.placeholder.clone()
+    }
+    fn items(&mut self, _cx: &mut App) -> Vec<PickerItem> {
+        self.items.clone()
+    }
+    fn confirm(&mut self, item: &PickerItem, window: &mut Window, cx: &mut App) {
+        // The picker is still on screen while it confirms; acting after it closes keeps focus where the
+        // action puts it.
+        let (id, f) = (item.id.to_string(), self.on_pick.clone());
+        window.defer(cx, move |window, cx| f(id, window, cx));
     }
 }

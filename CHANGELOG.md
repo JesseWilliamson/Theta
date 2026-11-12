@@ -8,6 +8,16 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Added
 
+- **ER diagram** (`mod-alt-g`, `space G`, `:diagram [schema | table]`, explorer menu on a schema and on a table,
+  palette): a tab that draws a schema, or one table and the tables it references or that reference it, as boxes
+  with columns, types and PK / FK markers and foreign keys as orthogonal edges that end at the right columns
+  (a composite key ends at a bracket spanning its columns; a nullable key is dashed). The layout is the new pure
+  crate `theta-diagram`: layered, deterministic, with cycle breaking, self-references, slots that keep long
+  edges clear of other tables and a measured 100+ tables in well under a second. Pan with drag, scroll or
+  `hjkl` / arrows, zoom with `+` `-` `0` and ctrl-scroll, `f` fits, `tab` / `shift-tab` select, `/` jumps by
+  fuzzy name, `enter` opens the table's rows, the selection's edges and neighbours are highlighted. `s` writes an
+  SVG (own serializer, no dependency), `m` copies Mermaid `erDiagram` text. There is no PNG export (GPUI can
+  capture an image only in its test builds).
 - **Run on Several Connections** (`mod-alt-enter`, `space m`, `:multirun`): run the current statement or script on
   each chosen connection concurrently. Each keeps its read-only setting and its transaction mode; a failure,
   refusal or busy connection is reported for that connection only. The result is a Summary tab (statements, rows,

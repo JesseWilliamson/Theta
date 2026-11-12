@@ -58,6 +58,12 @@ pub enum ExplorerEvent {
         schema: Option<String>,
         table: Option<String>,
     },
+    /// An ER diagram of a schema, or of a table and its neighbours.
+    ShowDiagram {
+        connection_id: String,
+        schema: String,
+        table: Option<String>,
+    },
     /// Open a new console, optionally pre-filled (generated SQL, DDL).
     NewConsole {
         connection_id: String,
@@ -781,6 +787,16 @@ impl Explorer {
                         })
                     }
                 }))
+                .item(item(&explorer, "ER Diagram…", IconName::Network, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::ShowDiagram {
+                            connection_id: c.clone(),
+                            schema: s.clone(),
+                            table: Some(t.clone()),
+                        })
+                    }
+                }))
                 .item(item(&explorer, "Related Tables…", IconName::Link, {
                     let (c, s, t) = (c.clone(), s.clone(), t.clone());
                     move |_, cx| {
@@ -994,18 +1010,23 @@ impl Explorer {
                 menu.item(item(&explorer, "Copy Name", IconName::Copy, move |this, cx| {
                     this.copy(copy.clone(), cx)
                 }))
-                .item(item(
-                    &explorer,
-                    "Search in Schema…",
-                    IconName::Search,
+                .item(item(&explorer, "Search in Schema…", IconName::Search, {
+                    let (c, schema) = (c.clone(), schema.clone());
                     move |_, cx| {
                         cx.emit(ExplorerEvent::SearchTables {
                             connection_id: c.clone(),
                             schema: Some(schema.clone()),
                             table: None,
                         });
-                    },
-                ))
+                    }
+                }))
+                .item(item(&explorer, "ER Diagram…", IconName::Network, move |_, cx| {
+                    cx.emit(ExplorerEvent::ShowDiagram {
+                        connection_id: c.clone(),
+                        schema: schema.clone(),
+                        table: None,
+                    });
+                }))
             }
             NodeKey::Sequence(_, _, name) | NodeKey::Routine(_, _, name) => {
                 menu.item(item(&explorer, "Copy Name", IconName::Copy, move |this, cx| {

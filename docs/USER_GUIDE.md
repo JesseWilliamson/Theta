@@ -658,6 +658,37 @@ console's own session, one table after another, and the connection is busy meanw
 ASCII letters only. A manual transaction that is open in a console is not visible to the search, which uses its
 own sessions.
 
+## Entity-relationship diagrams
+
+*ER Diagram…* draws the tables of a schema and the foreign keys between them. Open it from the command palette
+(it asks for a schema, or for a table and its neighbours), `mod-alt-g`, `space G` (Helix and Vim),
+`:diagram [SCHEMA | TABLE]`, or the explorer's context menu on a schema or a table. A table diagram shows that table
+plus every table it references and every table that references it, with the table selected.
+
+- **Boxes** list each column with its type; `PK` marks primary-key columns and `FK` foreign-key columns. A table
+  with more than 30 columns shows its key columns and enough others to make 30 and says "+N more columns"; every
+  column an edge touches is always shown. Views are not drawn: the catalog has no foreign keys for them.
+- **Edges** run from the referencing column to the referenced one. The referencing table ("many") ends in a crow's
+  foot, the referenced one in a bar; a key whose columns are themselves unique has a bar at both ends. A key that
+  allows NULL is **dashed**. A composite key ends at a bracket that spans its columns. A self-reference loops out of
+  the right side of its table. Foreign keys to tables that are not in the diagram (another schema, in a schema
+  diagram) are not drawn, and the status line counts them.
+- **Layout** puts referenced tables to the left of the tables that reference them, orders each column of tables to
+  cut crossings, and routes edges at right angles through gaps that no table occupies. Tables with no foreign
+  keys are packed in rows at the bottom. The same schema always gives the same picture.
+- **Moving around**: drag, scroll or `hjkl` to pan, `+` / `-` / ctrl-scroll to zoom, `f` to fit. `tab` and
+  `shift-tab` select tables, `/` jumps to one by fuzzy name, `enter` opens its rows. The selected table's edges are
+  drawn in the accent colour and its neighbours get an accent border; the rest dims. Below 42% zoom the tables are
+  plain blocks (their text would be unreadable) and the selected table's name floats above it.
+- **Export**: `s` saves an SVG that carries the current theme's colours (the file is written by Theta's own
+  serializer and uses only rectangles, lines and text). `m` copies Mermaid `erDiagram` text for pasting into a README or
+  an issue; Mermaid has no composite-key or dash notation, so a nullable key becomes a "zero or one" parent and a
+  composite key is one relationship labelled with the constraint's name. There is no PNG export: GPUI can render an
+  image only in its test builds.
+
+The diagram reads the catalog Theta already loaded; `r` rebuilds it after a schema refresh. The keys are in
+[KEYBINDINGS.md](KEYBINDINGS.md#er-diagram-tab).
+
 ## Edit data safely
 
 A result is editable only when every column comes from one table of the loaded schema, that table is a

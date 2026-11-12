@@ -745,6 +745,35 @@ Three layers, so that the dialect logic and the concurrency are each testable wi
   Workers push results into a mutex; a 100 ms tick copies them into the view (the same pattern as the dump).
   `Feature::TableSearch` in `theta-core` disables SQL Server and ClickHouse with the reason.
 
+#### ER diagram
+
+`theta-diagram` is a pure crate (it depends on `theta-core` only): `model.rs` builds the `Graph` from a catalog (a
+scope is a schema or a table plus its neighbours; nodes are sorted so catalog order cannot change the picture),
+`layout.rs` is the layout, `svg.rs` and `mermaid.rs` are the two exporters. The application's `er/` module owns the
+viewport (`camera.rs`), the key table (`keys.rs`) and the painting (`paint.rs`), and `workspace/tool_tabs.rs` hosts
+the tab (`ConsoleTab::tool`, shared with the comparison tabs).
+
+*Why this layout.* A schema is a directed graph whose edges mean "refers to", which suggests layers: referenced
+tables on the left, referrers to their right, so a foreign key reads left to right and a deep chain stays a
+chain. Force-directed layouts need random starts, so the same schema would draw differently twice, and they route
+edges as straight lines through boxes; the layered (Sugiyama) layout is deterministic by construction, every tie is
+broken by the node index, and its steps are separate functions with their own tests. The steps, in the order the
+module documentation lists them: components laid out separately and shelf-packed, Eades-Lin-Smyth cycle breaking
+(foreign-key cycles are real: `employee.manager_id`, `a <-> b`), longest-path layering with the pull-right of tables
+that only others reference, a virtual node per layer an edge crosses, barycenter sweeps plus adjacent swaps keeping
+the best order seen, vertical placement as isotonic regression (pool adjacent violators) so a foreign key is a
+straight line whenever its neighbours allow it, and channel tracks by greedy interval colouring. Orthogonal routing
+is what makes "does not run through a box" provable: horizontal parts only exist at a port row or in a virtual
+node's slot, vertical parts only in a channel, and the tests check every segment of every edge against every box
+(`check` in `tests.rs`, on random graphs with cycles and self-references, 150 and 400 tables).
+
+Text widths come from `Metrics::char_w`, measured from the monospace font at start-up, because the crate has no
+fonts. A composite key attaches at the middle of a bracket spanning its columns (one edge, not one per column), which
+keeps the picture readable and still ends "at the right columns". Mermaid text is not a picture of the layout; it is
+the same graph in Mermaid's grammar, with names and types made safe where that grammar is narrower than SQL's.
+Tab is bound to focus traversal by gpui-kit's `Root`, so the diagram claims it in its own key context
+(`er::bind_keys`), as the table editor does.
+
 ## Status
 
 0.1.0-alpha.8 is the eighth pre-release (0.1.0-alpha.1 to -alpha.7 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense

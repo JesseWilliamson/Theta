@@ -11,6 +11,7 @@ pub mod cli;
 pub mod connections;
 pub mod demo;
 pub mod dialogs;
+pub mod er;
 pub mod exec;
 pub mod explorer;
 pub mod keymap;

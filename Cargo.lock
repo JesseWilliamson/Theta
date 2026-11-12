@@ -8955,6 +8955,7 @@ dependencies = [
  "tempfile",
  "theta-chart",
  "theta-core",
+ "theta-diagram",
  "theta-drivers",
  "theta-editor",
  "theta-editor-view",

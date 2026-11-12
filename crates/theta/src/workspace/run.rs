@@ -99,6 +99,7 @@ impl Workspace {
             initial_sql: None,
             table: None,
             admin: None,
+            tool: None,
         });
         if let Some(c) = &connection_id {
             self.active_connection = Some(c.clone());
@@ -348,6 +349,8 @@ impl Workspace {
         } else if let Some(e) = self.table_editor(id) {
             let handle = e.read(cx).focus_handle_ref();
             window.focus(&handle, cx);
+        } else if let Some(t) = self.tool_tab(id) {
+            t.focus(window, cx);
         }
         self.save_all_consoles(cx);
     }
@@ -438,7 +441,10 @@ impl Workspace {
     /// (restored consoles included), else the workspace itself.
     pub fn focus_default(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.active_tab.is_some_and(|id| {
-            self.consoles.contains_key(&id) || self.is_table_tab(id) || self.admin_tab(id).is_some()
+            self.consoles.contains_key(&id)
+                || self.is_table_tab(id)
+                || self.admin_tab(id).is_some()
+                || self.tool_tab(id).is_some()
         }) {
             self.focus_editor(window, cx);
         } else {
@@ -459,6 +465,8 @@ impl Workspace {
                 super::AdminTab::Sessions(v) => v.update(cx, |v, cx| v.focus_list(window, cx)),
                 super::AdminTab::Roles(v) => v.update(cx, |v, cx| v.focus_list(window, cx)),
             }
+        } else if let Some(t) = self.active_tab.and_then(|id| self.tool_tab(id)) {
+            t.focus(window, cx);
         }
     }
 
@@ -550,6 +558,7 @@ impl Workspace {
                 }
             }
             "chart" => self.show_chart(window, cx),
+            "diagram" | "er" | "erd" => self.diagram_from_palette(arg, window, cx),
             "lhistory" | "localhistory" | "lh" => self.open_local_history(window, cx),
             "multirun" | "multi" => self.open_multi_run(window, cx),
             "grep" | "search" => self.search_from_palette(window, cx),
@@ -1678,7 +1687,7 @@ impl Workspace {
         }
     }
 
-    fn save_text_file(
+    pub(super) fn save_text_file(
         &mut self,
         suggested: String,
         text: String,

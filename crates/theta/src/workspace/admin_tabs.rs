@@ -98,6 +98,7 @@ impl Workspace {
             initial_sql: None,
             table: None,
             admin: Some(tab.clone()),
+            tool: None,
         });
         self.console_views.insert(id, view);
         self.active_connection = Some(conn_id);

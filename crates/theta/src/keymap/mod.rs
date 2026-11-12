@@ -148,6 +148,7 @@ pub fn global_bindings() -> Vec<KeyBinding> {
         kb("mod-shift-v", ToggleCellViewer, None),
         kb("mod-shift-y", CopyCellValue, None),
         kb("mod-alt-f", SearchTables, None),
+        kb("mod-alt-g", ShowDiagram, None),
         kb("mod-shift-g", ShowChart, None),
         kb("mod-alt-h", ShowLocalHistory, None),
         kb("mod-alt-enter", RunOnSeveral, None),
@@ -204,6 +205,7 @@ pub fn bindings() -> Vec<KeyBinding> {
 pub fn bind(cx: &mut App) {
     cx.bind_keys(bindings());
     crate::table_editor::bind_keys(cx);
+    crate::er::bind_keys(cx);
 }
 
 /// macOS application menu (a no-op on platforms without a global menu bar).

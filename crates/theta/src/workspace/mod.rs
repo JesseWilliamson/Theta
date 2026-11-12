@@ -30,6 +30,7 @@ mod table_tabs;
 mod tabs;
 mod templates;
 mod title_bar;
+mod tool_tabs;
 mod txn;
 mod welcome;
 
@@ -39,6 +40,8 @@ mod admin_tests;
 mod code_intel_tests;
 #[cfg(test)]
 mod ddl_refresh_tests;
+#[cfg(test)]
+mod er_tests;
 #[cfg(test)]
 mod isolation_tests;
 #[cfg(test)]
@@ -128,6 +131,14 @@ pub struct ConsoleTab {
     pub table: Option<Entity<crate::table_editor::TableEditor>>,
     /// Set for a Sessions or Roles tab (`admin_tabs.rs`).
     pub admin: Option<AdminTab>,
+    /// Set for a diagram or comparison tab (`tool_tabs.rs`).
+    pub tool: Option<ToolTab>,
+}
+
+/// The view that fills a diagram or comparison tab.
+#[derive(Clone)]
+pub enum ToolTab {
+    Diagram(Entity<crate::er::DiagramView>),
 }
 
 /// The view that fills an administration tab.
@@ -672,6 +683,13 @@ impl Workspace {
                 self.open_table(connection_id, schema, table, window, cx)
             }
             ExplorerEvent::ReturnFocus => self.focus_editor(window, cx),
+            ExplorerEvent::ShowDiagram { connection_id, schema, table } => {
+                let scope = match table {
+                    Some(table) => theta_diagram::Scope::Table { schema, table },
+                    None => theta_diagram::Scope::Schema(schema),
+                };
+                self.open_diagram(connection_id, scope, window, cx);
+            }
             ExplorerEvent::ImportData { connection_id, schema, table } => self.open_import_dialog(
                 dialogs::import::Request {
                     conn_id: connection_id,
@@ -1093,8 +1111,9 @@ impl Render for Workspace {
         let console = self.render_console_area(window, cx);
         // A table editor has its own preview and log line; the results panel would only take its room.
         // Sessions and Roles tabs have their own detail pane and report in Messages.
-        let on_table =
-            self.active_tab.is_some_and(|id| self.is_table_tab(id) || self.admin_tab(id).is_some());
+        let on_table = self.active_tab.is_some_and(|id| {
+            self.is_table_tab(id) || self.admin_tab(id).is_some() || self.tool_tab(id).is_some()
+        });
         let bottom = (bottom_open && !on_table).then(|| self.render_bottom_panel(window, cx));
         let status = self.render_status_bar(window, cx);
 
@@ -1223,6 +1242,9 @@ impl Render for Workspace {
             )
             .on_action(cx.listener(|this, _: &RunOnSeveral, window, cx| this.open_multi_run(window, cx)))
             .on_action(cx.listener(|this, _: &SearchTables, window, cx| this.search_from_palette(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &ShowDiagram, window, cx| this.diagram_from_palette("", window, cx)),
+            )
             .on_action(cx.listener(|this, _: &SelectKeymap, window, cx| this.open_keymap_picker(window, cx)))
             .on_action(cx.listener(|this, _: &UseHelixKeymap, window, cx| {
                 this.set_keymap(theta_ui::KeymapMode::Helix, window, cx)

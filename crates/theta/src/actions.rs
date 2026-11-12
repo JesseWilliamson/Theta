@@ -76,6 +76,7 @@ actions!(
         OpenRoles,
         ExportDatabase,
         SearchTables,
+        ShowDiagram,
         RunSqlScript,
         OpenSettings,
         WelcomeDemo,

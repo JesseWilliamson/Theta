@@ -43,6 +43,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-shift-y` | copy the whole value of the focused result cell |
 | `mod-alt-f` | Search Across Tables (also from the explorer's context menu) |
 | `mod-shift-g` | show the Chart tab for the active result (and focus it) |
+| `mod-alt-g` | ER diagram (asks for a schema or a table; also from the explorer's context menu) |
 | `mod-alt-h` | Local History of the active console |
 | `mod-alt-enter` | Run on Several Connections (the current statement or the script on every connection you tick). In the dialog: `up`/`down` or `j`/`k` move, `space` ticks, `a` ticks all or none, `enter` runs |
 | `F5` | refresh schema, only while the explorer has focus (in the editor `F5` is *run all*) |
@@ -170,6 +171,25 @@ the Copy Table dialog: `enter` in the name box starts the copy, `esc` cancels a 
 | `up` / `down`, `k` / `j` | previous / next snapshot |
 | `enter` | restore the chosen snapshot (one undoable edit) |
 | `esc` | close |
+
+## ER diagram tab
+
+Opened with *ER Diagram…* (palette), `mod-alt-g`, `space G` (Helix, Vim), `:diagram [SCHEMA | TABLE]` or the explorer's
+context menu on a schema or a table. The tab has focus when it opens; the keys are plain keys of the focused
+diagram, the same in the three key maps. A status line at the bottom edge turns blue while the diagram has focus.
+
+| Keys | Action |
+| --- | --- |
+| `h` `j` `k` `l`, arrows | pan (hold `shift` for four times the step); dragging pans too, and so does the scroll wheel |
+| `+` `=` / `-` | zoom in / out around the middle (ctrl-scroll zooms around the pointer) |
+| `0` / `f` | back to 100% / fit the whole diagram in the window |
+| `tab` / `shift-tab` | select the next / previous table, left to right then top to bottom; the view follows |
+| `/` | jump to a table by fuzzy name: type, `up` / `down` or `tab` choose, `enter` selects, `esc` closes |
+| `enter` | open the selected table's rows in a console (double-click does the same) |
+| `esc` | close the jump box, else clear the selection |
+| `s` | save the diagram as an SVG file |
+| `m` | copy the diagram as Mermaid `erDiagram` text |
+| `r` | rebuild from the loaded schema (after a refresh or a DDL change) |
 
 ## Chart tab
 
@@ -497,6 +517,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `space a` `space n` `space D` | quick fixes / rename / Problems tab |
 | `space s` | search across tables (`:grep`, `:search`) |
 | `space C` | chart of the result (`:chart`) |
+| `space G` | ER diagram of a schema or table (`:diagram [schema | table]`, `:er`) |
 | `space h` | local history of the console (`:lhistory`, `:localhistory`) |
 | `space m` | run on several connections (`:multirun`) |
 | `space v` `space V` | cell viewer / copy cell value (`:cell`, `:cell copy`) |
@@ -526,6 +547,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `:cell` `:cell copy` | toggle the cell viewer / copy the value of the focused result cell |
 | `:grep` `:search` | Search Across Tables on the active connection |
 | `:chart` | show the Chart tab for the active result |
+| `:diagram [SCHEMA \| TABLE]` `:er` | ER diagram of a schema, or of a table and its neighbours (a picker without an argument) |
 | `:lhistory` `:localhistory` | Local History of the console |
 | `:multirun` | Run on Several Connections |
 
@@ -704,6 +726,7 @@ work. `n` / `N` keep the direction; `*` `#` search the word under the cursor.
 | `space a` `space n` `space D` | code actions / rename / Problems tab |
 | `space s` | search across tables (`HostCommand("search")`) |
 | `space C` | chart of the result (`HostCommand("chart")`) |
+| `space G` | ER diagram (`HostCommand("diagram")`) |
 | `space h` | local history of the console (`HostCommand("lhistory")`) |
 | `space m` | run on several connections (`HostCommand("multirun")`) |
 | `space v` `space V` | cell viewer / copy cell value (`HostCommand("cell")`, `"cell copy"`) |
