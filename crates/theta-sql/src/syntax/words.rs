@@ -246,8 +246,6 @@ pub fn is_ambiguous_loose(w: &str) -> bool {
         "SCALAR",
         "ARRAY",
         "ABSENT",
-        "NO",
-        "OTHERS",
         "UNIQUE",
         "FORMAT",
         "ENCODING",
@@ -259,13 +257,9 @@ pub fn is_ambiguous_loose(w: &str) -> bool {
         "BOOLEAN",
         "EXPANSION",
         "MATCHED",
-        "ROW",
-        "CURRENT",
         "GROUP",
         "PARTITION",
         "PASSING",
-        "TIES",
-        "EXCLUDE",
     ];
     contains_ci(AMBIGUOUS, w)
 }

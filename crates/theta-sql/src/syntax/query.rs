@@ -1226,6 +1226,17 @@ impl Parser<'_> {
 
     pub(super) fn table_factor(&mut self) -> bool {
         let Some(t) = self.peek() else { return false };
+        if self.kw(0, "ROWS") && self.kw(1, "FROM") && self.punct(2, "(") {
+            // PostgreSQL `ROWS FROM (f(), g()) AS t(a, b)`
+            let m = self.mark();
+            self.bump();
+            self.bump();
+            self.arg_list_for("");
+            self.wrap(m, Kind::FuncCall);
+            self.alias();
+            self.wrap(m, Kind::TableFunc);
+            return true;
+        }
         match t.kind {
             TokenKind::Punct if self.text(&t) == "(" => {
                 if self.paren_starts_query(0) {
@@ -1304,7 +1315,8 @@ impl Parser<'_> {
         let m = self.mark();
         self.table_name();
         if self.punct(0, "(") {
-            self.arg_list_for("");
+            let fname = self.last_name_text();
+            self.arg_list_for(&fname);
             self.wrap(m, Kind::FuncCall);
             if self.kw(0, "WITH") && self.kw(1, "ORDINALITY") {
                 self.bump();

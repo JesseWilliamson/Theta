@@ -101,6 +101,26 @@ struct Tally {
     false_errors: Vec<String>,
     false_resolution: Vec<String>,
     missed: Vec<String>,
+    /// Statements the engine rejected for an unknown / ambiguous name, and how many of them the resolver flagged.
+    name_errors: usize,
+    name_flagged: usize,
+    name_missed: Vec<String>,
+}
+
+/// Does the engine's complaint say "no such table / column" or "ambiguous column"?
+fn is_name_error(msg: &str) -> bool {
+    let l = msg.to_ascii_lowercase();
+    (l.contains("does not exist") && (l.contains("relation") || l.contains("column") || l.contains("table")))
+        || l.contains("unknown column")
+        || l.contains("unknown table")
+        || l.contains("doesn't exist")
+        || l.contains("no such table")
+        || l.contains("no such column")
+        || l.contains("ambiguous")
+        || l.contains("catalog error: table")
+        || l.contains("binder error: referenced column")
+        || l.contains("binder error: referenced table")
+        || l.contains("table with name")
 }
 
 fn judge_all(
@@ -109,6 +129,7 @@ fn judge_all(
     catalog: Option<&Catalog>,
     items: Vec<(String, Verdict)>,
     assume_valid: bool,
+    ddl_is_checked: bool,
 ) -> Tally {
     let mut t = Tally::default();
     for (sql, verdict) in items {
@@ -137,10 +158,31 @@ fn judge_all(
             }
             Verdict::Skipped => {}
         }
-        if let (Verdict::Valid, Some(cat)) = (&verdict, catalog) {
+        // MariaDB's PREPARE and DuckDB's prepare accept DDL without looking at the objects it names, so for
+        // them "valid" says nothing about names in DDL.
+        let resolvable = ddl_is_checked
+            || matches!(
+                first_word(&sql).as_str(),
+                "SELECT" | "WITH" | "INSERT" | "UPDATE" | "DELETE" | "VALUES" | "MERGE" | "TABLE" | "FROM"
+            );
+        if let (Verdict::Valid, Some(cat)) = (&verdict, catalog)
+            && resolvable
+        {
             let diags = theta_sql::analysis::name_diagnostics(&sql, kind, cat);
             if !diags.is_empty() {
                 t.false_resolution.push(format!("{sql}\n      -> {diags:?}"));
+            }
+        }
+        if let (Verdict::Semantic(msg), Some(cat)) = (&verdict, catalog)
+            && is_name_error(msg)
+            && theta_sql::split_statements(&sql, kind).len() == 1
+            && errs.is_empty()
+        {
+            t.name_errors += 1;
+            if theta_sql::analysis::name_diagnostics(&sql, kind, cat).is_empty() {
+                t.name_missed.push(format!("{sql}\n      engine: {}", msg.lines().next().unwrap_or("")));
+            } else {
+                t.name_flagged += 1;
             }
         }
     }
@@ -159,6 +201,12 @@ fn judge_all(
         t.valid
     );
     eprintln!(
+        "    (c) engine-confirmed unknown / ambiguous names the resolver also flags: {} of {} ({:.0}%)",
+        t.name_flagged,
+        t.name_errors,
+        if t.name_errors == 0 { 0.0 } else { 100.0 * t.name_flagged as f64 / t.name_errors as f64 }
+    );
+    eprintln!(
         "    (b) syntax errors the parser also flags: {} of {} ({:.0}%)",
         t.flagged,
         t.syntax,
@@ -172,9 +220,16 @@ fn assert_clean(t: &Tally) {
         for m in &t.missed {
             eprintln!("    missed: {m}");
         }
+        for m in &t.name_missed {
+            eprintln!("    name-missed: {m}");
+        }
     }
     assert!(t.false_errors.is_empty(), "false syntax errors:\n  {}", t.false_errors.join("\n  "));
-    assert!(t.false_resolution.is_empty(), "false resolution diagnostics:\n  {}", t.false_resolution.join("\n  "));
+    assert!(
+        t.false_resolution.is_empty(),
+        "false resolution diagnostics:\n  {}",
+        t.false_resolution.join("\n  ")
+    );
 }
 
 fn corpus_for(files: &[&str], kind: DatabaseKind) -> Vec<String> {
@@ -215,8 +270,10 @@ async fn pg_verdicts(conn: &dyn Connection, corpus: &[String]) -> Vec<(String, V
         {
             Verdict::Skipped
         } else {
-            let preparable = matches!(fw.as_str(), "SELECT" | "WITH" | "VALUES" | "INSERT" | "UPDATE" | "DELETE" | "MERGE")
-                || s.starts_with('(');
+            let preparable = matches!(
+                fw.as_str(),
+                "SELECT" | "WITH" | "VALUES" | "INSERT" | "UPDATE" | "DELETE" | "MERGE"
+            ) || s.starts_with('(');
             let (res, cleanup) = if preparable {
                 (conn.execute(&format!("PREPARE tdiff AS {s}"), &o).await, Some("DEALLOCATE tdiff"))
             } else if fw == "TABLE" {
@@ -232,7 +289,9 @@ async fn pg_verdicts(conn: &dyn Connection, corpus: &[String]) -> Vec<(String, V
             }
             match res {
                 Ok(_) => Verdict::Valid,
-                Err(Error::Query { code: Some(c), message, .. }) if pg_syntax_code(&c) => Verdict::Syntax(message),
+                Err(Error::Query { code: Some(c), message, .. }) if pg_syntax_code(&c) => {
+                    Verdict::Syntax(message)
+                }
                 Err(Error::Query { message, .. }) => Verdict::Semantic(message),
                 Err(e) => panic!("PostgreSQL connection problem on `{s}`: {e:?}"),
             }
@@ -251,7 +310,7 @@ async fn postgres() {
     let catalog = conn.introspect().await.expect("introspect");
     let corpus = corpus_for(&["common.sql", "pg.sql", "broken.sql", "extracted.sql"], DatabaseKind::Postgres);
     let v = pg_verdicts(conn.as_ref(), &corpus).await;
-    let t = judge_all("PostgreSQL 16", DatabaseKind::Postgres, Some(&catalog), v, false);
+    let t = judge_all("PostgreSQL 16", DatabaseKind::Postgres, Some(&catalog), v, false, true);
     assert_clean(&t);
 }
 
@@ -267,7 +326,11 @@ async fn mysql_verdicts(conn: &dyn Connection, corpus: &[String]) -> Vec<(String
     for sql in corpus {
         let s = strip_semicolon(sql);
         let low = s.to_ascii_lowercase();
-        let verdict = if low.starts_with("prepare ") || low.starts_with("execute ") || low.starts_with("deallocate") || low.starts_with("drop prepare") {
+        let verdict = if low.starts_with("prepare ")
+            || low.starts_with("execute ")
+            || low.starts_with("deallocate")
+            || low.starts_with("drop prepare")
+        {
             // PREPARE cannot be prepared; its own syntax is checked by running the text as is, harmlessly.
             Verdict::Skipped
         } else {
@@ -277,9 +340,13 @@ async fn mysql_verdicts(conn: &dyn Connection, corpus: &[String]) -> Vec<(String
                     let _ = conn.execute("DEALLOCATE PREPARE tdiff", &o).await;
                     Verdict::Valid
                 }
-                Err(Error::Query { code: Some(c), message, .. }) if mysql_syntax_code(&c) => Verdict::Syntax(message),
+                Err(Error::Query { code: Some(c), message, .. }) if mysql_syntax_code(&c) => {
+                    Verdict::Syntax(message)
+                }
                 // 1295: the command parsed but is not preparable (USE, SHOW ..., LOCK ...).
-                Err(Error::Query { code: Some(c), .. }) if c == "1295" => Verdict::Semantic("not preparable".into()),
+                Err(Error::Query { code: Some(c), .. }) if c == "1295" => {
+                    Verdict::Semantic("not preparable".into())
+                }
                 Err(Error::Query { message, .. }) => Verdict::Semantic(message),
                 Err(e) => panic!("MariaDB connection problem on `{s}`: {e:?}"),
             }
@@ -299,7 +366,7 @@ async fn mariadb() {
     let corpus = corpus_for(&["common.sql", "mysql.sql", "broken.sql", "extracted.sql"], DatabaseKind::MySql);
     let v = mysql_verdicts(conn.as_ref(), &corpus).await;
     // `1295` statements are "semantic" for the syntax assertion but not for resolution (only Valid counts there).
-    let t = judge_all("MariaDB 10.11", DatabaseKind::MySql, Some(&catalog), v, false);
+    let t = judge_all("MariaDB 10.11", DatabaseKind::MySql, Some(&catalog), v, false, false);
     assert_clean(&t);
 }
 
@@ -342,10 +409,10 @@ async fn sqlite() {
         run(conn.as_ref(), &stmt).await;
     }
     let catalog = conn.introspect().await.unwrap();
-    let corpus = corpus_for(&["common.sql", "sqlite.sql", "broken.sql", "extracted.sql"], DatabaseKind::Sqlite);
-    let v: Vec<_> =
-        corpus.iter().map(|s| (s.clone(), sqlite_verdict(&db, strip_semicolon(s)))).collect();
-    let t = judge_all("SQLite (bundled)", DatabaseKind::Sqlite, Some(&catalog), v, false);
+    let corpus =
+        corpus_for(&["common.sql", "sqlite.sql", "broken.sql", "extracted.sql"], DatabaseKind::Sqlite);
+    let v: Vec<_> = corpus.iter().map(|s| (s.clone(), sqlite_verdict(&db, strip_semicolon(s)))).collect();
+    let t = judge_all("SQLite (bundled)", DatabaseKind::Sqlite, Some(&catalog), v, false, true);
     assert_clean(&t);
 }
 
@@ -364,7 +431,10 @@ async fn duckdb() {
         run(conn.as_ref(), &stmt).await;
     }
     let catalog = conn.introspect().await.unwrap();
-    let corpus = corpus_for(&["common.sql", "pg.sql", "duckdb.sql", "broken.sql", "extracted.sql"], DatabaseKind::DuckDb);
+    let corpus = corpus_for(
+        &["common.sql", "pg.sql", "duckdb.sql", "broken.sql", "extracted.sql"],
+        DatabaseKind::DuckDb,
+    );
     let v: Vec<_> = corpus
         .iter()
         .map(|s| {
@@ -373,17 +443,13 @@ async fn duckdb() {
                 Ok(_) => Verdict::Valid,
                 Err(e) => {
                     let msg = e.to_string();
-                    if msg.contains("Parser Error") {
-                        Verdict::Syntax(msg)
-                    } else {
-                        Verdict::Semantic(msg)
-                    }
+                    if msg.contains("Parser Error") { Verdict::Syntax(msg) } else { Verdict::Semantic(msg) }
                 }
             };
             (s.clone(), verdict)
         })
         .collect();
-    let t = judge_all("DuckDB 1.2", DatabaseKind::DuckDb, Some(&catalog), v, false);
+    let t = judge_all("DuckDB 1.2", DatabaseKind::DuckDb, Some(&catalog), v, false, false);
     assert_clean(&t);
 }
 
@@ -400,11 +466,14 @@ async fn clickhouse() {
     let mut v = Vec::new();
     for sql in &corpus {
         let s = strip_semicolon(sql);
-        let readonly = matches!(first_word(s).as_str(), "SELECT" | "WITH" | "SHOW" | "DESCRIBE" | "DESC" | "EXISTS");
+        let readonly =
+            matches!(first_word(s).as_str(), "SELECT" | "WITH" | "SHOW" | "DESCRIBE" | "DESC" | "EXISTS");
         let verdict = match (&conn, readonly) {
             (Some(c), true) => match c.execute(s, &o).await {
                 Ok(_) => Verdict::Valid,
-                Err(Error::Query { code: Some(code), message, .. }) if code == "62" => Verdict::Syntax(message),
+                Err(Error::Query { code: Some(code), message, .. }) if code == "62" => {
+                    Verdict::Syntax(message)
+                }
                 Err(Error::Query { message, .. }) => Verdict::Semantic(message),
                 Err(_) => Verdict::Skipped,
             },
@@ -413,17 +482,19 @@ async fn clickhouse() {
         v.push((sql.clone(), verdict));
     }
     if conn.is_none() {
-        eprintln!("ClickHouse server unreachable: the documentation corpus is only checked for parser errors");
+        eprintln!(
+            "ClickHouse server unreachable: the documentation corpus is only checked for parser errors"
+        );
     }
     // The docs examples are assumed valid whatever the (very old) local server says about them.
     let v: Vec<_> = v.into_iter().map(|(s, _)| (s, Verdict::Skipped)).collect();
-    let t = judge_all("ClickHouse (documentation examples)", DatabaseKind::ClickHouse, None, v, true);
+    let t = judge_all("ClickHouse (documentation examples)", DatabaseKind::ClickHouse, None, v, true, true);
     assert_clean(&t);
 }
 
 #[test]
 fn tsql() {
     let v: Vec<_> = load("tsql.sql").into_iter().map(|s| (s, Verdict::Skipped)).collect();
-    let t = judge_all("T-SQL (documentation examples)", DatabaseKind::SqlServer, None, v, true);
+    let t = judge_all("T-SQL (documentation examples)", DatabaseKind::SqlServer, None, v, true, true);
     assert_clean(&t);
 }

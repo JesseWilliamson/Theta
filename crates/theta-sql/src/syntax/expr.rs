@@ -138,6 +138,18 @@ impl Parser<'_> {
             self.wrap(m, Kind::Prefix);
             return true;
         }
+        if self.fam == Family::MySql
+            && self.kw(0, "BINARY")
+            && self.tok(1).is_some_and(|n| !matches!(n.kind, TokenKind::Operator | TokenKind::Punct))
+            && !self.is_terminator_at(1)
+        {
+            // MySQL's `BINARY expr` operator
+            let m = self.mark();
+            self.bump();
+            self.expr_bp(PREC_UNARY);
+            self.wrap(m, Kind::Prefix);
+            return true;
+        }
         if t.kind == TokenKind::Operator && self.is_prefix_operator(self.text(&t)) {
             let m = self.mark();
             self.bump();
@@ -453,6 +465,13 @@ impl Parser<'_> {
     }
 
     fn in_operand(&mut self) {
+        // MySQL full-text modes: `AGAINST ('x' IN BOOLEAN MODE)`, `IN NATURAL LANGUAGE MODE`
+        if self.kw_any(0, &["BOOLEAN", "NATURAL"]) && (self.kw(1, "MODE") || self.kw(1, "LANGUAGE")) {
+            while self.kw_any(0, &["BOOLEAN", "NATURAL", "LANGUAGE", "MODE", "WITH", "QUERY", "EXPANSION"]) {
+                self.bump();
+            }
+            return;
+        }
         if self.punct(0, "(") {
             if self.paren_starts_query(0) {
                 self.subquery();
@@ -770,6 +789,10 @@ impl Parser<'_> {
         true
     }
 
+    pub(super) fn last_name_text(&mut self) -> String {
+        self.last_name_last_part()
+    }
+
     /// The last identifier of the `Name` node just built, as text.
     fn last_name_last_part(&mut self) -> String {
         match self.last_node() {
@@ -907,14 +930,21 @@ impl Parser<'_> {
                 last_expr = true;
                 continue;
             }
-            if matches!(t.kind, TokenKind::Word | TokenKind::QuotedIdent)
-                && (self.op(1, "=>") || self.op(1, ":="))
-            {
-                // Named argument: the name is not a column.
-                self.bump();
-                self.bump();
-                last_expr = false;
-                continue;
+            if matches!(t.kind, TokenKind::Word | TokenKind::QuotedIdent) {
+                let glued_assign = self.op(1, ":")
+                    && self.op(2, "=")
+                    && self.tok(2).zip(self.tok(1)).is_some_and(|(b, a)| a.end == b.start);
+                if self.op(1, "=>") || self.op(1, ":=") || glued_assign {
+                    // Named argument: the name is not a column.
+                    self.bump();
+                    self.bump();
+                    if glued_assign {
+                        self.bump();
+                    }
+                    last_expr = false;
+                    item_started = true;
+                    continue;
+                }
             }
             seen_anything = true;
             item_started = true;
@@ -930,6 +960,13 @@ impl Parser<'_> {
                     continue;
                 }
                 let call_or_dot = self.punct(1, "(") || self.punct(1, ".");
+                if w.eq_ignore_ascii_case("USING") && self.is_word_tok(1) && !self.punct(2, "(") {
+                    // `CONVERT(x USING utf8mb4)`: the character set is a name, not a column
+                    self.bump();
+                    self.bump();
+                    last_expr = false;
+                    continue;
+                }
                 if in_list(COLUMNS_ARG, fname) && w.eq_ignore_ascii_case("COLUMNS") && self.punct(1, "(") {
                     self.start(Kind::Unknown);
                     self.bump();
