@@ -93,14 +93,14 @@ impl Workspace {
                                 .ghost()
                                 .with_size(theta_ui::TOOL_BUTTON_SIZE)
                                 .icon(Icon::new(IconName::Menu))
-                                .dropdown_menu(|menu, _, _| {
-                                    menu.menu("New Console", Box::new(NewConsole))
-                                        .menu("New Connection…", Box::new(NewConnection))
-                                        .separator()
-                                        .menu("Command Palette…", Box::new(OpenCommandPalette))
-                                        .menu("Go to Table…", Box::new(OpenTablePicker))
-                                        .separator()
-                                        .menu("Quit", Box::new(Quit))
+                                .dropdown_menu(|menu, window, _| {
+                                    let menu = menu_entry(menu, "New Console", Box::new(NewConsole), window);
+                                    let menu = menu_entry(menu, "New Connection…", Box::new(NewConnection), window);
+                                    let menu = menu.separator();
+                                    let menu =
+                                        menu_entry(menu, "Command Palette…", Box::new(OpenCommandPalette), window);
+                                    let menu = menu_entry(menu, "Go to Table…", Box::new(OpenTablePicker), window);
+                                    menu_entry(menu.separator(), "Quit", Box::new(Quit), window)
                                 }),
                         )
                         .child(div().w(px(1.)).h(px(14.)).bg(theme.border))
@@ -169,22 +169,53 @@ impl Workspace {
                         )
                         .child(div().w(px(1.)).h(px(14.)).mx_1().bg(theme.border))
                         .child(tool_button("settings", IconName::Settings, "Settings").dropdown_menu(
-                            |menu, _, _| {
-                                menu.menu("Settings…", Box::new(OpenSettings))
-                                    .menu("Select Theme…", Box::new(SelectTheme))
-                                    .menu("Select Keymap…", Box::new(SelectKeymap))
-                                    .menu("Import Zed Theme…", Box::new(ImportZedTheme))
-                                    .separator()
-                                    .menu("Increase Editor Font Size", Box::new(ZoomIn))
-                                    .menu("Decrease Editor Font Size", Box::new(ZoomOut))
-                                    .menu("Reset Editor Font Size", Box::new(ZoomReset))
-                                    .separator()
-                                    .menu("Open Settings File", Box::new(OpenSettingsFile))
+                            |menu, window, _| {
+                                let menu = menu_entry(menu, "Settings…", Box::new(OpenSettings), window);
+                                let menu = menu_entry(menu, "Select Theme…", Box::new(SelectTheme), window);
+                                let menu = menu_entry(menu, "Select Keymap…", Box::new(SelectKeymap), window);
+                                let menu = menu_entry(menu, "Import Zed Theme…", Box::new(ImportZedTheme), window);
+                                let menu = menu.separator();
+                                let menu =
+                                    menu_entry(menu, "Increase Editor Font Size", Box::new(ZoomIn), window);
+                                let menu =
+                                    menu_entry(menu, "Decrease Editor Font Size", Box::new(ZoomOut), window);
+                                let menu =
+                                    menu_entry(menu, "Reset Editor Font Size", Box::new(ZoomReset), window);
+                                menu_entry(menu.separator(), "Open Settings File", Box::new(OpenSettingsFile), window)
                             },
                         )),
                 ),
         )
     }
+}
+
+/// A menu row. The menu widget prints only the first keystroke of a binding (`Ctrl+K` for the two-chord
+/// `Ctrl+K Ctrl+T`), which reads as a different shortcut; a row whose binding is a sequence is drawn here
+/// with every keystroke. Rows with a single keystroke keep the widget's own rendering.
+fn menu_entry(
+    menu: gpui_kit::component::menu::PopupMenu,
+    label: &'static str,
+    action: Box<dyn gpui_kit::Action>,
+    window: &gpui_kit::Window,
+) -> gpui_kit::component::menu::PopupMenu {
+    use gpui_kit::component::menu::PopupMenuItem;
+    let sequence = window
+        .highest_precedence_binding_for_action(action.as_ref())
+        .filter(|b| b.keystrokes().len() > 1)
+        .and_then(|_| crate::keymap::key_hint(window, action.as_ref()));
+    let Some(keys) = sequence else { return menu.menu(label, action) };
+    menu.item(
+        PopupMenuItem::element(move |_, cx| {
+            let theme = cx.theme().clone();
+            h_flex()
+                .w_full()
+                .gap_3()
+                .justify_between()
+                .child(label)
+                .child(div().text_size(px(11.)).text_color(theme.muted_foreground).child(keys.clone()))
+        })
+        .action(action),
+    )
 }
 
 trait MapIcon: Sized {

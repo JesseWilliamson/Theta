@@ -102,19 +102,7 @@ pub fn command_list(window: &Window) -> Vec<(String, String, String)> {
         .into_iter()
         .map(|c| {
             let action = (c.action)();
-            let hint = window
-                .bindings_for_action(&*action)
-                .last()
-                .map(|b| {
-                    let spec = b
-                        .keystrokes()
-                        .iter()
-                        .map(|k| k.unparse(theta_ui::host_os()))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    theta_ui::format_keystrokes(&spec, theta_ui::is_mac()).to_string()
-                })
-                .unwrap_or_default();
+            let hint = crate::keymap::key_hint(window, &*action).unwrap_or_default();
             (c.section.to_string(), c.label.to_string(), hint)
         })
         .collect()
@@ -132,14 +120,8 @@ impl CommandPalette {
             .map(|c| {
                 let action = (c.action)();
                 let mut item = PickerItem::new(c.label, c.label).section(c.section).icon(c.icon);
-                if let Some(b) = window.bindings_for_action(&*action).last() {
-                    let spec = b
-                        .keystrokes()
-                        .iter()
-                        .map(|k| k.unparse(theta_ui::host_os()))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    item = item.key_hint(theta_ui::format_keystrokes(&spec, theta_ui::is_mac()));
+                if let Some(hint) = crate::keymap::key_hint(window, &*action) {
+                    item = item.key_hint(hint);
                 }
                 item
             })

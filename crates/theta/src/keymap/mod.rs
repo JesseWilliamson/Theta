@@ -127,6 +127,15 @@ fn kb(keys: &str, action: impl gpui_kit::Action, context: Option<&str>) -> KeyBi
     KeyBinding::new(expanded, action, guarded.as_deref())
 }
 
+/// The key that triggers `action` in this window, spelled for display (`Ctrl+Shift+P`, or the whole
+/// sequence for a chord: `Ctrl+K Ctrl+T`). Read from the bindings in force, so a toast or a hint names
+/// what really works instead of a key written into the text.
+pub fn key_hint(window: &gpui_kit::Window, action: &dyn gpui_kit::Action) -> Option<String> {
+    let binding = window.bindings_for_action(action).into_iter().next_back()?;
+    let spec = binding.keystrokes().iter().map(|k| k.unparse(theta_ui::host_os())).collect::<Vec<_>>().join(" ");
+    Some(theta_ui::format_keystrokes(&spec, theta_ui::is_mac()))
+}
+
 /// The window-wide application bindings, guarded against the editor's own keys.
 pub fn global_bindings() -> Vec<KeyBinding> {
     vec![
@@ -165,7 +174,9 @@ pub fn global_bindings() -> Vec<KeyBinding> {
         kb("mod-q", Quit, None),
         kb("mod-enter", RunStatement, None),
         kb("mod-shift-enter", RunAll, None),
-        kb("mod-.", CancelQuery, None),
+        // Not `mod-.`: in the editor that is Quick Fixes in every keymap, so one key would mean two things.
+        // F5 runs, Shift+F5 stops, as in most IDEs; the engine leaves the chord alone.
+        kb("shift-f5", CancelQuery, None),
         kb("mod-e", Explain, None),
         kb("mod-shift-alt-e", ExplainAnalyze, None),
         kb("mod-shift-f", FormatDocument, None),

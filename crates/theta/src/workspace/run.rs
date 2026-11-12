@@ -776,9 +776,13 @@ impl Workspace {
         if self.runs.contains_key(&conn_id) {
             // Policy: one query at a time per connection; a second run is refused, not queued.
             let name = self.conn_name(&conn_id, cx);
+            let stop = match crate::keymap::key_hint(window, &crate::actions::CancelQuery) {
+                Some(key) => format!("press {key} or Stop"),
+                None => "use Stop".to_string(),
+            };
             self.notify(
                 NoticeKind::Info,
-                format!("A query is already running on {name}. Cancel it first (Ctrl+.)."),
+                format!("A query is already running on {name}. To cancel it, {stop}."),
                 window,
                 cx,
             );
