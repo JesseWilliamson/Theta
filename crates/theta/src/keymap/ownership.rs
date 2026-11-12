@@ -401,13 +401,16 @@ mod tests {
     #[test]
     fn alt_chords_of_the_application_reach_it_from_the_editor() {
         for b in super::super::global_bindings() {
-            let stroke = b.keystrokes()[0].unparse(theta_ui::host_os());
+            // `mod` is ctrl on Linux and Windows and cmd on macOS: check both spellings on every host.
+            let stroke = b.keystrokes()[0].unparse(gpui_kit::OperatingSystem::Linux);
             if !stroke.contains("alt") {
                 continue;
             }
-            let key = engine_key(&stroke).unwrap();
-            for s in EditorState::all().into_iter().filter(|s| !s.prompt && !s.pending) {
-                assert!(!engine_owns(s, &key), "{stroke} must reach the application in {}", s.describe());
+            for stroke in [stroke.clone(), stroke.replace("ctrl-", "cmd-")] {
+                let key = engine_key(&stroke).unwrap();
+                for s in EditorState::all().into_iter().filter(|s| !s.prompt && !s.pending) {
+                    assert!(!engine_owns(s, &key), "{stroke} must reach the application in {}", s.describe());
+                }
             }
         }
     }

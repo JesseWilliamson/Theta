@@ -363,6 +363,12 @@ impl Editor {
             self.type_char(c);
             return true;
         }
+        // cmd-alt-f is the application's (Search Across Tables on macOS), not alt-f (word forward):
+        // the patterns below look at ctrl and alt only. A bare alt-letter stays an editor key and
+        // types its character where the platform composes one.
+        if m.platform && matches!(k.key, Key::Char(_)) {
+            return false;
+        }
         match (&k.key, m.ctrl, m.alt) {
             (Key::Escape, ..) => self.leave_insert(),
             (Key::Enter, false, false) => self.insert_newline(),
