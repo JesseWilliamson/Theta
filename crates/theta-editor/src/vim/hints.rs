@@ -45,6 +45,9 @@ pub(crate) const LEADER: &[(&str, &str)] = &[
     ("d", "focus explorer"),
     ("T", "toggle explorer"),
     ("j", "toggle results panel"),
+    ("a", "code actions (quick fixes)"),
+    ("n", "rename alias / CTE / column alias"),
+    ("D", "problems"),
 ];
 
 impl Editor {
@@ -210,6 +213,9 @@ impl Editor {
             'g' => fx(self, FxKind::FocusResults),
             'd' => fx(self, FxKind::FocusExplorer),
             'T' => fx(self, FxKind::ToggleExplorer),
+            'a' => fx(self, FxKind::CodeActions),
+            'n' => fx(self, FxKind::Rename),
+            'D' => fx(self, FxKind::ShowProblems),
             'j' => fx(self, FxKind::ToggleBottomPanel),
             'c' => {
                 if let Some(r) = self.visual_region() {

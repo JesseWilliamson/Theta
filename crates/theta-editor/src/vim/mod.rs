@@ -161,6 +161,8 @@ pub(crate) enum Simple {
     BigU,
     SaveQuit,
     QuitNoSave,
+    /// A host effect (`gd`, `gr`, `[d`, `]d`).
+    Fx(crate::helix::FxKind),
     Nop,
 }
 
@@ -785,6 +787,8 @@ impl Editor {
                 Some(ch @ ('(' | '{')) if c0 == '[' => m(Motion::Unmatched { back: true, open: ch }),
                 Some(ch @ (')' | '}')) if c0 == ']' => m(Motion::Unmatched { back: false, open: ch }),
                 Some('p') => Invalid,
+                Some('d') if c0 == '[' => s(Simple::Fx(crate::helix::FxKind::PrevProblem)),
+                Some('d') => s(Simple::Fx(crate::helix::FxKind::NextProblem)),
                 Some(_) => Invalid,
             },
             'g' => match c1 {
@@ -809,6 +813,8 @@ impl Editor {
                     'J' => s(Simple::Join { spaces: false }),
                     'p' => s(Simple::Put { before: false, cursor_after: true }),
                     'P' => s(Simple::Put { before: true, cursor_after: true }),
+                    'd' => s(Simple::Fx(crate::helix::FxKind::GoToDefinition)),
+                    'r' => s(Simple::Fx(crate::helix::FxKind::FindUsages)),
                     'v' => s(Simple::Reselect),
                     'i' => s(Simple::InsertLast),
                     'I' => s(Simple::InsertCol0),
@@ -1043,6 +1049,7 @@ impl Editor {
                 self.effects.push(Effect::CloseTab);
             }
             Simple::QuitNoSave => self.effects.push(Effect::CloseTab),
+            Simple::Fx(kind) => self.run_fx(kind, 1),
             Simple::Nop => {}
         }
     }

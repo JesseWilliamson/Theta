@@ -427,6 +427,7 @@ impl Editor {
                 self.open_prompt(crate::prompt::PromptKind::Command, ":", "'<,'>", 0);
             }
             Simple::Leader(c) => self.leader_key(c),
+            Simple::Fx(kind) => self.run_fx(kind, 1),
             Simple::OpenBelow | Simple::OpenAbove => {
                 // `o` swaps ends in Visual mode; classify maps it, nothing to do here
             }

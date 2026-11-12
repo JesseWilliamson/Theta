@@ -268,7 +268,7 @@ fn leader_menu_hints_mirror_the_helix_space_menu() {
     feed(&mut e, "<space>");
     let (title, hints) = e.key_hints().unwrap();
     assert_eq!(title, "Space");
-    for key in ["f", "b", "? space", "r", "R", "e", "E", "k", "t", "y", "p", "c", "x", "g", "d", "T", "j"] {
+    for key in ["f", "b", "? space", "r", "R", "e", "E", "k", "t", "y", "p", "c", "x", "g", "d", "T", "j", "a", "n", "D"] {
         assert!(hints.iter().any(|h| h.key == key), "missing {key}");
     }
     assert_eq!(e.pending_keys(), "space");
@@ -295,6 +295,18 @@ fn leader_actions() {
         ("<space>d", Effect::FocusExplorer),
         ("<space>T", Effect::ToggleExplorer),
         ("<space>j", Effect::ToggleBottomPanel),
+        // code intelligence
+        ("gd", Effect::GoToDefinition),
+        ("gr", Effect::FindUsages),
+        ("[d", Effect::PreviousProblem),
+        ("]d", Effect::NextProblem),
+        ("<space>a", Effect::CodeActions),
+        ("<space>n", Effect::RenameSymbol),
+        ("<space>D", Effect::ShowProblems),
+        ("<F12>", Effect::GoToDefinition),
+        ("<S-F12>", Effect::FindUsages),
+        ("<F2>", Effect::RenameSymbol),
+        ("<C-.>", Effect::CodeActions),
     ];
     for (keys, effect) in cases {
         assert!(fx("[s]elect 1\n", keys).contains(&effect), "{keys}");

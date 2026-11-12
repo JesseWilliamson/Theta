@@ -71,6 +71,19 @@ pub enum Effect {
     },
     RequestCompletion,
     DismissCompletion,
+    /// Go to the definition of the name under the cursor (an alias, a CTE, a column; or a table, shown in the explorer).
+    GoToDefinition,
+    /// List where the name under the cursor is used.
+    FindUsages,
+    /// Rename the alias, CTE or column alias under the cursor.
+    RenameSymbol,
+    /// Offer quick fixes and refactorings at the cursor.
+    CodeActions,
+    /// Move to the next / previous problem of the editor (the view answers this itself).
+    NextProblem,
+    PreviousProblem,
+    /// Show the list of problems.
+    ShowProblems,
     FormatDocument,
     FormatSelection,
     Save,
@@ -528,6 +541,30 @@ impl Editor {
         }
     }
 
+    /// Apply several replacements (char ranges of the current text) as one undo step. Overlapping
+    /// replacements are dropped, first one wins.
+    pub fn replace_ranges(&mut self, changes: Vec<(Range<usize>, String)>) {
+        let len = self.rope.len_chars();
+        let changes: Vec<Change> = changes
+            .into_iter()
+            .map(|(r, text)| {
+                let from = r.start.min(len);
+                Change { from, to: r.end.min(len).max(from), text }
+            })
+            .collect();
+        if changes.is_empty() {
+            return;
+        }
+        self.commit_group();
+        self.group_base = self.sels.clone();
+        self.apply(Transaction::new(changes));
+        self.commit_group();
+        self.vert = None;
+        if self.keymap == Keymap::Vim {
+            self.vim_after_host_edit();
+        }
+    }
+
     /// Replace the whole text with a minimal diff (common prefix and suffix), so cursors outside
     /// the changed middle stay where they are.
     pub fn set_text(&mut self, text: &str) {
@@ -815,6 +852,28 @@ impl Editor {
             }
             Key::F(5) if !m.ctrl && !m.alt && !m.shift => {
                 self.effects.push(Effect::RunAll);
+                true
+            }
+            // Code navigation, shared by the three keymaps (Helix and Vim also have `gd`, `gr`, `[d`, `]d`).
+            Key::F(12) if !m.ctrl && !m.alt && !m.platform => {
+                self.effects.push(if m.shift { Effect::FindUsages } else { Effect::GoToDefinition });
+                true
+            }
+            Key::F(2) if !m.ctrl && !m.alt && !m.platform && !m.shift => {
+                self.effects.push(Effect::RenameSymbol);
+                true
+            }
+            Key::F(8) if !m.ctrl && !m.alt && !m.platform => {
+                self.effects.push(if m.shift { Effect::PreviousProblem } else { Effect::NextProblem });
+                true
+            }
+            Key::Char('.') if (m.ctrl || m.platform) && !m.alt && !m.shift => {
+                self.effects.push(Effect::CodeActions);
+                true
+            }
+            // `canon` has folded shift into the case of the letter: ctrl-shift-m is an uppercase M.
+            Key::Char('M') if (m.ctrl || m.platform) && !m.alt => {
+                self.effects.push(Effect::ShowProblems);
                 true
             }
             _ => false,

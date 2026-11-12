@@ -399,6 +399,15 @@ fn chords_and_shortcuts() {
         ("<C-k><C-t>", Effect::OpenThemePicker),
         ("<cmd-s>", Effect::Save),
         ("<cmd-p>", Effect::OpenTablePicker),
+        // code intelligence (VS Code's keys)
+        ("<F12>", Effect::GoToDefinition),
+        ("<S-F12>", Effect::FindUsages),
+        ("<F2>", Effect::RenameSymbol),
+        ("<F8>", Effect::NextProblem),
+        ("<S-F8>", Effect::PreviousProblem),
+        ("<C-.>", Effect::CodeActions),
+        ("<cmd-.>", Effect::CodeActions),
+        ("<C-S-m>", Effect::ShowProblems),
     ];
     for (keys, want) in cases {
         let fx = effects_of(Keymap::Standard, "a#[|]#", keys);

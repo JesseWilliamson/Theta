@@ -183,6 +183,13 @@ pub(crate) enum FxKind {
     ToggleExplorer,
     ToggleBottomPanel,
     Cancel,
+    GoToDefinition,
+    FindUsages,
+    Rename,
+    CodeActions,
+    ShowProblems,
+    NextProblem,
+    PrevProblem,
 }
 
 pub(crate) enum Node {
@@ -359,6 +366,8 @@ fn build_trie() -> Sub {
         g.bind("j", LineDown, "move down");
         g.bind("k", LineUp, "move up");
         g.bind("|", GotoColumn, "goto column");
+        g.bind("d", Cmd::Fx(FxKind::GoToDefinition), "go to definition");
+        g.bind("r", Cmd::Fx(FxKind::FindUsages), "find usages");
     }
     {
         let m = r.sub_mut("m", "Match");
@@ -372,9 +381,11 @@ fn build_trie() -> Sub {
     {
         let l = r.sub_mut("[", "Left bracket");
         l.bind("p", PrevParagraph, "previous paragraph");
+        l.bind("d", Cmd::Fx(FxKind::PrevProblem), "previous problem");
         l.bind("space", AddNewlineAbove, "add newline above");
         let rr = r.sub_mut("]", "Right bracket");
         rr.bind("p", NextParagraph, "next paragraph");
+        rr.bind("d", Cmd::Fx(FxKind::NextProblem), "next problem");
         rr.bind("space", AddNewlineBelow, "add newline below");
     }
     {
@@ -398,6 +409,9 @@ fn build_trie() -> Sub {
         s.bind("g", Cmd::Fx(FxKind::FocusResults), "focus results");
         s.bind("d", Cmd::Fx(FxKind::FocusExplorer), "focus explorer");
         s.bind("T", Cmd::Fx(FxKind::ToggleExplorer), "toggle explorer");
+        s.bind("a", Cmd::Fx(FxKind::CodeActions), "code actions (quick fixes)");
+        s.bind("n", Cmd::Fx(FxKind::Rename), "rename alias / CTE / column alias");
+        s.bind("D", Cmd::Fx(FxKind::ShowProblems), "problems");
         s.bind("j", Cmd::Fx(FxKind::ToggleBottomPanel), "toggle results panel");
     }
     for (key, name) in [("z", "View"), ("Z", "View")] {
@@ -1186,6 +1200,13 @@ impl Editor {
             FxKind::ToggleExplorer => self.effects.push(Effect::ToggleExplorer),
             FxKind::ToggleBottomPanel => self.effects.push(Effect::ToggleBottomPanel),
             FxKind::Cancel => self.effects.push(Effect::CancelQuery),
+            FxKind::GoToDefinition => self.effects.push(Effect::GoToDefinition),
+            FxKind::FindUsages => self.effects.push(Effect::FindUsages),
+            FxKind::Rename => self.effects.push(Effect::RenameSymbol),
+            FxKind::CodeActions => self.effects.push(Effect::CodeActions),
+            FxKind::ShowProblems => self.effects.push(Effect::ShowProblems),
+            FxKind::NextProblem => self.effects.push(Effect::NextProblem),
+            FxKind::PrevProblem => self.effects.push(Effect::PreviousProblem),
         }
     }
 

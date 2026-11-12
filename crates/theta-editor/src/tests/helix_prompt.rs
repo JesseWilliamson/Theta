@@ -262,6 +262,20 @@ fn space_menu_effects() {
         ("<space>E", Effect::ExplainStatement { analyze: true }),
         ("<space>k", Effect::RequestCompletion),
         ("<space>t", Effect::OpenThemePicker),
+        // code intelligence: `gd`, `gr`, `[d`, `]d`, the space menu and the shared F-keys
+        ("gd", Effect::GoToDefinition),
+        ("gr", Effect::FindUsages),
+        ("[d", Effect::PreviousProblem),
+        ("]d", Effect::NextProblem),
+        ("<space>a", Effect::CodeActions),
+        ("<space>n", Effect::RenameSymbol),
+        ("<space>D", Effect::ShowProblems),
+        ("<F12>", Effect::GoToDefinition),
+        ("<S-F12>", Effect::FindUsages),
+        ("<F2>", Effect::RenameSymbol),
+        ("<F8>", Effect::NextProblem),
+        ("<S-F8>", Effect::PreviousProblem),
+        ("<C-.>", Effect::CodeActions),
     ];
     for (keys, want) in cases {
         let fx = effects_of(Keymap::Helix, "#[a|]#", keys);
