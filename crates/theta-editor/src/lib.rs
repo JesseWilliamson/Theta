@@ -3,6 +3,7 @@
 //! A rope buffer, multiple selections, undo history and three keymaps (Helix, Standard and Vim).
 //! No GPUI, no I/O, no async: the host feeds it `KeyInput`s and reacts to `Effect`s.
 
+pub mod diff;
 mod edit;
 mod editor;
 mod helix;
