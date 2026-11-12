@@ -470,6 +470,12 @@ async fn duckdb() {
         .iter()
         .map(|s| {
             let sql = strip_semicolon(s);
+            // Written straight to stderr (not through the test harness's capture) so that when the engine takes
+            // the whole process down, the log still names the statement it was given.
+            if std::env::var_os("THETA_DIFF_TRACE").is_some() {
+                use std::io::Write;
+                let _ = writeln!(std::io::stderr(), "duckdb prepare: {sql:?}");
+            }
             let verdict = match db.prepare(sql) {
                 Ok(_) => Verdict::Valid,
                 Err(e) => {

@@ -147,6 +147,11 @@ jobs:
           cargo clippy -p theta-core -p theta-sql -p theta-geo -p theta-editor -p theta-drivers -p theta-import
           --all-targets -- -D warnings
       - run: cargo test -p theta-core -p theta-sql -p theta-geo -p theta-editor -p theta-drivers -p theta-import
+        # A hung engine must not hold the runner until GitHub's six-hour limit.
+        timeout-minutes: 30
+        env:
+          # Names each statement before DuckDB sees it, so a crash of the whole process is attributable.
+          THETA_DIFF_TRACE: "1"
       # A throw-away sshd on 127.0.0.1:2222; see crates/theta-drivers/tests/ssh/setup.sh. The key
       # directory must be world-traversable (/tmp, not the runner's home): sshd reads
       # authorized_keys as the test user.
