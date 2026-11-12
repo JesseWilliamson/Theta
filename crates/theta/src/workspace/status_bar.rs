@@ -119,7 +119,8 @@ impl Workspace {
             if let Some(config) = store.config(&id) {
                 let (color, text) = match store.state(&id) {
                     ConnState::Connected { server, .. } => {
-                        (theme.success, format!("{} · {}", config.name, server.version))
+                        let ro = if config.read_only { " · read-only" } else { "" };
+                        (theme.success, format!("{} · {}{ro}", config.name, server.version))
                     }
                     ConnState::Connecting => (theme.warning, format!("{} · connecting…", config.name)),
                     ConnState::Failed(_) => (theme.danger, format!("{} · connection failed", config.name)),

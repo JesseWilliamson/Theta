@@ -357,6 +357,7 @@ impl Explorer {
                 name: &c.name,
                 kind: c.kind,
                 color: c.color.as_deref(),
+                read_only: c.read_only,
                 inferred: self.inferred.get(&c.id).map(|(_, v)| v.as_slice()).unwrap_or(&empty),
                 phase: match store.state(&c.id) {
                     ConnState::Disconnected => Phase::Disconnected,
@@ -1332,6 +1333,24 @@ impl Explorer {
                                 .text_size(px(12.))
                                 .text_color(theme.muted_foreground)
                                 .child(t),
+                        )
+                    })
+                    .when(row.read_only, |this| {
+                        this.child(
+                            div()
+                                .id(SharedString::from(format!("read-only-{ix}")))
+                                .flex_shrink_0()
+                                .tooltip(|window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(
+                                        "Read-only: statements that change data or schema are refused",
+                                    )
+                                    .build(window, cx)
+                                })
+                                .child(
+                                    Icon::new(IconName::Lock)
+                                        .size(px(11.))
+                                        .text_color(theme.muted_foreground),
+                                ),
                         )
                     })
                     .when(row.nullable == Some(false), |this| {

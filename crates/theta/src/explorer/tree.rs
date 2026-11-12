@@ -155,6 +155,8 @@ pub struct Row {
     pub tooltip: Option<String>,
     /// Drawn in the muted colour (suggestions).
     pub muted: bool,
+    /// A read-only connection: a lock after its name.
+    pub read_only: bool,
 }
 
 impl Row {
@@ -176,6 +178,7 @@ impl Row {
             retry: false,
             tooltip: None,
             muted: false,
+            read_only: false,
         }
     }
 }
@@ -201,6 +204,8 @@ pub struct ConnView<'a> {
     pub name: &'a str,
     pub kind: DatabaseKind,
     pub color: Option<&'a str>,
+    /// The connection refuses writes.
+    pub read_only: bool,
     pub phase: Phase<'a>,
     /// Foreign keys implied by naming (see `theta_sql::infer_foreign_keys`).
     pub inferred: &'a [VirtualForeignKey],
@@ -481,6 +486,7 @@ fn flatten_connection(
     row.expanded = is_expanded;
     row.highlights = name_match.unwrap_or_default();
     row.color = c.color.map(str::to_string);
+    row.read_only = c.read_only;
     row.dot = Some(match c.phase {
         Phase::Disconnected => ConnDot::Disconnected,
         Phase::Connecting => ConnDot::Connecting,
@@ -855,6 +861,7 @@ mod tests {
             name: "Demo",
             kind: DatabaseKind::Postgres,
             color: None,
+            read_only: false,
             phase: Phase::Connected { catalog: Some(c), loading: false, catalog_error: None },
             inferred: &[],
         }]
@@ -1049,6 +1056,7 @@ mod tests {
                 name: "X",
                 kind: DatabaseKind::Sqlite,
                 color: None,
+                read_only: false,
                 phase: p,
                 inferred: &[],
             }];
@@ -1098,9 +1106,17 @@ mod tests {
             name,
             kind: DatabaseKind::Sqlite,
             color: None,
+            read_only: false,
             phase: Phase::Disconnected,
             inferred: &[],
         }
+    }
+
+    #[test]
+    fn a_read_only_connection_row_is_marked() {
+        let v = vec![ConnView { read_only: true, ..conn("c", "Prod", None) }];
+        assert!(flatten(&v, &set(vec![]), "")[0].read_only);
+        assert!(!flatten(&[conn("c", "Dev", None)], &set(vec![]), "")[0].read_only);
     }
 
     fn labels(rows: &[Row]) -> Vec<(u8, &str)> {

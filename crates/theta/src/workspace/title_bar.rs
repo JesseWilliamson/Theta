@@ -31,13 +31,17 @@ impl Workspace {
     fn render_title_bar_inner(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let conn_id = self.active_connection_id(cx);
-        let (name, kind, state, color) = {
+        let (name, kind, state, color, read_only) = {
             let store = self.store.read(cx);
             match conn_id.as_ref().and_then(|id| store.config(id)) {
-                Some(c) => {
-                    (Some(c.name.clone()), Some(c.kind), Some(store.state(&c.id).clone()), c.color.clone())
-                }
-                None => (None, None, None, None),
+                Some(c) => (
+                    Some(c.name.clone()),
+                    Some(c.kind),
+                    Some(store.state(&c.id).clone()),
+                    c.color.clone(),
+                    c.read_only,
+                ),
+                None => (None, None, None, None, false),
             }
         };
         let dot = match &state {
@@ -64,7 +68,14 @@ impl Workspace {
             .on_click(
                 cx.listener(|_, _, window, cx| window.dispatch_action(Box::new(OpenConnectionPicker), cx)),
             )
-            .tooltip(|window, cx| Tooltip::new("Switch connection").build(window, cx))
+            .tooltip(move |window, cx| {
+                Tooltip::new(if read_only {
+                    "Switch connection (this one is read-only)"
+                } else {
+                    "Switch connection"
+                })
+                .build(window, cx)
+            })
             .when_some(tint, |d, c| d.child(div().w(px(3.)).h(px(12.)).rounded(px(1.5)).bg(gpui_kit::rgb(c))))
             .map_icon(kind)
             .child(
@@ -74,6 +85,21 @@ impl Workspace {
                     .text_color(if name.is_some() { theme.foreground } else { theme.muted_foreground })
                     .child(name.unwrap_or_else(|| "No connection".to_string())),
             )
+            .when(read_only, |d| {
+                d.child(
+                    h_flex()
+                        .gap_1()
+                        .items_center()
+                        .px_1p5()
+                        .h(px(16.))
+                        .rounded(px(3.))
+                        .bg(theme.muted_foreground.opacity(0.15))
+                        .text_size(px(11.))
+                        .text_color(theme.muted_foreground)
+                        .child(Icon::new(IconName::Lock).size(px(10.)))
+                        .child("Read-only"),
+                )
+            })
             .when_some(dot, |d, c| d.child(div().size(px(6.)).rounded_full().bg(c)))
             .child(Icon::new(IconName::ChevronsUpDown).size(px(12.)).text_color(theme.muted_foreground));
 
