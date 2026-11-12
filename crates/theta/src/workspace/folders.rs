@@ -5,7 +5,6 @@ use crate::connections::NoticeKind;
 use crate::dialogs::name;
 use crate::explorer::tree::NodeKey;
 use crate::palette;
-use gpui_kit::component::WindowExt as _;
 use gpui_kit::{Context, Window};
 use std::rc::Rc;
 
@@ -65,7 +64,6 @@ impl Workspace {
     }
 
     pub(super) fn confirm_delete_folder(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        use gpui_kit::component::button::ButtonVariant;
         let store = self.store.clone();
         let (folder, members) = {
             let s = store.read(cx);
@@ -80,19 +78,18 @@ impl Workspace {
             1 => "Its connection moves to the top level; it is not deleted.".to_string(),
             n => format!("Its {n} connections move to the top level; none of them is deleted."),
         };
-        window.open_alert_dialog(cx, move |alert, _, _| {
-            let (store, id) = (store.clone(), id.clone());
-            alert
-                .title(format!("Delete folder “{folder}”?"))
-                .description(what.clone())
-                .confirm()
-                .ok_text("Delete Folder")
-                .ok_variant(ButtonVariant::Danger)
-                .on_ok(move |_, _, cx| {
-                    store.update(cx, |s, cx| s.delete_folder(&id, cx));
-                    true
-                })
-        });
+        crate::dialogs::confirm::open(
+            window,
+            cx,
+            format!("Delete folder “{folder}”?"),
+            what,
+            Vec::new(),
+            vec![crate::dialogs::confirm::Choice::new(
+                "Delete Folder",
+                crate::dialogs::confirm::Tone::Danger,
+                move |_, cx| store.update(cx, |s, cx| s.delete_folder(&id, cx)),
+            )],
+        );
     }
 
     pub(super) fn move_to_folder_picker(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {

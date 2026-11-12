@@ -53,10 +53,42 @@ struct ConfirmView {
     intro: SharedString,
     statements: Vec<Item>,
     choices: Vec<Choice>,
-    /// Takes the keyboard when the dialog opens, so Tab walks its buttons instead of whatever was
-    /// focused behind it (the SQL editor would otherwise swallow Tab and the choice could not be made
-    /// without the mouse).
-    focus: gpui_kit::FocusHandle,
+    /// One handle per button, Cancel first. The buttons hold the keyboard (Tab and the arrow keys walk
+    /// them, Enter and Space press the focused one), so what Enter does is always the button that is
+    /// drawn with a focus ring.
+    buttons: Vec<gpui_kit::FocusHandle>,
+    /// The button focused when the dialog opens (see [`default_button`]).
+    initial: usize,
+}
+
+/// Which button has the keyboard when the dialog opens. Anything that destroys data defaults to
+/// Cancel, so Enter pressed by reflex never destroys; otherwise it is the primary choice, then the
+/// first one, so that "Enter" confirms a harmless question.
+fn default_button(choices: &[Choice]) -> usize {
+    if choices.iter().any(|c| c.tone == Tone::Danger) {
+        return 0;
+    }
+    choices.iter().position(|c| c.tone == Tone::Primary).map_or(0, |i| i + 1)
+}
+
+impl ConfirmView {
+    fn focused_button(&self, window: &Window) -> usize {
+        self.buttons.iter().position(|h| h.is_focused(window)).unwrap_or(self.initial)
+    }
+
+    fn move_focus(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let n = self.buttons.len() as isize;
+        let next = (self.focused_button(window) as isize + delta).rem_euclid(n) as usize;
+        window.focus(&self.buttons[next], cx);
+    }
+
+    /// Press button `ix`: Cancel closes, a choice closes and then runs.
+    fn press(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        window.close_dialog(cx);
+        if let Some(choice) = ix.checked_sub(1).and_then(|i| self.choices.get(i)) {
+            (choice.run.clone())(window, cx);
+        }
+    }
 }
 
 impl Render for ConfirmView {
@@ -65,7 +97,18 @@ impl Render for ConfirmView {
         let mono = theta_ui::Settings::get(cx).buffer_font_family.clone();
         v_flex()
             .gap_3()
-            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
+                let m = &ev.keystroke.modifiers;
+                if m.control || m.alt || m.platform || m.shift {
+                    return;
+                }
+                match ev.keystroke.key.as_str() {
+                    "left" => this.move_focus(-1, window, cx),
+                    "right" => this.move_focus(1, window, cx),
+                    _ => return,
+                }
+                cx.stop_propagation();
+            }))
             .child(div().text_size(px(13.)).text_color(theme.foreground).child(self.intro.clone()))
             .when(!self.statements.is_empty(), |d| {
                 d.child(
@@ -113,26 +156,36 @@ impl Render for ConfirmView {
             })
             .child(
                 h_flex()
-                    .justify_end()
-                    .gap_2()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
                     .child(
-                        Button::new("confirm-cancel")
-                            .label("Cancel")
-                            .on_click(|_, window, cx| window.close_dialog(cx)),
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.muted_foreground)
+                            .child("Tab or arrows switch button · Enter presses it · Esc cancels"),
                     )
-                    .children(self.choices.iter().enumerate().map(|(i, c)| {
-                        let run = c.run.clone();
-                        let b = Button::new(("confirm-choice", i)).label(SharedString::from(c.label.clone()));
-                        let b = match c.tone {
-                            Tone::Primary => b.primary(),
-                            Tone::Danger => b.danger(),
-                            Tone::Plain => b,
-                        };
-                        b.on_click(move |_, window, cx| {
-                            window.close_dialog(cx);
-                            run(window, cx);
-                        })
-                    })),
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("confirm-cancel")
+                                    .label("Cancel")
+                                    .track_focus(&self.buttons[0])
+                                    .on_click(cx.listener(|this, _, window, cx| this.press(0, window, cx))),
+                            )
+                            .children(self.choices.iter().enumerate().map(|(i, c)| {
+                                let b = Button::new(("confirm-choice", i))
+                                    .label(SharedString::from(c.label.clone()))
+                                    .track_focus(&self.buttons[i + 1]);
+                                let b = match c.tone {
+                                    Tone::Primary => b.primary(),
+                                    Tone::Danger => b.danger(),
+                                    Tone::Plain => b,
+                                };
+                                b.on_click(cx.listener(move |this, _, window, cx| this.press(i + 1, window, cx)))
+                            })),
+                    ),
             )
     }
 }
@@ -157,24 +210,26 @@ pub fn open_items(
     statements: Vec<Item>,
     choices: Vec<Choice>,
 ) {
-    // Enter confirms the Primary choice. Without this the dialog's own Enter handler just closed
-    // it, so "ctrl-Enter, Enter" silently discarded the action it was asked to confirm. A dialog
-    // whose only choices are Danger ones has no default: those need a deliberate click.
-    let default = choices.iter().find(|c| c.tone == Tone::Primary).map(|c| c.run.clone());
-    let view =
-        cx.new(|cx| ConfirmView { intro: intro.into(), statements, choices, focus: cx.focus_handle() });
-    let focus = view.read(cx).focus.clone();
+    let initial = default_button(&choices);
+    let view = cx.new(|cx| {
+        let buttons = (0..=choices.len()).map(|_| cx.focus_handle()).collect();
+        ConfirmView { intro: intro.into(), statements, choices, buttons, initial }
+    });
+    let first = view.read(cx).buttons[initial].clone();
     let title: SharedString = title.into();
-    window.defer(cx, move |window, cx| window.focus(&focus, cx));
+    window.defer(cx, move |window, cx| window.focus(&first, cx));
     window.open_dialog(cx, move |dialog, _, cx| {
-        let default = default.clone();
-        dialog.bg(cx.theme().popover).title(title.clone()).w(px(640.)).child(view.clone()).on_ok(
-            move |_, window, cx| match &default {
-                Some(run) => {
-                    run(window, cx);
-                    true
-                }
-                None => false,
+        let view = view.clone();
+        // Enter arrives here as the dialog's `Confirm` action, whichever button has the focus; it presses
+        // the focused one (a bare "OK" would run the default choice even with Cancel focused).
+        let on_ok = view.clone();
+        dialog.bg(cx.theme().popover).title(title.clone()).w(px(640.)).child(view).on_ok(
+            move |_, window, cx| {
+                on_ok.update(cx, |v, cx| {
+                    let ix = v.focused_button(window);
+                    v.press(ix, window, cx);
+                });
+                false
             },
         )
     });

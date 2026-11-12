@@ -877,23 +877,19 @@ impl Workspace {
     }
 
     fn confirm_delete_connection(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        use gpui_kit::component::button::ButtonVariant;
+        use crate::dialogs::confirm::{self, Choice, Tone};
         let name = self.store.read(cx).config(&id).map(|c| c.name.clone()).unwrap_or_default();
         let store = self.store.clone();
-        window.open_alert_dialog(cx, move |alert, _, _| {
-            let store = store.clone();
-            let id = id.clone();
-            alert
-                .title(format!("Delete “{name}”?"))
-                .description("The saved connection and its stored password are removed. The database itself is not touched.")
-                .confirm()
-                .ok_text("Delete")
-                .ok_variant(ButtonVariant::Danger)
-                .on_ok(move |_, _, cx| {
-                    store.update(cx, |s, cx| s.remove(&id, cx));
-                    true
-                })
-        });
+        confirm::open(
+            window,
+            cx,
+            format!("Delete “{name}”?"),
+            "The saved connection and its stored password are removed. The database itself is not touched.",
+            Vec::new(),
+            vec![Choice::new("Delete", Tone::Danger, move |_, cx| {
+                store.update(cx, |s, cx| s.remove(&id, cx));
+            })],
+        );
     }
 
     // ---------------------------------------------------------------- modal
