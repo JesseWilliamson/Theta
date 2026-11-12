@@ -325,7 +325,7 @@ impl Workspace {
     /// Bring back the most recently closed console (text, connection, cursor, file).
     pub(super) fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = consoles::pop_closed(&consoles::closed_dir(&self.data_dir)) else {
-            self.notify(NoticeKind::Info, "No closed tab to reopen", window, cx);
+            self.notify(NoticeKind::Info, "Nothing to reopen: consoles with no text are not kept", window, cx);
             return;
         };
         let conn = s.connection_id.filter(|c| self.store.read(cx).config(c).is_some());
@@ -453,7 +453,7 @@ impl Workspace {
     }
 
     /// Keyboard focus to the active console's editor.
-    pub(super) fn focus_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn focus_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(c) = self.active_tab.and_then(|id| self.consoles.get(&id)) {
             let handle = c.editor.read(cx).focus_handle(cx);
             window.focus(&handle, cx);
@@ -478,8 +478,19 @@ impl Workspace {
         if self.state.bottom_tab != BottomTab::Results {
             self.set_bottom_tab(BottomTab::Results, cx);
         }
-        let h = self.results.read(cx).grid.read(cx).focus_handle(cx);
+        let grid = self.results.read(cx).grid.clone();
+        let h = grid.read(cx).focus_handle(cx);
         window.focus(&h, cx);
+        grid.update(cx, |g, cx| g.ensure_selection(cx));
+    }
+
+    /// Show the History tab and give it the keyboard.
+    pub(super) fn show_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.state.bottom_open {
+            self.toggle_bottom(cx);
+        }
+        self.set_bottom_tab(BottomTab::History, cx);
+        self.history.update(cx, |h, cx| h.focus(window, cx));
     }
 
     /// Show the Chart tab of the active result and give it the keyboard, so the arrow keys walk the points
@@ -1250,12 +1261,17 @@ impl Workspace {
 
     pub(super) fn on_history_event(&mut self, e: HistoryEvent, window: &mut Window, cx: &mut Context<Self>) {
         match e {
-            HistoryEvent::Insert(sql) => match self.active_tab {
-                Some(id) => self.insert_into_console(id, &sql, cx),
-                None => {
-                    self.open_console(None, Some(sql), window, cx);
+            HistoryEvent::Insert(sql) => {
+                match self.active_tab {
+                    Some(id) => self.insert_into_console(id, &sql, cx),
+                    None => {
+                        self.open_console(None, Some(sql), window, cx);
+                    }
                 }
-            },
+                // Loaded to be run or edited: the keyboard goes with it.
+                self.focus_editor(window, cx);
+            }
+            HistoryEvent::Leave => self.focus_editor(window, cx),
             HistoryEvent::OpenNew { connection, sql } => {
                 let conn =
                     self.store.read(cx).configs().iter().find(|c| c.name == connection).map(|c| c.id.clone());

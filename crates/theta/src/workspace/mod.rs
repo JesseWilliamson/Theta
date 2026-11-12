@@ -320,6 +320,11 @@ impl Workspace {
             cx.subscribe_in(&problems, window, |this, _, e: &ProblemsEvent, window, cx| {
                 this.on_problems_event(e.clone(), window, cx)
             }),
+            cx.subscribe_in(&chart, window, |this, _, e: &crate::panels::chart::ChartEvent, window, cx| {
+                match e {
+                    crate::panels::chart::ChartEvent::Leave => this.focus_editor(window, cx),
+                }
+            }),
             cx.subscribe_in(&map, window, |this, _, e: &MapEvent, window, cx| {
                 this.on_map_event(e.clone(), window, cx)
             }),
@@ -1242,6 +1247,7 @@ impl Render for Workspace {
                 this.pick_table_for(palette::TablePurpose::Copy, window, cx)
             }))
             .on_action(cx.listener(|this, _: &ShowChart, window, cx| this.show_chart(window, cx)))
+            .on_action(cx.listener(|this, _: &ShowHistory, window, cx| this.show_history(window, cx)))
             .on_action(
                 cx.listener(|this, _: &ShowLocalHistory, window, cx| this.open_local_history(window, cx)),
             )

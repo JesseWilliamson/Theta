@@ -78,6 +78,7 @@ fn commands() -> Vec<Command> {
         cmd!("Focus Results", "View", IconName::Table, FocusResults),
         cmd!("Local History…", "Console", IconName::Clock, ShowLocalHistory),
         cmd!("Show Chart", "View", IconName::ChartColumn, ShowChart),
+        cmd!("Show History", "View", IconName::Clock, ShowHistory),
         cmd!("Toggle Cell Viewer", "View", IconName::PanelRight, ToggleCellViewer),
         cmd!("Copy Cell Value", "Data", IconName::Copy, CopyCellValue),
         cmd!("Close Tab", "View", IconName::X, CloseTab),
@@ -382,7 +383,12 @@ impl PickerDelegate for TablePicker {
         let purpose = self.purpose;
         window.defer(cx, move |window, cx| {
             workspace
-                .update(cx, |ws, cx| match purpose {
+                .update(cx, |ws, cx| {
+                    // The picker that chose the table is gone and its focus with it; a dialog opened now
+                    // would remember nothing to give the keyboard back to when it closes. The editor
+                    // is where the user was.
+                    ws.focus_editor(window, cx);
+                    match purpose {
                     TablePurpose::Open => ws.open_table(conn, schema, table, window, cx),
                     TablePurpose::Import => ws.open_import_dialog(
                         crate::dialogs::import::Request {
@@ -408,6 +414,7 @@ impl PickerDelegate for TablePicker {
                     TablePurpose::Drop => ws.drop_table_dialog(conn, schema, table, window, cx),
                     TablePurpose::Duplicate => ws.duplicate_structure_dialog(conn, schema, table, window, cx),
                     TablePurpose::Copy => ws.open_copy_dialog(conn, schema, table, window, cx),
+                    }
                 })
                 .ok();
         });
