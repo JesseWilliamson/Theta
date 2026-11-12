@@ -7,6 +7,7 @@
 
 pub mod admin;
 pub mod analysis;
+pub mod assist;
 pub mod complete;
 pub mod ddl;
 pub mod export;

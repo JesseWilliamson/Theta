@@ -211,3 +211,34 @@ truncate table customers
 begin
 commit
 rollback
+select c.id, c.first_name, count(o.id) from customers c left join orders o on o.customer_id = c.id group by c.id
+select c.id, c.first_name, count(o.id) from customers c left join orders o on o.customer_id = c.id group by c.id, c.first_name
+select c.country, c.city, count(*) from customers c group by c.country, c.city
+select country, count(*) from customers group by country having count(*) > 1
+select o.status, sum(o.total) from orders o group by o.status
+select o.status, sum(o.total) + 1 from orders o group by o.status
+select o.status, avg(o.total) from orders o join customers c on c.id = o.customer_id group by o.status
+select country, max(created_at), min(created_at) from customers group by country
+select country from customers group by country order by country
+select country, count(*) as n from customers group by country order by n desc
+select count(*), max(total) from orders
+select status, total from orders group by status, total
+select p.category, p.name from products p group by p.category, p.name
+select * from (select country, count(*) as n from customers group by country) t where n > 1
+select a.id from customers a join customers b on a.id = b.id
+select a.id, b.id from customers a, customers b where a.id < b.id
+select x.id from customers x join orders y on y.customer_id = x.id join order_items z on z.order_id = y.id
+select c1.id from customers c1 where c1.id in (select c2.id from customers c2 where c2.id > c1.id)
+select (select max(o.total) from orders o where o.customer_id = c.id) as biggest from customers c
+select id, first_name from customers where id = (select min(id) from customers)
+insert into customers (first_name, last_name, email, created_at) select first_name, last_name, 'x' || id, created_at from customers
+insert into order_items (order_id, line_no, product_id, quantity, unit_price) select id, 1, 1, 1, total from orders
+update orders set total = (select sum(quantity * unit_price) from order_items i where i.order_id = orders.id)
+update customers c set city = 'x' where exists (select 1 from orders o where o.customer_id = c.id)
+delete from orders where customer_id in (select id from customers where country = 'FR')
+select o.id from orders o where o.customer_id in (select c.id from customers c)
+with a as (select id from orders), b as (select id from customers) select a.id, b.id from a join b on a.id = b.id
+with a as (select id, total from orders) select a.id from a where a.total > (select avg(total) from a)
+select t.n from (select 1 as n union all select 2) t
+select t.a, u.b from (select 1 as a) t cross join (select 2 as b) u
+select id from customers c join orders o on o.customer_id = c.id join order_items i on i.order_id = o.id where c.id = 1

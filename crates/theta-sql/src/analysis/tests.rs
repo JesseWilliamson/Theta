@@ -290,8 +290,8 @@ fn schema_qualified_names() {
     clean("select * from pg_catalog.pg_tables", K::Postgres);
     clean("select * from information_schema.tables", K::Postgres);
     clean("select * from pg_stat_activity", K::Postgres);
-    // but an unknown schema is
-    assert_eq!(msgs(&pg("select * from nosuch.t")).len(), 1);
+    // an unknown schema is more likely a partially loaded catalog than a typo
+    clean("select * from nosuch.t", K::Postgres);
 }
 
 #[test]

@@ -274,14 +274,8 @@ impl<'a> Resolver<'a> {
         match schema {
             Some(s) => {
                 let sidx = find_all(self.fam, s, &cat.schemas, |x| x.name.as_str());
-                // A schema the catalog does not list is an error too, unless it is one the server keeps to itself.
-                let Some(&si) = sidx.first() else {
-                    return if names::is_system_schema(self.fam, &s.text) {
-                        TableLookup::Unknown
-                    } else {
-                        TableLookup::Missing
-                    };
-                };
+                // An unknown schema is more likely a partially loaded catalog than a typo: no verdict.
+                let Some(&si) = sidx.first() else { return TableLookup::Unknown };
                 let sch = &cat.schemas[si];
                 let ti = find_all(self.fam, name, &sch.tables, |t| t.name.as_str());
                 match ti.first() {
@@ -815,6 +809,21 @@ impl<'a> Resolver<'a> {
             (None, Kind::ColumnRef) => (self.parts(expr).last().cloned(), false),
             _ => (None, false),
         };
+        // A column that merely passes a script-local column through is that same column: renaming one renames
+        // the other, and an ORDER BY on it reaches the original.
+        if !renamable
+            && expr.kind == Kind::ColumnRef
+            && let Some(last) = self.parts(expr).last().cloned()
+            && let Some(Resolution::Symbol(src_sym)) =
+                self.ref_index.get(&last.span.start).map(|&i| self.refs[i].resolution.clone())
+            && matches!(self.symbols[src_sym].kind, SymbolKind::OutputColumn | SymbolKind::ColumnAlias)
+        {
+            if !self.scopes[sid].outputs.contains(&src_sym) {
+                self.scopes[sid].outputs.push(src_sym);
+            }
+            out.cols.push(Col { name: self.canon(&last), symbol: Some(src_sym), quoted: last.quoted });
+            return;
+        }
         match name_id {
             Some(nm) => {
                 let span = if renamable { nm.span.clone() } else { item.span.clone() };

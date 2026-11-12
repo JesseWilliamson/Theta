@@ -7,16 +7,14 @@
 //! a query whose every source is a known table), and structural checks look only
 //! for errors that are errors in every dialect.
 
-use crate::keywords::{is_keyword_any, is_known_function, is_statement_start, is_type_name};
+use crate::keywords::{is_keyword_any, is_statement_start};
 use crate::lexer::{Token, TokenKind, tokenize};
 use crate::scope::{
-    Clause, CteDef, Parsed, ScopeScan, Source, SourceKind, StmtKind, scan_scope, select_aliases, visible_ctes,
+    Clause, CteDef, Parsed, ScopeScan, Source, SourceKind, StmtKind, scan_scope, visible_ctes,
 };
 use crate::script::{Segment, segment_content, segments};
-use std::collections::HashSet;
 use std::ops::Range;
-use theta_core::Family;
-use theta_core::{Catalog, DatabaseKind, Table};
+use theta_core::{Catalog, DatabaseKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
@@ -30,12 +28,18 @@ pub struct Diagnostic {
     pub range: Range<usize>,
     pub severity: Severity,
     pub message: String,
+    /// The statement is only unfinished (or names something the loaded schema may lack): an editor holds
+    /// such a diagnostic back while the user is still typing it.
+    pub incomplete: bool,
 }
 
 /// Whether `d` only says "this statement is not finished": what an editor should hold back
 /// while the user is still typing it. Server errors and dangerous-statement warnings are not
 /// in this class.
 pub fn is_incomplete_while_typing(d: &Diagnostic) -> bool {
+    if d.incomplete {
+        return true;
+    }
     const PREFIXES: &[&str] = &[
         "Expected ",
         "Incomplete expression",
@@ -55,97 +59,55 @@ pub fn is_incomplete_while_typing(d: &Diagnostic) -> bool {
 }
 
 fn diag(range: Range<usize>, severity: Severity, message: impl Into<String>) -> Diagnostic {
-    Diagnostic { range, severity, message: message.into() }
+    Diagnostic { range, severity, message: message.into(), incomplete: false }
 }
 
-const CLAUSE_STARTERS: &[&str] = &[
-    "FROM",
-    "WHERE",
-    "GROUP",
-    "ORDER",
-    "HAVING",
-    "LIMIT",
-    "OFFSET",
-    "UNION",
-    "INTERSECT",
-    "EXCEPT",
-    "RETURNING",
-    "JOIN",
-];
-
+/// All diagnostics of a script.
+///
+/// Syntax errors come from the parser ([`crate::syntax`]) and name problems from the resolver
+/// ([`crate::analysis`]); both are built so that they stay silent about what they do not understand. What is
+/// left of the older token-based checks here is the part that is about *meaning*, not grammar: statements that
+/// would change every row, comparisons with NULL, implicit cross joins, and a misspelled statement keyword.
 pub fn lint(sql: &str, kind: DatabaseKind, catalog: Option<&Catalog>) -> Vec<Diagnostic> {
+    let analysis = crate::analysis::analyze(sql, kind, catalog);
+    lint_with(sql, kind, catalog, &analysis)
+}
+
+/// [`lint`] for a caller that already has the analysis.
+pub fn lint_with(
+    sql: &str,
+    kind: DatabaseKind,
+    catalog: Option<&Catalog>,
+    analysis: &crate::analysis::Analysis,
+) -> Vec<Diagnostic> {
+    let mut out: Vec<Diagnostic> = Vec::new();
+    for e in &analysis.parse.errors {
+        out.push(Diagnostic {
+            range: e.span.clone(),
+            severity: Severity::Critical,
+            message: e.message.clone(),
+            incomplete: e.incomplete,
+        });
+    }
+    for d in &analysis.diagnostics {
+        out.push(Diagnostic {
+            range: d.range.clone(),
+            severity: d.severity,
+            message: d.message.clone(),
+            incomplete: false,
+        });
+    }
     let raw = tokenize(sql, kind);
     let segs = segments(sql, &raw, kind);
-    let mut out = Vec::new();
-    let created = created_tables(sql, &raw, &segs);
     for seg in &segs {
         if segment_content(&raw, seg).is_none() {
-            // Comment-only: still report an unterminated block comment.
-            lexical(sql, &raw[seg.tokens.clone()], &mut out);
             continue;
         }
-        lint_segment(sql, kind, catalog, &raw, seg, &created, &mut out);
+        lint_segment(sql, kind, catalog, &raw, seg, &mut out);
     }
     out.sort_by(|a, b| a.range.start.cmp(&b.range.start).then(b.severity.cmp(&a.severity)));
     out.dedup();
     out
-}
-
-fn lexical(sql: &str, toks: &[Token], out: &mut Vec<Diagnostic>) {
-    for t in toks.iter().filter(|t| !t.terminated) {
-        let (what, closer) = match t.kind {
-            TokenKind::String => ("string literal", "'"),
-            TokenKind::QuotedIdent => ("quoted identifier", "the closing quote"),
-            TokenKind::BlockComment => ("block comment", "*/"),
-            TokenKind::DollarString => ("dollar-quoted string", "the closing tag"),
-            _ => continue,
-        };
-        let _ = sql;
-        out.push(diag(t.range(), Severity::Critical, format!("Unterminated {what}: missing {closer}")));
-    }
-}
-
-/// Names created by `CREATE [TEMP] TABLE|VIEW name` anywhere in the script, so that
-/// later references are not reported as unknown.
-fn created_tables(sql: &str, raw: &[Token], segs: &[Segment]) -> HashSet<String> {
-    let mut set = HashSet::new();
-    for seg in segs {
-        let p = Parsed::new(sql, raw[seg.tokens.clone()].iter());
-        if p.first_word() != "CREATE" {
-            continue;
-        }
-        let mut i = 1;
-        while i < p.len()
-            && matches!(
-                p.up(i),
-                "OR" | "REPLACE"
-                    | "TEMP"
-                    | "TEMPORARY"
-                    | "GLOBAL"
-                    | "LOCAL"
-                    | "UNLOGGED"
-                    | "MATERIALIZED"
-                    | "RECURSIVE"
-                    | "VIRTUAL"
-            )
-        {
-            i += 1;
-        }
-        if matches!(p.up(i), "TABLE" | "VIEW") {
-            i += 1;
-            if p.is_word(i, "IF") && p.is_word(i + 1, "NOT") && p.is_word(i + 2, "EXISTS") {
-                i += 3;
-            }
-            let mut j = i;
-            while p.is_ident(j) && p.is_punct(j + 1, ".") && p.is_ident(j + 2) {
-                j += 2;
-            }
-            if p.is_ident(j) {
-                set.insert(p.ident(j).to_lowercase());
-            }
-        }
-    }
-    set
 }
 
 fn lint_segment(
@@ -154,26 +116,12 @@ fn lint_segment(
     catalog: Option<&Catalog>,
     raw: &[Token],
     seg: &Segment,
-    created: &HashSet<String>,
     out: &mut Vec<Diagnostic>,
 ) {
     let seg_toks = &raw[seg.tokens.clone()];
-    lexical(sql, seg_toks, out);
     let p = Parsed::new(sql, seg_toks.iter());
     if p.len() == 0 {
         return;
-    }
-    // Parentheses.
-    let mut stack: Vec<usize> = Vec::new();
-    for i in 0..p.len() {
-        if p.is_punct(i, "(") {
-            stack.push(i);
-        } else if p.is_punct(i, ")") && stack.pop().is_none() {
-            out.push(diag(p.range(i), Severity::Critical, "Unmatched ')'"));
-        }
-    }
-    for o in stack {
-        out.push(diag(p.range(o), Severity::Critical, "Unclosed '(' — missing ')'"));
     }
 
     let first = p.first_word();
@@ -183,26 +131,38 @@ fn lint_segment(
         return;
     }
     if p.toks[0].kind == TokenKind::Word && !is_statement_start(&p.toks[0].up) {
-        out.push(diag(p.range(0), Severity::Critical, format!("Unknown statement keyword '{}'", p.text(0))));
+        // Only a word that looks like a misspelled statement keyword is an error; a statement this list
+        // does not know (a dialect's own) is left to the server.
+        if let Some(near) = near_statement_keyword(&p.toks[0].up, kind) {
+            out.push(diag(
+                p.range(0),
+                Severity::Critical,
+                format!("Unknown statement keyword '{}'; did you mean {near}?", p.text(0)),
+            ));
+        }
         return;
     }
-    if !matches!(p.toks[0].kind, TokenKind::Word | TokenKind::QuotedIdent) && !p.is_punct(0, "(") {
-        out.push(diag(
-            p.range(0),
-            Severity::Critical,
-            format!("Unexpected '{}' at the start of a statement", p.text(0)),
-        ));
-        return;
-    }
-
-    syntax_checks(&p, kind, out);
     dangerous_statements(&p, out);
 
     let cmap = ClauseMap::build(&p, catalog);
     null_comparisons(&p, &cmap, out);
     let ctes = visible_ctes(&p, std::slice::from_ref(&(0..p.len())), catalog);
-    let mut walker = Walker { p: &p, kind, catalog, created, cmap: &cmap, out, ctes };
+    let mut walker = Walker { p: &p, catalog, out, ctes };
     walker.scope(0..p.len(), &[]);
+}
+
+/// A statement keyword within two edits of `word`, when `word` is none itself.
+fn near_statement_keyword(word: &str, kind: DatabaseKind) -> Option<&'static str> {
+    if word.len() < 4 || is_keyword_any(word, kind) {
+        return None;
+    }
+    crate::keywords::statement_keywords(kind)
+        .into_iter()
+        .filter(|k| k.len() >= 4)
+        .map(|k| (crate::analysis::edit_distance(&word.to_ascii_uppercase(), k), k))
+        .filter(|(d, _)| *d <= 2)
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, k)| k)
 }
 
 fn is_routine_definition(p: &Parsed) -> bool {
@@ -218,189 +178,6 @@ fn is_routine_definition(p: &Parsed) -> bool {
         }
     }
     false
-}
-
-fn syntax_checks(p: &Parsed, kind: DatabaseKind, out: &mut Vec<Diagnostic>) {
-    let n = p.len();
-    for i in 0..n {
-        let t = &p.toks[i];
-        if p.is_punct(i, ",") {
-            let next = p.toks.get(i + 1);
-            let prev_open = i > 0 && p.is_punct(i - 1, "(");
-            let msg = match next {
-                None => Some("Trailing comma at the end of the statement".to_string()),
-                Some(nx) if nx.kind == TokenKind::Punct && nx.up == "," => Some("Double comma".to_string()),
-                Some(nx) if nx.kind == TokenKind::Punct && (nx.up == ")" || nx.up == ";") => {
-                    Some("Trailing comma before ')'".to_string())
-                }
-                Some(nx) if nx.kind == TokenKind::Word && CLAUSE_STARTERS.contains(&nx.up.as_str()) => {
-                    Some(format!("Unexpected comma before {}", nx.up))
-                }
-                _ if prev_open => Some("Unexpected comma after '('".to_string()),
-                _ => None,
-            };
-            if let Some(m) = msg {
-                out.push(diag(p.range(i), Severity::Critical, m));
-            }
-            continue;
-        }
-        // `PRAGMA x = on`, `CREATE INDEX .. ON t`, `SET x = on` use these words differently.
-        let dml_like = matches!(
-            p.first_word(),
-            "SELECT"
-                | "WITH"
-                | "INSERT"
-                | "UPDATE"
-                | "DELETE"
-                | "MERGE"
-                | "REPLACE"
-                | "VALUES"
-                | "EXPLAIN"
-                | ""
-        );
-        if t.kind != TokenKind::Word || !dml_like {
-            continue;
-        }
-        let next_up = p.toks.get(i + 1).map(|x| x.up.as_str());
-        let next_is_end = match p.toks.get(i + 1) {
-            None => true,
-            Some(nx) => {
-                (nx.kind == TokenKind::Punct && matches!(nx.up.as_str(), ")" | ";"))
-                    || (nx.kind == TokenKind::Word
-                        && CLAUSE_STARTERS.contains(&nx.up.as_str())
-                        && nx.up != "JOIN")
-            }
-        };
-        let needs_operand = matches!(t.up.as_str(), "WHERE" | "HAVING" | "AND" | "OR" | "SET" | "JOIN" | "BY" | "FROM" | "ON" | "USING" | "INTO" | "WHEN" | "THEN" | "ELSE")
-            // `JOIN` directly followed by a clause keyword other than ON is also an error.
-            || (t.up == "NOT" && next_up.is_none());
-        if needs_operand && next_is_end {
-            // `FROM` followed by `)`: `EXTRACT(x FROM )` is equally broken.
-            let what = match t.up.as_str() {
-                "FROM" | "JOIN" | "INTO" => "table name",
-                "SET" => "assignment",
-                "BY" => "column or expression",
-                "USING" | "ON" => "join condition",
-                _ => "expression",
-            };
-            let tail = next_up
-                .map(|u| format!(" before {u}"))
-                .unwrap_or_else(|| " at the end of the statement".into());
-            out.push(diag(p.range(i), Severity::Critical, format!("Expected {what} after {}{tail}", t.up)));
-        }
-    }
-    // Statement ends in the middle of an expression.
-    if let Some(last) = p.toks.last()
-        && last.kind == TokenKind::Operator
-        && matches!(
-            last.up.as_str(),
-            "=" | "<>" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "/" | "%" | "||" | "->" | "->>" | "::"
-        )
-    {
-        out.push(diag(
-            last.start..last.end,
-            Severity::Critical,
-            format!("Incomplete expression: statement ends after '{}'", last.up),
-        ));
-    }
-    if let Some(i) = (0..n).rev().find(|&i| p.toks[i].kind == TokenKind::Word).filter(|&i| i == n - 1)
-        && matches!(p.toks[i].up.as_str(), "AND" | "OR" | "IS" | "IN" | "LIKE" | "ILIKE" | "BETWEEN" | "AS")
-    {
-        out.push(diag(
-            p.range(i),
-            Severity::Critical,
-            format!("Incomplete expression: statement ends after {}", p.toks[i].up),
-        ));
-    }
-    // IN () is a syntax error in Postgres and MySQL.
-    for i in 0..n.saturating_sub(2) {
-        if p.is_word(i, "IN")
-            && p.is_punct(i + 1, "(")
-            && p.is_punct(i + 2, ")")
-            && kind.family() != Family::Sqlite
-        {
-            out.push(diag(
-                p.toks[i].start..p.toks[i + 2].end,
-                Severity::Critical,
-                "IN () needs at least one value",
-            ));
-        }
-    }
-    // Postgres requires ON/USING after a non-natural, non-cross JOIN.
-    if kind.family().pg_like() {
-        join_conditions(p, out);
-    }
-    // UPDATE without SET, DELETE without FROM (all but MySQL).
-    if p.first_word() == "UPDATE" && !(0..n).any(|i| p.is_word(i, "SET")) && n > 1 {
-        out.push(diag(p.range(0), Severity::Critical, "UPDATE statement has no SET clause"));
-    }
-    if p.first_word() == "DELETE"
-        && !matches!(kind.family(), Family::MySql | Family::SqlServer)
-        && n > 1
-        && !p.is_word(1, "FROM")
-    {
-        out.push(diag(p.range(0), Severity::Critical, "Expected FROM after DELETE"));
-    }
-}
-
-fn join_conditions(p: &Parsed, out: &mut Vec<Diagnostic>) {
-    let n = p.len();
-    let mut i = 0;
-    while i < n {
-        if p.is_punct(i, "(") {
-            // Recurse by simply scanning inside as well; nesting is shallow in practice.
-            i += 1;
-            continue;
-        }
-        if p.is_word(i, "JOIN") {
-            let modifier = (0..i)
-                .rev()
-                .take(3)
-                .map(|k| p.up(k))
-                .find(|w| matches!(*w, "CROSS" | "NATURAL" | "LEFT" | "RIGHT" | "FULL" | "INNER" | "OUTER"))
-                .unwrap_or("");
-            if matches!(modifier, "CROSS" | "NATURAL") {
-                i += 1;
-                continue;
-            }
-            // Walk to the next depth-0 JOIN-level keyword; look for ON/USING on the way.
-            let mut j = i + 1;
-            let mut depth = 0i32;
-            let mut found = false;
-            while j < n {
-                if p.is_punct(j, "(") {
-                    depth += 1;
-                } else if p.is_punct(j, ")") {
-                    depth -= 1;
-                    if depth < 0 {
-                        break;
-                    }
-                } else if depth == 0 && p.toks[j].kind == TokenKind::Word {
-                    match p.toks[j].up.as_str() {
-                        "ON" | "USING" => {
-                            found = true;
-                            break;
-                        }
-                        "JOIN" | "WHERE" | "GROUP" | "ORDER" | "HAVING" | "LIMIT" | "UNION" | "INTERSECT"
-                        | "EXCEPT" | "INNER" | "LEFT" | "RIGHT" | "FULL" | "CROSS" | "NATURAL"
-                        | "RETURNING" | "WINDOW" | "SET" => break,
-                        _ => {}
-                    }
-                } else if depth == 0 && p.is_punct(j, ",") {
-                    break;
-                }
-                j += 1;
-            }
-            if !found && i + 1 < n {
-                out.push(diag(
-                    p.range(i),
-                    Severity::Critical,
-                    "JOIN requires an ON or USING condition (use CROSS JOIN for a cross product)",
-                ));
-            }
-        }
-        i += 1;
-    }
 }
 
 /// UPDATE/DELETE statements (also inside CTEs) without a WHERE clause.
@@ -540,38 +317,16 @@ fn null_comparisons(p: &Parsed, cmap: &ClauseMap, out: &mut Vec<Diagnostic>) {
 
 struct Walker<'a, 'o> {
     p: &'a Parsed<'a>,
-    kind: DatabaseKind,
     catalog: Option<&'a Catalog>,
-    created: &'a HashSet<String>,
-    cmap: &'a ClauseMap,
     out: &'o mut Vec<Diagnostic>,
     ctes: Vec<CteDef>,
-}
-
-fn is_system_name(schema: Option<&str>, name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    schema.is_some_and(|s| {
-        matches!(
-            s.to_ascii_lowercase().as_str(),
-            "information_schema" | "pg_catalog" | "mysql" | "performance_schema" | "sys"
-        )
-    }) || n.starts_with("pg_")
-        || n.starts_with("sqlite_")
-        || n == "dual"
-        || n == "information_schema"
-}
-
-fn table_of<'c>(cat: Option<&'c Catalog>, s: &Source) -> Option<&'c Table> {
-    cat?.find_table(s.schema.as_deref(), &s.name).map(|(_, t)| t)
 }
 
 impl Walker<'_, '_> {
     fn scope(&mut self, range: Range<usize>, outer: &[Source]) {
         for branch in branches(self.p, &range) {
             let scan = scan_scope(self.p, branch.start, branch.end, self.catalog, &self.ctes);
-            self.check_sources(&scan);
             self.check_cross_join(&scan);
-            self.check_columns(&branch, &scan, outer);
             // Recurse into subqueries directly inside this branch.
             let mut visible: Vec<Source> = scan.sources.clone();
             visible.extend(outer.iter().cloned());
@@ -607,36 +362,6 @@ impl Walker<'_, '_> {
                 continue;
             }
             i += 1;
-        }
-    }
-
-    fn check_sources(&mut self, scan: &ScopeScan) {
-        let Some(cat) = self.catalog else { return };
-        for s in &scan.sources {
-            if s.kind != SourceKind::Table {
-                continue;
-            }
-            if is_system_name(s.schema.as_deref(), &s.name) || self.created.contains(&s.name.to_lowercase()) {
-                continue;
-            }
-            let range = self.p.range(s.name_tok);
-            match s.schema.as_deref() {
-                Some(sch) => {
-                    // An unknown schema is more likely a partially loaded catalog than a typo.
-                    if cat.schema(sch).is_some() && cat.find_table(Some(sch), &s.name).is_none() {
-                        self.out.push(diag(
-                            range,
-                            Severity::Warning,
-                            format!("Unknown table '{}.{}'", sch, s.name),
-                        ));
-                    }
-                }
-                None => {
-                    if cat.find_table(None, &s.name).is_none() {
-                        self.out.push(diag(range, Severity::Warning, format!("Unknown table '{}'", s.name)));
-                    }
-                }
-            }
         }
     }
 
@@ -684,198 +409,6 @@ impl Walker<'_, '_> {
             ),
         ));
     }
-
-    fn resolve<'s>(&self, q: &str, own: &'s [Source], outer: &'s [Source]) -> Option<&'s Source> {
-        own.iter().chain(outer.iter()).find(|s| match &s.alias {
-            Some(a) => a.eq_ignore_ascii_case(q),
-            None => s.name.eq_ignore_ascii_case(q),
-        })
-    }
-
-    fn check_columns(&mut self, branch: &Range<usize>, scan: &ScopeScan, outer: &[Source]) {
-        if self.catalog.is_none() {
-            return;
-        }
-        let p = self.p;
-        // Token ranges that belong to a table factor (`public.customers c`) are not column references.
-        let in_factor = |i: usize| scan.sources.iter().any(|s| i >= s.tok_start && i < s.tok_end);
-        let mut i = branch.start;
-        while i < branch.end {
-            if p.is_punct(i, "(") && p.is_subquery_paren(i) {
-                i = p.closing(i) + 1;
-                continue;
-            }
-            // Qualified column: `q.col`
-            if p.is_ident(i)
-                && p.is_punct(i + 1, ".")
-                && i + 2 < branch.end
-                && p.is_ident(i + 2)
-                && !(i > 0 && p.is_punct(i - 1, "."))
-                && !in_factor(i)
-                && !p.is_punct(i + 3, "(")
-                && !p.is_punct(i + 3, ".")
-            {
-                let q = p.ident(i);
-                if let Some(src) = self.resolve(&q, &scan.sources, outer)
-                    && src.kind == SourceKind::Table
-                    && let Some(t) = table_of(self.catalog, src)
-                {
-                    let col = p.ident(i + 2);
-                    if !t.columns.iter().any(|c| c.name.eq_ignore_ascii_case(&col)) && !is_pseudo_column(&col)
-                    {
-                        self.out.push(diag(
-                            p.range(i + 2),
-                            Severity::Warning,
-                            format!("Column '{col}' not found in table '{}'", t.name),
-                        ));
-                    }
-                }
-                i += 3;
-                continue;
-            }
-            i += 1;
-        }
-        self.check_unqualified(branch, scan, outer, &in_factor);
-        self.check_insert_columns(scan);
-    }
-
-    fn check_insert_columns(&mut self, scan: &ScopeScan) {
-        let p = self.p;
-        for s in scan.sources.iter().filter(|s| s.clause == Clause::Into && s.target) {
-            let open = s.tok_end;
-            if !p.is_punct(open, "(") {
-                continue;
-            }
-            let Some(t) = table_of(self.catalog, s) else { continue };
-            let close = p.closing(open);
-            let mut j = open + 1;
-            while j < close {
-                if p.is_ident(j)
-                    && (p.is_punct(j + 1, ",") || j + 1 == close)
-                    && (j == open + 1 || p.is_punct(j - 1, ","))
-                {
-                    let col = p.ident(j);
-                    if !t.columns.iter().any(|c| c.name.eq_ignore_ascii_case(&col)) {
-                        self.out.push(diag(
-                            p.range(j),
-                            Severity::Warning,
-                            format!("Column '{col}' not found in table '{}'", t.name),
-                        ));
-                    }
-                }
-                j += 1;
-            }
-        }
-    }
-
-    fn check_unqualified(
-        &mut self,
-        branch: &Range<usize>,
-        scan: &ScopeScan,
-        outer: &[Source],
-        in_factor: &dyn Fn(usize) -> bool,
-    ) {
-        let p = self.p;
-        // Only when every visible source is a known catalog table can "no such column" be certain.
-        let mut tables: Vec<&Table> = Vec::new();
-        for s in scan.sources.iter().chain(outer.iter()) {
-            match (&s.kind, table_of(self.catalog, s)) {
-                (SourceKind::Table, Some(t)) => tables.push(t),
-                _ => return,
-            }
-        }
-        if tables.is_empty() || scan.stmt == StmtKind::Other {
-            return;
-        }
-        let aliases: HashSet<String> = select_aliases(p, branch.start, branch.end, self.catalog, &self.ctes)
-            .into_iter()
-            .map(|s| s.to_lowercase())
-            .collect();
-        // Words following AS anywhere are aliases / type names.
-        let mut i = branch.start;
-        while i < branch.end {
-            if p.is_punct(i, "(") && p.is_subquery_paren(i) {
-                i = p.closing(i) + 1;
-                continue;
-            }
-            let clause = self.cmap.clauses[i];
-            let checkable = matches!(
-                clause,
-                Clause::Where
-                    | Clause::Having
-                    | Clause::GroupBy
-                    | Clause::OrderBy
-                    | Clause::Select
-                    | Clause::On
-                    | Clause::Set
-                    | Clause::Returning
-            );
-            let t = &p.toks[i];
-            let is_word = matches!(t.kind, TokenKind::Word | TokenKind::QuotedIdent);
-            if checkable && is_word && !in_factor(i) {
-                let prev_blocks = i > 0
-                    && (p.is_punct(i - 1, ".")
-                        || p.is_op(i - 1, "::")
-                        || p.is_word(i - 1, "AS")
-                        || p.is_word(i - 1, "INTERVAL")
-                        || p.is_word(i - 1, "ON") && p.is_word(i, "CONFLICT"));
-                let next_blocks = p.is_punct(i + 1, "(") || p.is_punct(i + 1, ".");
-                let name = p.ident(i);
-                let lname = name.to_lowercase();
-                let reserved = t.kind == TokenKind::Word
-                    && (is_keyword_any(&name, self.kind) || is_known_function(&name) || is_type_name(&name));
-                // `SET col = ...` is only a column at assignment position; elsewhere defer to the generic rule.
-                if !prev_blocks
-                    && !next_blocks
-                    && !reserved
-                    && !is_pseudo_column(&name)
-                    && !aliases.contains(&lname)
-                    && !matches!(lname.as_str(), "excluded" | "new" | "old")
-                    && !self.is_lambda_or_special(i)
-                    && !tables.iter().any(|tb| tb.columns.iter().any(|c| c.name.eq_ignore_ascii_case(&name)))
-                {
-                    // OVER (PARTITION BY ...) window names and named windows are not columns.
-                    if !(p.is_word(i.wrapping_sub(1), "WINDOW") || p.is_word(i.wrapping_sub(1), "OVER")) {
-                        self.out.push(diag(
-                            p.range(i),
-                            Severity::Warning,
-                            format!("Unknown column '{name}'"),
-                        ));
-                    }
-                }
-            }
-            i += 1;
-        }
-    }
-
-    fn is_lambda_or_special(&self, i: usize) -> bool {
-        // Inside EXTRACT(field FROM ...) / TRIM(BOTH ...) / SUBSTRING(... FROM ... FOR ...) the
-        // first word is a keyword-like field name; also skip `AT TIME ZONE x`.
-        let p = self.p;
-        i > 0
-            && (p.is_word(i - 1, "ZONE")
-                || p.is_word(i - 1, "ESCAPE")
-                || p.is_word(i - 1, "COLLATE")
-                || p.is_word(i - 1, "OF")
-                || p.is_word(i - 1, "NAME"))
-    }
-}
-
-fn is_pseudo_column(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "ctid"
-            | "oid"
-            | "xmin"
-            | "xmax"
-            | "cmin"
-            | "cmax"
-            | "tableoid"
-            | "rowid"
-            | "_rowid_"
-            | "level"
-            | "rownum"
-    )
 }
 
 #[cfg(test)]
@@ -969,9 +502,11 @@ mod tests {
         assert!(
             d.iter().any(|d| d.message.contains("Unterminated string") && snippet(sql, d).starts_with('\''))
         );
-        assert!(run("select 1 /* open", Postgres).iter().any(|d| d.message.contains("block comment")));
+        assert!(run("select 1 /* open", Postgres).iter().any(|d| d.message.contains("Unterminated comment")));
         assert!(run("select \"abc", Postgres).iter().any(|d| d.message.contains("quoted identifier")));
-        assert!(run("/* only a comment", Postgres).iter().any(|d| d.message.contains("block comment")));
+        assert!(
+            run("/* only a comment", Postgres).iter().any(|d| d.message.contains("Unterminated comment"))
+        );
     }
 
     #[test]
@@ -989,8 +524,10 @@ mod tests {
     fn commas() {
         let sql = "select a, b, from t";
         let d = run(sql, Postgres);
-        assert!(d.iter().any(|d| d.message == "Unexpected comma before FROM" && snippet(sql, d) == ","));
-        assert!(run("select a,, b from t", Postgres).iter().any(|d| d.message == "Double comma"));
+        assert!(d.iter().any(|d| d.message == "Trailing comma in the select list"));
+        assert!(
+            run("select a,, b from t", Postgres).iter().any(|d| d.message.starts_with("Unexpected comma"))
+        );
         assert!(
             run("insert into t (a, b,) values (1, 2)", Postgres)
                 .iter()
@@ -1003,18 +540,16 @@ mod tests {
     #[test]
     fn missing_operands() {
         let d = run("select * from t where", Postgres);
-        assert!(d.iter().any(|d| d.message.starts_with("Expected expression after WHERE")), "{d:?}");
+        assert!(d.iter().any(|d| d.message.starts_with("Expected an expression after WHERE")), "{d:?}");
+        assert!(d.iter().all(|d| d.incomplete), "an unfinished statement is held back while typing");
         let d = run("select * from where a = 1", Postgres);
-        assert!(d.iter().any(|d| d.message.starts_with("Expected table name after FROM before WHERE")));
+        assert!(d.iter().any(|d| d.message.starts_with("Expected a table after FROM")));
         let d = run("select * from t where a = 1 and", Postgres);
+        assert!(d.iter().any(|d| d.message.contains("after AND")));
+        assert!(run("select * from t where a =", Postgres).iter().any(|d| d.message.contains("after '='")));
         assert!(
-            d.iter()
-                .any(|d| d.message.contains("after AND") || d.message.contains("statement ends after AND"))
+            run("select * from t order by", Postgres).iter().any(|d| d.message.contains("after ORDER BY"))
         );
-        assert!(
-            run("select * from t where a =", Postgres).iter().any(|d| d.message.contains("ends after '='"))
-        );
-        assert!(run("select * from t order by", Postgres).iter().any(|d| d.message.contains("after BY")));
         assert!(run("select * from t join", Postgres).iter().any(|d| d.message.contains("after JOIN")));
     }
 
@@ -1025,6 +560,9 @@ mod tests {
         assert_eq!(d.len(), 1);
         assert_eq!(snippet(sql, &d[0]), "selec");
         assert_eq!(d[0].severity, Severity::Critical);
+        assert!(d[0].message.contains("did you mean SELECT"), "{:?}", d[0].message);
+        // A word that is not close to any statement keyword is left to the server: it may be a dialect's own.
+        assert!(run("frobnicate the widgets", Postgres).is_empty());
         assert!(run("42 + 1", Postgres)[0].message.contains("Unexpected '42'"));
         assert!(
             run("show tables; use x; pragma x; analyze; vacuum; call p()", MySql)
@@ -1064,7 +602,7 @@ mod tests {
             run("update t", Postgres).is_empty()
                 || run("update t", Postgres).iter().all(|d| d.severity == Severity::Critical)
         );
-        assert!(run("update t where a = 1", Postgres).iter().any(|d| d.message.contains("no SET")));
+        assert!(run("update t where a = 1", Postgres).iter().any(|d| d.message.contains("needs a SET")));
         assert!(run("delete t where a = 1", Postgres).iter().any(|d| d.message.contains("Expected FROM")));
         assert!(run("delete t from t join u on t.a = u.a where u.b = 1", MySql).is_empty());
     }
@@ -1121,7 +659,9 @@ mod tests {
 
     #[test]
     fn in_empty_list() {
-        assert!(run("select * from t where a in ()", Postgres).iter().any(|d| d.message.contains("IN ()")));
+        assert!(
+            run("select * from t where a in ()", Postgres).iter().any(|d| d.message.contains("IN needs"))
+        );
         assert!(run("select * from t where a in ()", Sqlite).is_empty());
     }
 
@@ -1150,7 +690,7 @@ mod tests {
         let d = with_cat(sql);
         assert_eq!(d.len(), 1);
         assert_eq!(snippet(sql, &d[0]), "emial");
-        assert_eq!(d[0].message, "Column 'emial' not found in table 'customers'");
+        assert_eq!(d[0].message, "Unknown column 'emial' in 'customers'");
         assert!(with_cat("select c.* , c.id from customers c").is_empty());
         // Correlated reference to an outer alias.
         assert!(
@@ -1163,8 +703,10 @@ mod tests {
             "select * from customers c where exists (select 1 from orders o where o.customer_id = c.idd)",
         );
         assert_eq!(d.len(), 1);
-        // Unknown qualifier: stay quiet.
-        assert!(with_cat("select zz.a from customers c").is_empty());
+        // A qualifier that is no table or alias of the query is reported (an alias used but never defined).
+        let d = with_cat("select zz.a from customers c");
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].message, "'zz' is not a table or alias in this query");
     }
 
     #[test]
@@ -1172,7 +714,7 @@ mod tests {
         let sql = "select * from customers where emial = 'x'";
         let d = with_cat(sql);
         assert_eq!(d.len(), 1);
-        assert_eq!(d[0].message, "Unknown column 'emial'");
+        assert_eq!(d[0].message, "Unknown column 'emial' (looked in customers)");
         assert!(with_cat("select email, upper(name) n from customers where id > 1 order by n").is_empty());
         assert!(with_cat("select email as e from customers order by e").is_empty());
         assert!(
@@ -1192,9 +734,9 @@ mod tests {
     #[test]
     fn update_set_unknown_column_and_insert_columns() {
         let d = with_cat("update customers set emial = 'x' where id = 1");
-        assert!(d.iter().any(|d| d.message == "Unknown column 'emial'"), "{d:?}");
+        assert!(d.iter().any(|d| d.message == "Unknown column 'emial' in 'customers'"), "{d:?}");
         let d = with_cat("insert into customers (id, emial) values (1, 'x')");
-        assert!(d.iter().any(|d| d.message.contains("'emial' not found in table 'customers'")));
+        assert!(d.iter().any(|d| d.message.contains("'emial' in 'customers'")));
         assert!(with_cat("insert into customers (id, email) values (1, 'x')").is_empty());
     }
 

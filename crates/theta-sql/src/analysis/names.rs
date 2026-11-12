@@ -91,27 +91,6 @@ pub fn is_system_column(word: &str) -> bool {
     SYSTEM.iter().any(|w| w.eq_ignore_ascii_case(word))
 }
 
-/// Schemas (or databases) every server has and introspection hides.
-pub fn is_system_schema(fam: Family, name: &str) -> bool {
-    let l = name.to_ascii_lowercase();
-    match fam {
-        Family::Postgres => {
-            matches!(l.as_str(), "pg_catalog" | "information_schema" | "pg_toast" | "public") && l != "public"
-                || l.starts_with("pg_temp")
-                || l.starts_with("pg_toast")
-        }
-        Family::DuckDb => {
-            matches!(l.as_str(), "information_schema" | "pg_catalog" | "temp" | "system" | "memory")
-        }
-        Family::Sqlite => matches!(l.as_str(), "temp" | "main"),
-        Family::MySql => matches!(l.as_str(), "information_schema" | "mysql" | "performance_schema" | "sys"),
-        Family::SqlServer => {
-            matches!(l.as_str(), "sys" | "information_schema" | "tempdb" | "master" | "model" | "msdb")
-        }
-        Family::ClickHouse => matches!(l.as_str(), "system" | "information_schema"),
-    }
-}
-
 /// Tables a server provides that the catalog does not list: never reported as unknown.
 pub fn is_system_table(fam: Family, name: &str) -> bool {
     let l = name.to_ascii_lowercase();

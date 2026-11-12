@@ -178,6 +178,7 @@ pub(crate) struct Source {
     pub tok_start: usize,
     pub tok_end: usize,
     /// Token index of the table-name token (last part of a qualified name).
+    #[allow(dead_code)]
     pub name_tok: usize,
     pub clause: Clause,
     /// DML target (`UPDATE t`, `INSERT INTO t`, `DELETE FROM t`, `ALTER TABLE t`).
@@ -477,21 +478,6 @@ pub(crate) fn derive_columns(
     ctes: &[CteDef],
 ) -> Vec<String> {
     derive_columns_ex(p, from, to, catalog, ctes).into_iter().map(|(n, _)| n).collect()
-}
-
-/// Names the query defines itself with `AS x` or a bare alias (not plain column references).
-pub(crate) fn select_aliases(
-    p: &Parsed,
-    from: usize,
-    to: usize,
-    catalog: Option<&Catalog>,
-    ctes: &[CteDef],
-) -> Vec<String> {
-    derive_columns_ex(p, from, to, catalog, ctes)
-        .into_iter()
-        .filter(|(_, alias)| *alias)
-        .map(|(n, _)| n)
-        .collect()
 }
 
 /// Like [`derive_columns`], flagging which names are explicit aliases.

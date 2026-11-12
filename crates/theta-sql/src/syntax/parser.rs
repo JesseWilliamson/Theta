@@ -515,6 +515,17 @@ impl<'a> Parser<'a> {
             return;
         }
         if first.kind != TokenKind::Word {
+            let text = self.text(&first);
+            let stray = matches!(first.kind, TokenKind::Number | TokenKind::String)
+                || matches!(text, "," | ")" | "=" | "." | "*" | "+" | "/" | "<" | ">" | "]");
+            if stray {
+                // No dialect begins a statement with a literal or a stray operator.
+                self.error(
+                    first.start..first.end,
+                    format!("Unexpected '{text}' at the start of a statement"),
+                    false,
+                );
+            }
             self.other();
             return;
         }
@@ -588,6 +599,12 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 self.skip_group();
+                continue;
+            }
+            if matches!(t.kind, TokenKind::Operator | TokenKind::Number | TokenKind::String) {
+                // option values: `EXPLAIN FORMAT=JSON ...`
+                foreign_word = true;
+                self.bump();
                 continue;
             }
             if t.kind == TokenKind::Word {
