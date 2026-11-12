@@ -113,6 +113,15 @@ pub enum RowChange {
     },
 }
 
+/// Where a staged change sits, for pointing at the one a submit failed on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeLocation {
+    /// A row of the result (index into the original rows).
+    Row(usize),
+    /// The n-th (0-based) row added in the grid.
+    NewRow(usize),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormatChoice {
     Csv,

@@ -1578,7 +1578,7 @@ impl Workspace {
         let back = changes::InsertBack::new(kind, &server.version, &target, &submitted, &changes);
         if self.quiet {
             // Test windows have no `Root` to host the confirmation dialog: act as if confirmed.
-            self.apply_changes(console, submitted, conn, connection, stmts, back, window, cx);
+            self.apply_changes(console, submitted, conn, connection, stmts, back, changes, window, cx);
             return;
         }
         let ws = cx.entity().downgrade();
@@ -1596,9 +1596,11 @@ impl Workspace {
                 Tone::Primary,
                 move |window, cx| {
                     let (stmts, conn, connection) = (stmts2.clone(), conn2.clone(), connection2.clone());
-                    let (submitted, back) = (submitted.clone(), back.clone());
+                    let (submitted, back, changes) = (submitted.clone(), back.clone(), changes.clone());
                     ws.update(cx, |this, cx| {
-                        this.apply_changes(console, submitted, conn, connection, stmts, back, window, cx)
+                        this.apply_changes(
+                            console, submitted, conn, connection, stmts, back, changes, window, cx,
+                        )
                     })
                     .ok();
                 },
@@ -1619,10 +1621,14 @@ impl Workspace {
         connection: Arc<dyn Connection>,
         stmts: Vec<String>,
         back: Option<changes::InsertBack>,
+        staged: Vec<theta_grid::RowChange>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let c = connection.clone();
+        // The statement that failed, for pointing at its row.
+        let failed_at: Arc<std::sync::Mutex<Option<usize>>> = Arc::default();
+        let failed_slot = failed_at.clone();
         let list = stmts.clone();
         let n_inserts = back.as_ref().map_or(0, |b| b.insert_count());
         let reload = back.as_ref().is_some_and(|b| b.mode() == changes::ReadBack::Reload);
@@ -1659,6 +1665,7 @@ impl Workspace {
                         if !was_open {
                             let _ = c.execute("ROLLBACK", &opts).await;
                         }
+                        *failed_slot.lock().unwrap_or_else(|p| p.into_inner()) = i.checked_sub(offset);
                         return Err(e);
                     }
                 }
@@ -1711,19 +1718,27 @@ impl Workspace {
                         );
                     }
                     Err(e) => {
-                        // The staged edits stay in the grid so the user can fix and resubmit.
+                        // The staged edits stay in the grid so the user can fix and resubmit, and the
+                        // cursor goes to the row the server refused. The footer says it once; the
+                        // Messages tab keeps the record; no toast repeats it.
+                        let failed = (*failed_at.lock().unwrap_or_else(|p| p.into_inner()))
+                            .and_then(|i| changes::locate(&staged, i));
+                        let message = match &failed {
+                            Some((label, _)) => format!("{e} ({label})"),
+                            None => e.to_string(),
+                        };
                         if let Some(grid) = grid {
-                            grid.update(cx, |g, cx| g.changes_failed(e.to_string(), cx));
+                            let at = failed.map(|(_, at)| at);
+                            grid.update(cx, |g, cx| g.changes_failed_at(message.clone(), at, cx));
                         }
                         this.log(
                             &conn_id,
                             &stmts[0],
                             MessageKind::Error,
-                            vec![format!("Changes rolled back: {e}")],
+                            vec![format!("Nothing was changed: {message}")],
                             Some(&e),
                             cx,
                         );
-                        this.notify(NoticeKind::Error, format!("Changes rolled back: {e}"), window, cx);
                     }
                 }
                 this.refresh_txn(conn_id.clone(), connection, cx);

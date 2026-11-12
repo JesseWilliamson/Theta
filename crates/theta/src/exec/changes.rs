@@ -1,11 +1,11 @@
 //! Turning staged grid edits into SQL, and the transaction wrapper around them.
 
+use std::sync::Arc;
 use theta_core::DatabaseKind;
-use theta_grid::{EditTarget, RowChange};
+use theta_core::{Connection, Error, ExecOptions, ResultSet, Value};
+use theta_grid::{ChangeLocation, EditTarget, RowChange};
 use theta_sql::keywords::quote_if_needed;
 use theta_sql::{build_delete, build_insert, build_select_by_key, build_update};
-use std::sync::Arc;
-use theta_core::{Connection, Error, ExecOptions, ResultSet, Value};
 
 /// One statement per change, in order. Changes that cannot be expressed safely
 /// (an update or delete without key columns, an empty update) are reported as errors.
@@ -41,6 +41,44 @@ pub fn statements(
         }
     }
     Ok(out)
+}
+
+/// Which staged change the statement number `statement` of [`statements`] came from, and how to say so
+/// ("id = 7", "new row 2"). Mirrors the order and the skipping of `statements`.
+pub fn locate(changes: &[RowChange], statement: usize) -> Option<(String, ChangeLocation)> {
+    let mut n = 0;
+    let mut new_rows = 0;
+    for c in changes {
+        let (label, at) = match c {
+            RowChange::Update { row, key, set } => {
+                if set.is_empty() {
+                    continue;
+                }
+                (key_label(key), ChangeLocation::Row(*row))
+            }
+            RowChange::Delete { row, key } => (key_label(key), ChangeLocation::Row(*row)),
+            RowChange::Insert { .. } => {
+                new_rows += 1;
+                (format!("new row {new_rows}"), ChangeLocation::NewRow(new_rows - 1))
+            }
+        };
+        if n == statement {
+            return Some((label, at));
+        }
+        n += 1;
+    }
+    None
+}
+
+fn key_label(key: &[(String, Value)]) -> String {
+    key.iter()
+        .map(|(c, v)| match v {
+            Value::Null => format!("{c} is NULL"),
+            Value::Text(t) | Value::Uuid(t) => format!("{c} = '{t}'"),
+            other => format!("{c} = {}", other.display()),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// How the app learns what the database stored for an inserted row (generated keys, defaults,
@@ -202,7 +240,8 @@ impl InsertBack {
             c.execute(sql, opts).await?;
             return Ok(None);
         }
-        let first_row = |out: theta_core::StatementOutcome| out.result.and_then(|r| r.rows.into_iter().next());
+        let first_row =
+            |out: theta_core::StatementOutcome| out.result.and_then(|r| r.rows.into_iter().next());
         match self.mode {
             ReadBack::Returning => {
                 let out = c.execute(&with_returning(self.kind, sql, &names), opts).await?;
@@ -285,6 +324,25 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_statement_is_traced_to_its_change() {
+        let ch = vec![
+            RowChange::Update { row: 4, key: vec![("id".into(), Value::Int(7))], set: vec![] },
+            RowChange::Update {
+                row: 5,
+                key: vec![("id".into(), Value::Int(9))],
+                set: vec![("n".into(), Value::Int(1))],
+            },
+            RowChange::Delete { row: 1, key: vec![("code".into(), Value::Text("A".into()))] },
+            RowChange::Insert { values: vec![] },
+            RowChange::Insert { values: vec![] },
+        ];
+        assert_eq!(locate(&ch, 0), Some(("id = 9".into(), ChangeLocation::Row(5))));
+        assert_eq!(locate(&ch, 1), Some(("code = 'A'".into(), ChangeLocation::Row(1))));
+        assert_eq!(locate(&ch, 3), Some(("new row 2".into(), ChangeLocation::NewRow(1))));
+        assert_eq!(locate(&ch, 4), None);
+    }
+
+    #[test]
     fn read_back_by_product() {
         use DatabaseKind::*;
         assert_eq!(read_back(Postgres, "PostgreSQL 16.4"), ReadBack::Returning);
@@ -300,16 +358,21 @@ mod tests {
 
     #[test]
     fn returning_clause_and_keys() {
-        let sql = with_returning(DatabaseKind::Postgres, "INSERT INTO t (a) VALUES (1)", &["id".into(), "Mixed".into()]);
+        let sql = with_returning(
+            DatabaseKind::Postgres,
+            "INSERT INTO t (a) VALUES (1)",
+            &["id".into(), "Mixed".into()],
+        );
         assert_eq!(sql, "INSERT INTO t (a) VALUES (1) RETURNING id, \"Mixed\"");
         let typed = vec![("id".to_string(), Value::Int(5))];
         assert_eq!(insert_key(&["id".into()], &typed, None), Some(typed.clone()));
-        assert_eq!(
-            insert_key(&["id".into()], &[], Some(9)),
-            Some(vec![("id".to_string(), Value::Int(9))])
-        );
+        assert_eq!(insert_key(&["id".into()], &[], Some(9)), Some(vec![("id".to_string(), Value::Int(9))]));
         assert_eq!(insert_key(&["id".into()], &[], Some(0)), None);
-        assert_eq!(insert_key(&["a".into(), "b".into()], &[], Some(9)), None, "composite keys are not generated");
+        assert_eq!(
+            insert_key(&["a".into(), "b".into()], &[], Some(9)),
+            None,
+            "composite keys are not generated"
+        );
         assert_eq!(insert_key(&[], &typed, Some(9)), None);
     }
 

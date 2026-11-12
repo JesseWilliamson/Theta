@@ -398,11 +398,7 @@ impl ResultGrid {
 
     /// [`ResultGrid::changes_applied`] with what the database stored for each inserted row (see
     /// `Pending::apply_stored`), so a generated key shows as the key and not as NULL.
-    pub fn changes_applied_stored(
-        &mut self,
-        stored: &[Option<Vec<Option<Value>>>],
-        cx: &mut Context<Self>,
-    ) {
+    pub fn changes_applied_stored(&mut self, stored: &[Option<Vec<Option<Value>>>], cx: &mut Context<Self>) {
         let (Some(result), Some(pending)) = (self.result.as_mut(), self.pending.as_mut()) else { return };
         pending.apply_stored(Arc::make_mut(result), stored);
         self.submit_error = None;
@@ -418,6 +414,19 @@ impl ResultGrid {
     pub fn changes_failed(&mut self, message: String, cx: &mut Context<Self>) {
         self.submit_error = Some(message);
         cx.notify();
+    }
+
+    /// [`ResultGrid::changes_failed`] that also moves the cursor to the change the server refused, so
+    /// the user sees which row to fix.
+    pub fn changes_failed_at(&mut self, message: String, at: Option<ChangeLocation>, cx: &mut Context<Self>) {
+        match at {
+            Some(ChangeLocation::Row(row)) => self.select_row(row, cx),
+            Some(ChangeLocation::NewRow(k)) if self.n_cols() > 0 && k < self.n_new() => {
+                self.set_selection(Some(Selection::row(self.n_view() + k, 0)), true, cx);
+            }
+            _ => {}
+        }
+        self.changes_failed(message, cx);
     }
 
     // ------------------------------------------------------------- data access
