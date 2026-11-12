@@ -328,6 +328,26 @@ impl ResultGrid {
                 label = format!("{} of {label}", format_count(self.n_view()));
             }
             left = left.child(div().child(label));
+            if let Some(reason) = self.meta.stale.clone() {
+                left = left
+                    .child(Icon::new(IconName::TriangleAlert).size(px(13.)).text_color(p.warning))
+                    .child(div().text_color(p.warning).font_weight(FontWeight::MEDIUM).child(reason));
+                if self.meta.refreshable && !self.loading {
+                    left = left.child(
+                        div()
+                            .id("grid-refresh")
+                            .px_1()
+                            .rounded(px(3.))
+                            .cursor_pointer()
+                            .text_color(p.accent)
+                            .font_weight(FontWeight::MEDIUM)
+                            .hover(|d| d.bg(p.hover))
+                            .tooltip(|window, cx| Tooltip::new("Run the query again (F5)").build(window, cx))
+                            .on_click(cx.listener(|this, _, _, cx| this.request_refresh(cx)))
+                            .child("Refresh"),
+                    );
+                }
+            }
             if rs.truncated {
                 let partial = crate::view::partial_notice(
                     !self.sorts.is_empty(),

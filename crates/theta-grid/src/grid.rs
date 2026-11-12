@@ -256,6 +256,22 @@ impl ResultGrid {
         self.result.as_ref().is_some_and(|r| r.truncated)
     }
 
+    /// Ask the host to run the statement again. Ignored when it cannot (a write, say) or a run is
+    /// in progress.
+    pub fn request_refresh(&mut self, cx: &mut Context<Self>) {
+        if self.result.is_some() && self.meta.refreshable && !self.loading && !self.loading_all {
+            cx.emit(GridEvent::Refresh);
+        }
+    }
+
+    /// Mark the rows as no longer true, with the reason for the footer (or clear the mark).
+    pub fn set_stale(&mut self, reason: Option<String>, cx: &mut Context<Self>) {
+        if self.meta.stale != reason {
+            self.meta.stale = reason;
+            cx.notify();
+        }
+    }
+
     /// Ask the host to load the remaining rows. Ignored when everything is loaded or a load runs.
     pub fn request_load_all(&mut self, cx: &mut Context<Self>) {
         if self.is_partial() && !self.loading && !self.loading_all && !self.meta.load_cap_reached {
@@ -377,8 +393,18 @@ impl ResultGrid {
 
     /// The submit succeeded: fold the edits into the displayed data.
     pub fn changes_applied(&mut self, cx: &mut Context<Self>) {
+        self.changes_applied_stored(&[], cx);
+    }
+
+    /// [`ResultGrid::changes_applied`] with what the database stored for each inserted row (see
+    /// `Pending::apply_stored`), so a generated key shows as the key and not as NULL.
+    pub fn changes_applied_stored(
+        &mut self,
+        stored: &[Option<Vec<Option<Value>>>],
+        cx: &mut Context<Self>,
+    ) {
         let (Some(result), Some(pending)) = (self.result.as_mut(), self.pending.as_mut()) else { return };
-        pending.apply_to(Arc::make_mut(result));
+        pending.apply_stored(Arc::make_mut(result), stored);
         self.submit_error = None;
         self.editor = None;
         self.cache.clear();

@@ -277,6 +277,13 @@ impl Pending {
     /// Clears all pending state. Returns the old-to-new row index mapping is
     /// not needed: callers rebuild their view.
     pub fn apply_to(&mut self, rs: &mut ResultSet) {
+        self.apply_stored(rs, &[]);
+    }
+
+    /// Like [`Pending::apply_to`], with what the database stored for each inserted row, in insert
+    /// order: a `Some` cell replaces what the user typed or left empty (a generated key, a default,
+    /// a computed column), a `None` cell or row keeps it.
+    pub fn apply_stored(&mut self, rs: &mut ResultSet, stored: &[Option<Vec<Option<Value>>>]) {
         for ((r, c), v) in std::mem::take(&mut self.edits) {
             if let Some(cell) = rs.rows.get_mut(r).and_then(|row| row.get_mut(c)) {
                 *cell = v;
@@ -291,8 +298,16 @@ impl Pending {
                 keep
             });
         }
-        for nr in std::mem::take(&mut self.new_rows) {
-            rs.rows.push(nr.values.into_iter().map(|v| v.unwrap_or(Value::Null)).collect());
+        for (k, nr) in std::mem::take(&mut self.new_rows).into_iter().enumerate() {
+            let mut row: Vec<Value> = nr.values.into_iter().map(|v| v.unwrap_or(Value::Null)).collect();
+            if let Some(Some(back)) = stored.get(k) {
+                for (cell, v) in row.iter_mut().zip(back) {
+                    if let Some(v) = v {
+                        *cell = v.clone();
+                    }
+                }
+            }
+            rs.rows.push(row);
         }
         self.undo.clear();
     }
@@ -324,6 +339,15 @@ mod tests {
         };
         let p = Pending::new(EditTarget::new(None, "t", vec![0], vec![1, 2]), 3);
         (rs, p)
+    }
+
+    #[test]
+    fn stored_values_replace_the_typed_row() {
+        let (mut rs, mut p) = fixture();
+        p.add_row();
+        p.set_cell(&rs, RowRef::New(0), 1, Value::Text("New".into()));
+        p.apply_stored(&mut rs, &[Some(vec![Some(Value::Int(4)), None, Some(Value::Text("dflt".into()))])]);
+        assert_eq!(rs.rows[3], vec![Value::Int(4), Value::Text("New".into()), Value::Text("dflt".into())]);
     }
 
     #[test]

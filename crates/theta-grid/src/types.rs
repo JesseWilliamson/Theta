@@ -21,6 +21,11 @@ pub struct GridMeta {
     /// "Load all" already ran and still hit its cap: asking again would change nothing, so the grid
     /// stops offering it and says the result must be narrowed instead.
     pub load_cap_reached: bool,
+    /// The rows may no longer be true (a transaction that produced them was rolled back): shown in
+    /// the footer, with a Refresh button when `refreshable`.
+    pub stale: Option<String>,
+    /// The host can run the statement again (`GridEvent::Refresh`).
+    pub refreshable: bool,
 }
 
 impl GridMeta {
@@ -41,6 +46,10 @@ impl GridMeta {
     }
     pub fn with_reference_columns(mut self, columns: Vec<usize>) -> Self {
         self.reference_columns = columns;
+        self
+    }
+    pub fn with_refreshable(mut self) -> Self {
+        self.refreshable = true;
         self
     }
     pub fn with_load_cap_reached(mut self) -> Self {
@@ -152,6 +161,8 @@ pub enum GridEvent {
     /// the statement again with a higher limit and hands the answer back with
     /// `ResultGrid::replace_result`; the grid keeps its sort and filter meanwhile.
     LoadAll,
+    /// The user asked to run the statement again (F5 in the grid, or the footer's Refresh).
+    Refresh,
     /// Escape with nothing left to dismiss: keyboard focus should go back to the editor.
     ReturnFocus,
 }

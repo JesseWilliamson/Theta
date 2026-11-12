@@ -271,6 +271,10 @@ impl ResultGrid {
                 self.toggle_record_view(cx);
                 true
             }
+            "f5" => {
+                self.request_refresh(cx);
+                true
+            }
             "r" if modal && !shift => {
                 self.toggle_record_view(cx);
                 true

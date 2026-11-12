@@ -82,6 +82,7 @@ fn commands() -> Vec<Command> {
         cmd!("Toggle Cell Viewer", "View", IconName::PanelRight, ToggleCellViewer),
         cmd!("Copy Cell Value", "Data", IconName::Copy, CopyCellValue),
         cmd!("Load All Rows", "Data", IconName::ArrowDown, LoadAllRows),
+        cmd!("Refresh Results", "Data", IconName::RefreshCw, RefreshResults),
         cmd!("Close Tab", "View", IconName::X, CloseTab),
         cmd!("Reopen Closed Tab", "View", IconName::Undo2, ReopenClosedTab),
         cmd!("Select Theme…", "Appearance", IconName::Palette, SelectTheme),

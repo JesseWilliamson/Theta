@@ -29,6 +29,7 @@ actions!(
         RunOnSeveral,
         CopyCellValue,
         LoadAllRows,
+        RefreshResults,
         // Command surfaces
         OpenCommandPalette,
         OpenTablePicker,

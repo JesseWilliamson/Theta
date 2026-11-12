@@ -1000,6 +1000,7 @@ impl Workspace {
                     )
                     .with_elapsed(out.elapsed)
                     .with_statement(p.sql.clone());
+                    let meta = if p.class == StatementClass::Query { meta.with_refreshable() } else { meta };
                     let truncated = rs.truncated;
                     let number = self.consoles.get(&id).map_or(0, |c| c.results.len()) + 1;
                     let title = super::console::result_title(number, &p.sql, &rs.columns);
@@ -1455,6 +1456,7 @@ impl Workspace {
             GridEvent::SelectionChanged => {}
             GridEvent::ReturnFocus => self.focus_editor(window, cx),
             GridEvent::LoadAll => self.load_all_rows(id, window, cx),
+            GridEvent::Refresh => self.refresh_result(id, window, cx),
             GridEvent::FollowReference { column, value } => {
                 self.follow_reference(id, column, value, window, cx)
             }
@@ -1513,13 +1515,14 @@ impl Workspace {
                 return;
             }
         };
-        let ConnState::Connected { connection, .. } = self.store.read(cx).state(&conn).clone() else {
+        let ConnState::Connected { connection, server, .. } = self.store.read(cx).state(&conn).clone() else {
             grid.update(cx, |g, cx| g.changes_failed("The connection is closed".into(), cx));
             return;
         };
+        let back = changes::InsertBack::new(kind, &server.version, &target, &submitted, &changes);
         if self.quiet {
             // Test windows have no `Root` to host the confirmation dialog: act as if confirmed.
-            self.apply_changes(console, submitted, conn, connection, stmts, window, cx);
+            self.apply_changes(console, submitted, conn, connection, stmts, back, window, cx);
             return;
         }
         let ws = cx.entity().downgrade();
@@ -1537,9 +1540,9 @@ impl Workspace {
                 Tone::Primary,
                 move |window, cx| {
                     let (stmts, conn, connection) = (stmts2.clone(), conn2.clone(), connection2.clone());
-                    let submitted = submitted.clone();
+                    let (submitted, back) = (submitted.clone(), back.clone());
                     ws.update(cx, |this, cx| {
-                        this.apply_changes(console, submitted, conn, connection, stmts, window, cx)
+                        this.apply_changes(console, submitted, conn, connection, stmts, back, window, cx)
                     })
                     .ok();
                 },
@@ -1559,11 +1562,14 @@ impl Workspace {
         conn_id: String,
         connection: Arc<dyn Connection>,
         stmts: Vec<String>,
+        back: Option<changes::InsertBack>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let c = connection.clone();
         let list = stmts.clone();
+        let n_inserts = back.as_ref().map_or(0, |b| b.insert_count());
+        let reload = back.as_ref().is_some_and(|b| b.mode() == changes::ReadBack::Reload);
         // In manual mode the edits join a transaction that stays open for the user to commit.
         let manual = self.manual_begin(&conn_id, cx);
         cx.spawn_in(window, async move |this, cx| {
@@ -1578,25 +1584,50 @@ impl Workspace {
                     began_here = true;
                 }
                 let in_txn = was_open || began_here;
-                let all = changes::with_transaction(list, in_txn);
-                for sql in &all {
-                    if let Err(e) = c.execute(sql, &opts).await {
+                // Inserts come last in `list`; each is run through `InsertBack` so the database's own
+                // answer (generated key, defaults) is read back inside the same transaction.
+                let first_insert = list.len() - n_inserts;
+                let mut stored: Vec<Option<changes::StoredRow>> = Vec::new();
+                let mut all = changes::with_transaction(list, in_txn);
+                let offset = usize::from(!in_txn);
+                let commit = (!in_txn).then(|| all.pop()).flatten();
+                for (i, sql) in all.iter().enumerate() {
+                    let step = i.checked_sub(offset).filter(|s| *s >= first_insert);
+                    let r = match (&back, step) {
+                        (Some(b), Some(s)) => b.run(&c, sql, s - first_insert, &opts).await.map(|row| {
+                            stored.push(row);
+                        }),
+                        _ => c.execute(sql, &opts).await.map(|_| ()),
+                    };
+                    if let Err(e) = r {
                         if !was_open {
                             let _ = c.execute("ROLLBACK", &opts).await;
                         }
                         return Err(e);
                     }
                 }
-                Ok(in_txn)
+                if let Some(commit) = commit
+                    && let Err(e) = c.execute(&commit, &opts).await
+                {
+                    let _ = c.execute("ROLLBACK", &opts).await;
+                    return Err(e);
+                }
+                Ok((in_txn, stored))
             })
             .await;
             this.update_in(cx, |this, window, cx| {
                 let name = this.conn_name(&conn_id, cx);
                 let grid = this.consoles.get(&console).map(|c| c.grid.clone());
                 match res {
-                    Ok(in_txn) => {
+                    Ok((in_txn, stored)) => {
+                        // Whether the database could say what it stored for every inserted row; if
+                        // not, the result is read again below.
+                        let unresolved = reload || stored.iter().any(Option::is_none);
                         if let Some(grid) = grid {
-                            this.fold_applied_changes(console, &grid, &submitted, cx);
+                            this.fold_applied_changes(console, &grid, &submitted, &stored, cx);
+                            if unresolved && n_inserts > 0 {
+                                this.refresh_result(console, window, cx);
+                            }
                         }
                         for s in &stmts {
                             this.push_history(&name, s, Duration::ZERO, None, None, cx);
@@ -1651,13 +1682,14 @@ impl Workspace {
         console: u64,
         grid: &Entity<ResultGrid>,
         submitted: &Arc<theta_core::ResultSet>,
+        stored: &[Option<changes::StoredRow>],
         cx: &mut Context<Self>,
     ) {
         // A newer run replaced the rows the edits were staged on: nothing left to fold into.
         if !grid.read(cx).result().is_some_and(|r| Arc::ptr_eq(r, submitted)) {
             return;
         }
-        grid.update(cx, |g, cx| g.changes_applied(cx));
+        grid.update(cx, |g, cx| g.changes_applied_stored(stored, cx));
         let folded = grid.read(cx).result().cloned();
         if let (Some(folded), Some(c)) = (folded, self.consoles.get_mut(&console))
             && let Some(item) = c.results.iter_mut().find(|r| Arc::ptr_eq(&r.result, submitted))

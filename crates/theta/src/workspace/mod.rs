@@ -1250,6 +1250,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ShowChart, window, cx| this.show_chart(window, cx)))
             .on_action(cx.listener(|this, _: &ShowHistory, window, cx| this.show_history(window, cx)))
             .on_action(cx.listener(|this, _: &LoadAllRows, window, cx| this.load_all_active(window, cx)))
+            .on_action(cx.listener(|this, _: &RefreshResults, window, cx| this.refresh_active_result(window, cx)))
             .on_action(
                 cx.listener(|this, _: &ShowLocalHistory, window, cx| this.open_local_history(window, cx)),
             )

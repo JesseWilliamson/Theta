@@ -227,6 +227,18 @@ pub fn build_update(
     )
 }
 
+/// `SELECT cols FROM t WHERE key...`: reads back the row a key identifies.
+pub fn build_select_by_key(
+    kind: DatabaseKind,
+    schema: Option<&str>,
+    table: &str,
+    columns: &[String],
+    key: &[(String, Value)],
+) -> String {
+    let cols: Vec<String> = columns.iter().map(|c| quote_if_needed(c, kind)).collect();
+    format!("SELECT {} FROM {}{}", cols.join(", "), target(kind, schema, table), where_clause(kind, key))
+}
+
 /// Multi-row `INSERT`. Rows go on separate lines for readability.
 pub fn build_insert(
     kind: DatabaseKind,

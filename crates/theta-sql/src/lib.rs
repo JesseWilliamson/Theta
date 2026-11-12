@@ -39,7 +39,9 @@ pub use fk::{
     suggest_joins, tables_in_scope,
 };
 pub use format::{FormatOptions, format};
-pub use generate::{build_delete, build_insert, build_update, select_top, sql_literal, table_ddl};
+pub use generate::{
+    build_delete, build_insert, build_select_by_key, build_update, select_top, sql_literal, table_ddl,
+};
 pub use lint::{Diagnostic, Severity, is_incomplete_while_typing, lint};
 pub use plan::{Insight, PlanSummary, analyze_plan};
 pub use script::{StatementClass, StatementSpan, classify, split_statements, statement_at};
