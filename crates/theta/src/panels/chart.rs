@@ -14,6 +14,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::{ActiveTheme as _, IndexPath, Selectable as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
+    EventEmitter,
     AppContext as _, BorderStyle, Bounds, Context, Entity, FocusHandle, Hsla, InteractiveElement as _,
     IntoElement, KeyDownEvent, MouseMoveEvent, ParentElement as _, PathBuilder, Pixels, Render, SharedString,
     Styled as _, Subscription, TextAlign, TextRun, Window, canvas, div, fill, point, px, quad, size,
@@ -233,10 +234,20 @@ impl ChartPanel {
         if m.control || m.platform || m.alt {
             return;
         }
+        let key = ev.keystroke.key.as_str();
+        if key == "escape" {
+            // First the readout, then the chart: a second Escape hands the keyboard back.
+            if self.hover.take().is_some() {
+                cx.notify();
+            } else {
+                cx.emit(ChartEvent::Leave);
+            }
+            cx.stop_propagation();
+            return;
+        }
         let Ok(data) = &self.data else {
             return;
         };
-        let key = ev.keystroke.key.as_str();
         let kind = match key {
             "1" => Some(ChartKind::Bar),
             "2" => Some(ChartKind::Line),
@@ -260,13 +271,6 @@ impl ChartPanel {
             "right" | "l" => (1, 0),
             "up" | "k" => (0, -1),
             "down" | "j" => (0, 1),
-            "escape" => {
-                if self.hover.take().is_some() {
-                    cx.notify();
-                    cx.stop_propagation();
-                }
-                return;
-            }
             _ => return,
         };
         let cur = self.hover.unwrap_or(Target { series: 0, point: 0 });
@@ -612,8 +616,30 @@ fn paint_readout(
     }
 }
 
+/// The chart asks its host for things only the host can do.
+pub enum ChartEvent {
+    /// Escape with nothing left to hide: back to the editor.
+    Leave,
+}
+
+impl EventEmitter<ChartEvent> for ChartPanel {}
+
 impl Render for ChartPanel {
+    /// The panel itself holds the keyboard focus, whatever it shows. Tracking it only on the plot left the
+    /// focus on an element that is not drawn when the result has no rows or nothing to plot, so the keys
+    /// (including `ctrl-1` and `escape`) went nowhere and only a click got out.
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let content = self.render_content(window, cx);
+        div()
+            .size_full()
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| this.on_key(ev, window, cx)))
+            .child(content)
+    }
+}
+
+impl ChartPanel {
+    fn render_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let theme = cx.theme().clone();
         let Some(rs) = self.result.clone() else {
             return EmptyState::new(gpui_kit::assets::IconName::ChartColumn, "Nothing to chart")
@@ -763,12 +789,6 @@ impl Render for ChartPanel {
                             .min_h_0()
                             .mx_2()
                             .relative()
-                            .track_focus(&self.focus)
-                            .on_key_down(
-                                cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                                    this.on_key(ev, window, cx)
-                                }),
-                            )
                             .on_mouse_move(
                                 cx.listener(|this, ev: &MouseMoveEvent, _, cx| this.on_move(ev, cx)),
                             )

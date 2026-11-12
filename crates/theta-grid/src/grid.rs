@@ -286,6 +286,15 @@ impl ResultGrid {
         self.pending.as_ref().is_some_and(|p| !p.is_empty())
     }
 
+    /// Make sure a cell is current: keep the one that is, else take the first. Called when the keyboard
+    /// is handed to the grid, so the ring is visible and the first key moves from a known place instead
+    /// of only creating the selection.
+    pub fn ensure_selection(&mut self, cx: &mut Context<Self>) {
+        if self.sel.is_none() && self.n_rows() > 0 && self.n_cols() > 0 {
+            self.set_selection(Some(Selection::single(Cell::new(0, 0))), true, cx);
+        }
+    }
+
     pub fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus.clone()
     }
