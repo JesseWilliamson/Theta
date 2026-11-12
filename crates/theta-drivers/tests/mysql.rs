@@ -587,3 +587,37 @@ async fn manual_transactions_start_with_the_configured_isolation() {
     run(c, "ROLLBACK").await;
     run(c, &format!("DROP TABLE {t2}")).await;
 }
+
+/// The four everyday connect failures read as plain sentences, with the original text kept as details.
+#[tokio::test]
+async fn connect_failures_are_worded_for_people() {
+    use theta_core::friendly::connect_error;
+    let base = mysql_config();
+    let say = |e: &Error, c: &ConnectionConfig| connect_error(e, Some(c));
+
+    let mut wrong_port = base.clone();
+    wrong_port.port = 5999;
+    let e = theta_drivers::connect(&wrong_port).await.err().expect("must fail");
+    let x = say(&e, &wrong_port);
+    assert_eq!(x.message, "Nothing is listening on 127.0.0.1:5999. Is the server running, and is the port right?");
+    assert!(x.details.as_deref().is_some_and(|d| d.contains("os error 111")), "{x:?}");
+
+    let mut unknown_host = base.clone();
+    unknown_host.host = "no-such-host.invalid".into();
+    let e = theta_drivers::connect(&unknown_host).await.err().expect("must fail");
+    assert_eq!(
+        say(&e, &unknown_host).message,
+        "The host no-such-host.invalid could not be found. Check the name or your VPN."
+    );
+
+    let mut wrong_password = base.clone();
+    wrong_password.password = Some("definitely-wrong".into());
+    let e = theta_drivers::connect(&wrong_password).await.err().expect("must fail");
+    assert_eq!(say(&e, &wrong_password).message, "The server rejected the password for user quarry.");
+
+    let mut no_db = base.clone();
+    no_db.database = "nodb_x".into();
+    let e = theta_drivers::connect(&no_db).await.err().expect("must fail");
+    let m = say(&e, &no_db).message;
+    assert!(m.starts_with("There is no database named nodb_x on 127.0.0.1:3306."), "{m}");
+}

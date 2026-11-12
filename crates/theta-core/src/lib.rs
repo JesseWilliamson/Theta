@@ -20,8 +20,10 @@
 pub mod config;
 pub mod driver;
 pub mod error;
+pub mod friendly;
 pub mod plan;
 pub mod schema;
+pub mod text;
 pub mod txn;
 pub mod value;
 

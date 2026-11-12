@@ -75,10 +75,14 @@ pub(crate) fn load_user_themes(cx: &mut App) -> Vec<String> {
         match std::fs::read_to_string(&path) {
             Ok(text) => {
                 if let Err(e) = ThemeRegistry::global_mut(cx).load_themes_from_str(&text) {
-                    warnings.push(format!("theme {}: {e}", path.display()));
+                    warnings.push(format!("The theme file {} was skipped: {e}.", path.display()));
                 }
             }
-            Err(e) => warnings.push(format!("theme {}: {e}", path.display())),
+            Err(e) => warnings.push(theta_core::friendly::io_message(
+                &e,
+                &path,
+                theta_core::friendly::IoOp::Read,
+            )),
         }
     }
     warnings
@@ -188,8 +192,11 @@ pub fn set_theme(name: &str, cx: &mut App) {
 /// Convert a Zed theme file, store it in `<config_dir>/themes/` and register
 /// it. Returns the names of the imported themes.
 pub fn import_zed_theme_file(src: &Path, cx: &mut App) -> anyhow::Result<Vec<String>> {
-    let text = std::fs::read_to_string(src)?;
-    let converted = crate::zed_import::import_zed_theme(&text)?;
+    let text = std::fs::read_to_string(src).map_err(|e| {
+        anyhow::anyhow!(theta_core::friendly::io_message(&e, src, theta_core::friendly::IoOp::Read))
+    })?;
+    let converted = crate::zed_import::import_zed_theme(&text)
+        .map_err(|e| anyhow::anyhow!("{} is not a usable Zed theme file ({e}).", src.display()))?;
     let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("imported");
     let dest = themes_dir().join(format!("{}.json", crate::zed_import::slug(stem)));
     crate::settings::write_atomic(&dest, converted.as_bytes())?;
