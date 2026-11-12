@@ -268,7 +268,10 @@ fn leader_menu_hints_mirror_the_helix_space_menu() {
     feed(&mut e, "<space>");
     let (title, hints) = e.key_hints().unwrap();
     assert_eq!(title, "Space");
-    for key in ["f", "b", "? space", "r", "R", "e", "E", "k", "t", "y", "p", "c", "x", "g", "d", "T", "j", "a", "n", "D"] {
+    for key in [
+        "f", "b", "? space", "r", "R", "e", "E", "k", "t", "y", "p", "c", "x", "g", "d", "T", "j", "a", "n",
+        "D",
+    ] {
         assert!(hints.iter().any(|h| h.key == key), "missing {key}");
     }
     assert_eq!(e.pending_keys(), "space");

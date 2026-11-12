@@ -129,8 +129,13 @@ pub(crate) enum Simple {
     ReplaceChar(char),
     Replace,
     Tilde,
-    Put { before: bool, cursor_after: bool },
-    Join { spaces: bool },
+    Put {
+        before: bool,
+        cursor_after: bool,
+    },
+    Join {
+        spaces: bool,
+    },
     Undo,
     Redo,
     Dot,
