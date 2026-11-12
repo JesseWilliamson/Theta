@@ -43,6 +43,10 @@ const FILL_LIMIT: usize = 20_000;
 const MARGIN: f64 = 24.0;
 /// Polygons whose extent is below this many pixels are drawn compactly (fill only).
 const COMPACT_PX: f64 = 12.0;
+/// Half the side of the smallest marker a polygon is drawn as, in pixels.
+const MIN_POLY_HALF: f64 = 3.0;
+/// Up to this many collapsed polygons get an outlined marker each; more are merged into one mesh.
+const OUTLINED_SMALL_LIMIT: usize = 2_000;
 
 fn to_hsla(c: Hsl, a: f32) -> Hsla {
     hsla(c.h, c.s, c.l, a)
@@ -499,6 +503,13 @@ fn paint_features(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window) {
         .map(|f| f.vertices)
         .sum();
     let squares = n_points > CIRCLE_LIMIT;
+    let few_small = copies
+        .iter()
+        .flat_map(|(_, v)| v.iter())
+        .map(|i| &core.prepared.features[*i])
+        .filter(|f| f.kinds.polygons && small_poly(f))
+        .count()
+        <= OUTLINED_SMALL_LIMIT;
     let mut cells = squares.then(|| CellGrid::new(sz, layers));
     let mut dot_cells = CellGrid::new(sz, layers);
 
@@ -518,11 +529,36 @@ fn paint_features(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window) {
             if small_poly(f) {
                 let c = cx.t.apply([f.bbox.center()[0] + k, f.bbox.center()[1]]);
                 if c[0] > -8.0 && c[0] < sz[0] + 8.0 && c[1] > -8.0 && c[1] < sz[1] + 8.0 {
+                    // Never smaller than a point marker: at the zoom that fits a world-wide result a
+                    // 10 km zone is a fraction of a pixel and must still be seen and told from the sea.
                     let (hw, hh) = (
-                        (f.bbox.width() * scale / 2.0).max(1.25) as f32,
-                        (f.bbox.height() * scale / 2.0).max(1.25) as f32,
+                        (f.bbox.width() * scale / 2.0).max(MIN_POLY_HALF) as f32,
+                        (f.bbox.height() * scale / 2.0).max(MIN_POLY_HALF) as f32,
                     );
-                    box_mesh.slot(f.layer).rect(cx.pt(c), hw, hh, layer_col(f.layer).opacity(0.6), window);
+                    if few_small {
+                        let b = Bounds {
+                            origin: cx.pt([c[0] - hw as f64, c[1] - hh as f64]),
+                            size: size(px(hw * 2.0), px(hh * 2.0)),
+                        };
+                        let r = Corners::all(px(1.5));
+                        let rim = hsla(0.0, 0.0, 1.0, 0.9);
+                        window.paint_quad(quad(
+                            b,
+                            r,
+                            layer_col(f.layer).opacity(0.85),
+                            px(1.0),
+                            rim,
+                            BorderStyle::default(),
+                        ));
+                    } else {
+                        box_mesh.slot(f.layer).rect(
+                            cx.pt(c),
+                            hw,
+                            hh,
+                            layer_col(f.layer).opacity(0.85),
+                            window,
+                        );
+                    }
                 }
                 continue;
             }
@@ -556,7 +592,7 @@ fn paint_features(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window) {
             });
         }
         fills.flush(|l| layer_col(l).opacity(0.25), window);
-        box_mesh.flush(|l| layer_col(l).opacity(0.6), window);
+        box_mesh.flush(|l| layer_col(l).opacity(0.85), window);
         outlines.flush(layer_col, window);
 
         // Pass 2: lines.
