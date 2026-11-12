@@ -270,6 +270,8 @@ fn space_menu_effects() {
         ("<space>a", Effect::CodeActions),
         ("<space>n", Effect::RenameSymbol),
         ("<space>D", Effect::ShowProblems),
+        ("<space>v", Effect::HostCommand("cell".into())),
+        ("<space>V", Effect::HostCommand("cell copy".into())),
         ("<F12>", Effect::GoToDefinition),
         ("<S-F12>", Effect::FindUsages),
         ("<F2>", Effect::RenameSymbol),

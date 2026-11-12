@@ -416,6 +416,22 @@ impl Workspace {
         window.focus(&h, cx);
     }
 
+    /// Show the value viewer for the results grid's focused cell, or hide it. The grid takes focus so
+    /// the cursor keys move the viewer along; `esc` hands focus back to the editor as usual.
+    pub(super) fn toggle_cell_viewer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus_results(window, cx);
+        let grid = self.results.read(cx).grid.clone();
+        grid.update(cx, |g, cx| g.toggle_cell_viewer(cx));
+    }
+
+    pub(super) fn copy_cell_value(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let grid = self.results.read(cx).grid.clone();
+        let copied = grid.update(cx, |g, cx| g.copy_cell_value(cx));
+        if !copied {
+            self.notify(NoticeKind::Error, "Select a cell in the results first".to_string(), window, cx);
+        }
+    }
+
     fn host_command(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
         let t = cmd.trim().trim_start_matches(':');
         let (name, arg) = t.split_once(char::is_whitespace).map(|(a, b)| (a, b.trim())).unwrap_or((t, ""));
@@ -464,6 +480,8 @@ impl Workspace {
                     ),
                 }
             }
+            "cell" | "viewer" if arg == "copy" => self.copy_cell_value(window, cx),
+            "cell" | "viewer" => self.toggle_cell_viewer(window, cx),
             "reopen" | "reopen-tab" => self.reopen_closed_tab(window, cx),
             "run" => self.run_request(self.active_tab.unwrap_or(0), RunReq::Statement, window, cx),
             "format" | "fmt" => self.format_console(self.active_tab.unwrap_or(0), false, window, cx),

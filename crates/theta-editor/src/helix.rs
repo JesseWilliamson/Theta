@@ -190,6 +190,9 @@ pub(crate) enum FxKind {
     ShowProblems,
     NextProblem,
     PrevProblem,
+    /// A `:` command of the host application (`Effect::HostCommand`), for space-menu entries that open
+    /// application features the engine knows nothing about (the cell viewer, the table search ...).
+    Host(&'static str),
 }
 
 pub(crate) enum Node {
@@ -413,6 +416,8 @@ fn build_trie() -> Sub {
         s.bind("n", Cmd::Fx(FxKind::Rename), "rename alias / CTE / column alias");
         s.bind("D", Cmd::Fx(FxKind::ShowProblems), "problems");
         s.bind("j", Cmd::Fx(FxKind::ToggleBottomPanel), "toggle results panel");
+        s.bind("v", Cmd::Fx(FxKind::Host("cell")), "cell viewer");
+        s.bind("V", Cmd::Fx(FxKind::Host("cell copy")), "copy cell value");
     }
     for (key, name) in [("z", "View"), ("Z", "View")] {
         let z = r.sub_mut(key, name);
@@ -1207,6 +1212,7 @@ impl Editor {
             FxKind::ShowProblems => self.effects.push(Effect::ShowProblems),
             FxKind::NextProblem => self.effects.push(Effect::NextProblem),
             FxKind::PrevProblem => self.effects.push(Effect::PreviousProblem),
+            FxKind::Host(cmd) => self.effects.push(Effect::HostCommand(cmd.to_string())),
         }
     }
 

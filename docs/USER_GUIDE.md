@@ -487,8 +487,9 @@ summary of the selected cells.
 - **Filter**: `mod-f` or `/` opens a filter box that matches any cell; the footer shows "2 of 8 rows";
   `esc` closes it and restores the rows.
 - **Columns**: drag a header edge to resize; double-click the edge to fit.
-- **Inspector**: `space` (or the **Cell inspector** button) opens a pane with the full value of the current
-  cell: long text, pretty-printed JSON, and geometry as EWKT.
+- **Cell viewer**: `space` (or the **Cell inspector** button, `mod-shift-v`, *Toggle Cell Viewer* in the palette,
+  `space v` in Helix and Vim, `:cell`) opens a pane that shows the value of the current cell and follows the
+  cursor as you move. See [Cell viewer](#cell-viewer).
 - **Copy**: `mod-c` copies the selection as tab-separated text, `mod-shift-c` adds the column headers. The
   context menu also has *Copy as JSON* and *Copy as INSERT*.
 - **Export**: **Export results** › CSV, TSV, JSON, Markdown or SQL INSERTs, then *To file…* or *To
@@ -508,6 +509,29 @@ background.
 
 With the Helix key map the grid also takes `h j k l`, `gg` / `G`, `v` (extend), `x` (select row), `y` (copy),
 `u` (undo an edit), `i` (edit) and `%` (select all).
+
+### Cell viewer
+
+The pane on the right of the grid shows the focused cell in the form that suits its value. The header names the
+column, its type, the row and the size (`3,861 bytes · PNG 160×100`).
+
+- **JSON** (a `json` / `jsonb` column) is pretty-printed with syntax colours and line numbers. Every object or
+  array that spans several lines has a chevron to fold it; a folded line reads `"owner": { … },`. The two
+  buttons in the header, or `[` and `]`, fold everything below the top level and unfold everything again. Text
+  that is not valid JSON is shown as plain text and says so.
+- **Long text** wraps and can be selected and copied.
+- **Binary** is a hex dump with an offset, the bytes and an ASCII column, and the byte count in the header.
+  **Images** (PNG, JPEG, GIF and WebP, recognised by their first bytes, not by the column type) are drawn
+  instead, scaled down to fit.
+- **Geometry** keeps its facts, its EWKT and the *Show on Map* button.
+- **Copy**: the button in the header, `shift-y` in Helix and Vim, `mod-shift-y` (*Copy Cell Value*, `space V`,
+  `:cell copy`) put the whole value on the clipboard as text. It copies the real value, not what the pane
+  shows, so it also works when the pane was cut short.
+
+The pane never loads more than a bounded amount: 200,000 characters of text or JSON, 64 KiB of a hex dump
+and pictures up to 8 MiB. When a value is bigger the pane says so under the body, with the real size
+(`Showing the first 200,000 of 1,250,000 characters (1.2 MiB)`), and a picture over the limit is shown as bytes
+with the reason. Copy still gets everything the result holds.
 
 ### Record view
 

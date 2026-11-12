@@ -21,6 +21,9 @@ actions!(
         FocusExplorer,
         FocusEditor,
         FocusResults,
+        // The value viewer of the result grid's focused cell
+        ToggleCellViewer,
+        CopyCellValue,
         // Command surfaces
         OpenCommandPalette,
         OpenTablePicker,

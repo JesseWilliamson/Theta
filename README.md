@@ -175,7 +175,7 @@ Per-product behaviour (what is disabled and why) is in the [user guide](docs/USE
 
 **Results**
 - Virtualised grid (100,000 rows by 60 columns stays interactive): type-aware sorting, filtering, rectangular
-  cell selection, column resizing and auto-fit, an inspector for long text, JSON and geometry values, and
+  cell selection, column resizing and auto-fit, a cell viewer that follows the cursor (pretty JSON with folding, wrapped text, hex dumps, PNG / JPEG / GIF / WebP pictures, geometry), and
   copy as TSV, JSON or `INSERT`.
 - Editing: change cells, add and delete rows, review the staged changes, then submit them. Theta shows the
   generated `UPDATE`/`INSERT`/`DELETE` statements and applies them in one transaction. A result is editable

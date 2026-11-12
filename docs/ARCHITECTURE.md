@@ -632,6 +632,26 @@ written by me, so these are catch rates on *my* statements, not a prediction for
 5,000-statement file (one statement per line) takes about 0.23 s in the optimised test profile; parse time is
 linear (500 units 0.04 s, 4,000 units 0.32 s).
 
+### Added in 0.1.0-alpha.9 (part A)
+
+#### Cell viewer
+
+The grid already had an inspector (`theta-grid/src/inspect.rs`: what to show for a value, pure;
+`inspector.rs`: the pane). alpha.9 extends it instead of adding a second panel, so "follows the cursor" is the
+inspector's existing dirty flag (`inspector_dirty`, set on every cursor move, cleared by `sync_inspector`).
+Three pure additions: `imagekind.rs` recognises PNG, JPEG, GIF and WebP from the signature and reads the
+dimensions from the header by hand (no decoding dependency; GPUI decodes at paint time), `fold.rs` turns the
+pretty JSON and its highlight spans into lines, bracket pairs (from the `Punct` spans, so a bracket inside a
+string is never a fold) and the rows that remain under a set of folded lines, and `inspect_bytes` decides
+between a picture, a hex dump and a note. The derived, per-cursor-move data (decoded `Image`, `JsonDoc`, hex
+lines) is `ViewerState`, built once in `sync_inspector`, so painting only slices vectors. JSON and hex are
+`uniform_list`s: a 200,000-character document is thousands of rows and only the visible ones are built.
+Bounds are constants in `inspect.rs` (`MAX_BODY_CHARS`, `MAX_HEX_BYTES`, `MAX_IMAGE_BYTES`); every cut states
+the real size. The workspace reaches the grid of the active console through `ResultGrid::toggle_cell_viewer`
+and `copy_cell_value` for the palette actions, the global chords and the `:cell` host command; the Helix and Vim
+space menus use the new `FxKind::Host`, a generic "send this `:` command to the application", so a menu entry for
+an application feature needs no engine change beyond one line in each menu.
+
 ## Status
 
 0.1.0-alpha.8 is the eighth pre-release (0.1.0-alpha.1 to -alpha.7 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense

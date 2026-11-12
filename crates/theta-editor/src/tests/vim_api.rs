@@ -270,7 +270,7 @@ fn leader_menu_hints_mirror_the_helix_space_menu() {
     assert_eq!(title, "Space");
     for key in [
         "f", "b", "? space", "r", "R", "e", "E", "k", "t", "y", "p", "c", "x", "g", "d", "T", "j", "a", "n",
-        "D",
+        "D", "v", "V",
     ] {
         assert!(hints.iter().any(|h| h.key == key), "missing {key}");
     }
@@ -298,6 +298,8 @@ fn leader_actions() {
         ("<space>d", Effect::FocusExplorer),
         ("<space>T", Effect::ToggleExplorer),
         ("<space>j", Effect::ToggleBottomPanel),
+        ("<space>v", Effect::HostCommand("cell".into())),
+        ("<space>V", Effect::HostCommand("cell copy".into())),
         // code intelligence
         ("gd", Effect::GoToDefinition),
         ("gr", Effect::FindUsages),
@@ -493,6 +495,7 @@ fn host_commands_match_the_helix_table() {
         (":theme dark", vec![Effect::HostCommand("theme dark".into())]),
         (":connect", vec![Effect::OpenConnectionPicker]),
         (":reopen", vec![Effect::HostCommand("reopen".into())]),
+        (":cell copy", vec![Effect::HostCommand("cell copy".into())]),
         (":new", vec![Effect::NewTab]),
         (":cancel", vec![Effect::CancelQuery]),
         (":help", vec![Effect::HostCommand("help".into())]),

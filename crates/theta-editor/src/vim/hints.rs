@@ -48,6 +48,8 @@ pub(crate) const LEADER: &[(&str, &str)] = &[
     ("a", "code actions (quick fixes)"),
     ("n", "rename alias / CTE / column alias"),
     ("D", "problems"),
+    ("v", "cell viewer"),
+    ("V", "copy cell value"),
 ];
 
 impl Editor {
@@ -217,6 +219,8 @@ impl Editor {
             'n' => fx(self, FxKind::Rename),
             'D' => fx(self, FxKind::ShowProblems),
             'j' => fx(self, FxKind::ToggleBottomPanel),
+            'v' => fx(self, FxKind::Host("cell")),
+            'V' => fx(self, FxKind::Host("cell copy")),
             'c' => {
                 if let Some(r) = self.visual_region() {
                     self.vis_exit();

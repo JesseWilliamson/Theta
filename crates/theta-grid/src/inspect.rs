@@ -1,6 +1,7 @@
 //! Content model of the cell inspector: what to show for a value. Pure.
 
 use crate::format::{format_count, raw_text};
+use crate::imagekind::{ImageInfo, sniff_image};
 use std::ops::Range;
 use theta_core::Value;
 
@@ -17,7 +18,12 @@ pub enum JsonTok {
 pub const MAX_EWKT_CHARS: usize = 20_000;
 /// Longest text/JSON body rendered; beyond this the host is told to export.
 pub const MAX_BODY_CHARS: usize = 200_000;
-pub const MAX_HEX_BYTES: usize = 4096;
+/// Longest byte string dumped as hex. The dump is laid out line by line in a virtual list, so this
+/// bounds memory (about 100 bytes of text per 8 bytes), not paint time.
+pub const MAX_HEX_BYTES: usize = 64 * 1024;
+/// Largest picture handed to the decoder. A decoded image is width x height x 4 bytes, usually many times
+/// the file size, and the decode happens on the UI thread's asset loader, so this is deliberately modest.
+pub const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 
 /// Highlight spans over a pretty-printed JSON text.
 pub type JsonSpans = Vec<(Range<usize>, JsonTok)>;
@@ -26,9 +32,17 @@ pub type JsonSpans = Vec<(Range<usize>, JsonTok)>;
 pub enum Body {
     Null,
     Text(String),
-    Json { text: String, spans: JsonSpans },
+    Json {
+        text: String,
+        spans: JsonSpans,
+    },
     Hex(String),
-    Geometry { facts: Vec<(&'static str, String)>, ewkt: String },
+    /// A picture GPUI can decode (the bytes stay in the grid's value; the viewer fetches them).
+    Image(ImageInfo),
+    Geometry {
+        facts: Vec<(&'static str, String)>,
+        ewkt: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,17 +57,7 @@ pub struct Inspect {
 pub fn inspect_value(value: &Value) -> Inspect {
     match value {
         Value::Null => Inspect { stats: "NULL".into(), body: Body::Null, note: None },
-        Value::Bytes(b) => Inspect {
-            stats: format!("{} bytes", format_count(b.len())),
-            body: Body::Hex(hex_dump(b, MAX_HEX_BYTES)),
-            note: (b.len() > MAX_HEX_BYTES).then(|| {
-                format!(
-                    "Showing the first {} of {} bytes.",
-                    format_count(MAX_HEX_BYTES),
-                    format_count(b.len())
-                )
-            }),
-        },
+        Value::Bytes(b) => inspect_bytes(b),
         Value::Geometry(b) => inspect_geometry(b),
         Value::Json(s) => {
             let (text, note) = cap(s);
@@ -76,6 +80,56 @@ pub fn inspect_value(value: &Value) -> Inspect {
     }
 }
 
+fn inspect_bytes(b: &[u8]) -> Inspect {
+    let size = format!("{} bytes", format_count(b.len()));
+    let image = sniff_image(b);
+    let stats = match &image {
+        Some(i) => format!("{size} · {}", i.label()),
+        None => size,
+    };
+    if let Some(info) = image {
+        if b.len() <= MAX_IMAGE_BYTES {
+            return Inspect { stats, body: Body::Image(info), note: None };
+        }
+        // Say why the picture is not drawn, and fall back to the bytes so the cell is still readable.
+        let note = format!(
+            "{} is {}; pictures above {} are not drawn. Showing the first {} bytes.",
+            info.kind.label(),
+            format_bytes(b.len()),
+            format_bytes(MAX_IMAGE_BYTES),
+            format_count(MAX_HEX_BYTES.min(b.len()))
+        );
+        return Inspect { stats, body: Body::Hex(hex_dump(b, MAX_HEX_BYTES)), note: Some(note) };
+    }
+    Inspect {
+        stats,
+        body: Body::Hex(hex_dump(b, MAX_HEX_BYTES)),
+        note: (b.len() > MAX_HEX_BYTES).then(|| {
+            format!(
+                "Showing the first {} of {} bytes ({}).",
+                format_count(MAX_HEX_BYTES),
+                format_count(b.len()),
+                format_bytes(b.len())
+            )
+        }),
+    }
+}
+
+/// `3.2 MiB`, `812 bytes`.
+pub fn format_bytes(n: usize) -> String {
+    const KIB: f64 = 1024.0;
+    let f = n as f64;
+    if f < KIB {
+        format!("{n} bytes")
+    } else if f < KIB * KIB {
+        format!("{:.1} KiB", f / KIB)
+    } else if f < KIB * KIB * KIB {
+        format!("{:.1} MiB", f / (KIB * KIB))
+    } else {
+        format!("{:.1} GiB", f / (KIB * KIB * KIB))
+    }
+}
+
 fn text_stats(s: &str) -> String {
     format!("{} characters · {} bytes", format_count(s.chars().count()), format_count(s.len()))
 }
@@ -85,8 +139,10 @@ fn cap(s: &str) -> (String, Option<String>) {
         Some((i, _)) => (
             s[..i].to_string(),
             Some(format!(
-                "Showing the first {} characters; export the cell to see all of it.",
-                format_count(MAX_BODY_CHARS)
+                "Showing the first {} of {} characters ({}); copy the value or export the cell to get all of it.",
+                format_count(MAX_BODY_CHARS),
+                format_count(s.chars().count()),
+                format_bytes(s.len())
             )),
         ),
         None => (s.to_string(), None),
@@ -303,15 +359,48 @@ mod tests {
         let i = inspect_value(&Value::Text("x".repeat(MAX_BODY_CHARS + 10)));
         let Body::Text(t) = i.body else { panic!() };
         assert_eq!(t.chars().count(), MAX_BODY_CHARS);
-        assert!(i.note.unwrap().contains("first 200,000"));
+        let note = i.note.unwrap();
+        assert!(note.contains("first 200,000 of 200,010 characters"), "{note}");
     }
 
     #[test]
     fn inspect_bytes_and_null() {
         let i = inspect_value(&Value::Bytes(vec![0; 5000]));
         assert_eq!(i.stats, "5,000 bytes");
-        assert!(i.note.unwrap().contains("4,096 of 5,000"));
+        assert!(i.note.is_none(), "5,000 bytes fit in the dump");
+        let big = inspect_value(&Value::Bytes(vec![0; MAX_HEX_BYTES + 1000]));
+        let note = big.note.unwrap();
+        assert!(note.contains("65,536 of 66,536 bytes"), "{note}");
+        let Body::Hex(dump) = big.body else { panic!() };
+        assert_eq!(dump.lines().count(), MAX_HEX_BYTES / 8);
         assert_eq!(inspect_value(&Value::Null).body, Body::Null);
+    }
+
+    #[test]
+    fn a_png_cell_is_an_image_with_its_size_in_the_stats() {
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        png.extend(32u32.to_be_bytes());
+        png.extend(16u32.to_be_bytes());
+        let i = inspect_value(&Value::Bytes(png));
+        assert_eq!(i.stats, "24 bytes · PNG 32×16");
+        assert!(matches!(i.body, Body::Image(info) if info.size == Some((32, 16))));
+    }
+
+    #[test]
+    fn an_oversized_image_is_dumped_as_bytes_and_says_why() {
+        let mut gif = b"GIF89a\x01\x00\x01\x00".to_vec();
+        gif.resize(MAX_IMAGE_BYTES + 1, 0);
+        let i = inspect_value(&Value::Bytes(gif));
+        assert!(matches!(i.body, Body::Hex(_)));
+        let note = i.note.unwrap();
+        assert!(note.contains("GIF is 8.0 MiB") && note.contains("above 8.0 MiB"), "{note}");
+    }
+
+    #[test]
+    fn byte_sizes_are_readable() {
+        assert_eq!(format_bytes(812), "812 bytes");
+        assert_eq!(format_bytes(1536), "1.5 KiB");
+        assert_eq!(format_bytes(3 * 1024 * 1024 + 200_000), "3.2 MiB");
     }
 
     #[test]

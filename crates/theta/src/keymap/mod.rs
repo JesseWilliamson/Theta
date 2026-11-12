@@ -145,6 +145,8 @@ pub fn global_bindings() -> Vec<KeyBinding> {
         kb("mod-shift-e", FocusExplorer, None),
         kb("mod-1", FocusEditor, None),
         kb("mod-2", FocusResults, None),
+        kb("mod-shift-v", ToggleCellViewer, None),
+        kb("mod-shift-y", CopyCellValue, None),
         // F5 is "run all" in the editor; the explorer (and a chord everywhere) refreshes.
         kb("f5", RefreshSchema, Some("Explorer")),
         kb("mod-alt-r", RefreshSchema, None),

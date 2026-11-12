@@ -6,6 +6,14 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+### Added
+
+- **Cell viewer** (the grid's inspector, extended): images (PNG, JPEG, GIF, WebP, recognised from their magic
+  bytes) are drawn; JSON can be folded (`[` / `]`, header buttons, chevrons); binary is a hex dump of up to
+  64 KiB with the real length; every truncation says how large the value really is. *Toggle Cell Viewer* and
+  *Copy Cell Value* are in the command palette, bound to `mod-shift-v` and `mod-shift-y`, `space v` / `space V`
+  in Helix and Vim, and `:cell` / `:cell copy`.
+
 ## [0.1.0-alpha.8] - 2026-11-12
 
 ### Added

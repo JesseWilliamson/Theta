@@ -106,6 +106,7 @@ pub struct ResultGrid {
     pub(crate) inspector_text: Entity<TextareaState>,
     pub(crate) inspector: Option<Inspect>,
     pub(crate) inspector_dirty: bool,
+    pub(crate) viewer: crate::inspector::ViewerState,
     cache: HashMap<(u32, u32), CachedCell>,
     pub(crate) loading: bool,
     /// Body width before an inspector toggle; the cursor is re-revealed once the
@@ -165,6 +166,7 @@ impl ResultGrid {
             inspector_text,
             inspector: None,
             inspector_dirty: false,
+            viewer: Default::default(),
             cache: HashMap::new(),
             loading: false,
             reveal_pending: None,
@@ -725,14 +727,41 @@ impl ResultGrid {
             return;
         }
         self.inspector_dirty = false;
-        let content = self.sel.map(|s| inspect_value(self.value_at(s.cursor.row, s.cursor.col)));
+        let value = self.sel.map(|s| self.value_at(s.cursor.row, s.cursor.col));
+        let content = value.map(inspect_value);
         let text = match content.as_ref().map(|i| &i.body) {
             Some(crate::inspect::Body::Text(t)) => t.clone(),
             Some(crate::inspect::Body::Geometry { ewkt, .. }) => ewkt.clone(),
             _ => String::new(),
         };
+        self.viewer = crate::inspector::ViewerState::build(content.as_ref(), value);
         self.inspector_text.update(cx, |s, cx| s.set_value(text, window, cx));
         self.inspector = content;
+    }
+
+    /// Open or close the cell viewer. Public so the command palette and the global key can reach the
+    /// grid of the active console.
+    pub fn toggle_cell_viewer(&mut self, cx: &mut Context<Self>) {
+        self.toggle_inspector(cx);
+    }
+
+    pub fn cell_viewer_open(&self) -> bool {
+        self.inspector_open
+    }
+
+    /// Copy the whole value of the cursor cell as text (not the display form, not truncated by what
+    /// the viewer shows). Returns whether there was a cell to copy.
+    pub fn copy_cell_value(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(v) = self.cursor_value() else { return false };
+        cx.write_to_clipboard(ClipboardItem::new_string(crate::format::raw_text(v)));
+        cx.emit(GridEvent::Copied { cells: 1 });
+        true
+    }
+
+    /// Fold every JSON container below the top level (`true`) or unfold all of them.
+    pub(crate) fn fold_json(&mut self, collapse: bool, cx: &mut Context<Self>) {
+        self.viewer.fold_all(collapse);
+        cx.notify();
     }
 
     pub(crate) fn show_on_map(&mut self, whole_column: bool, cx: &mut Context<Self>) {

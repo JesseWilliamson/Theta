@@ -39,6 +39,8 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-shift-e` | focus explorer |
 | `mod-1` | focus editor |
 | `mod-2` | focus results (opens the bottom panel and the Results tab if needed) |
+| `mod-shift-v` | toggle the cell viewer for the focused result cell (focuses the results) |
+| `mod-shift-y` | copy the whole value of the focused result cell |
 | `F5` | refresh schema, only while the explorer has focus (in the editor `F5` is *run all*) |
 | `mod-alt-r` | refresh schema, from anywhere |
 | `mod-k mod-t` | select theme (a two-chord sequence) |
@@ -270,7 +272,9 @@ Handled in `crates/theta-grid/src/input.rs` when the grid has focus. `mod` is `c
 | `delete` | mark the selected rows for deletion (editable results) |
 | `mod-z` | undo the last staged edit |
 | `mod-enter` | submit the staged changes (opens **Apply changes?**) |
-| `space` | toggle the value inspector |
+| `space` | toggle the cell viewer (follows the cursor while it is open) |
+| `shift-y` (Helix, Vim) | copy the whole value of the current cell (`mod-shift-y` works in every key map, from anywhere) |
+| `[` / `]` | with the viewer open on JSON: fold everything below the top level / unfold all |
 | `F4`, `r` (Helix, Vim) | toggle the record view (the current row as a list of fields) |
 | `F3`, `a` (Helix, Vim) | toggle the selection statistics popover (also: click the summary in the footer) |
 | `esc` | collapse the selection; when nothing is left to collapse, return to the editor |
@@ -446,6 +450,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `space g` `space d` | focus results / focus explorer |
 | `space T` `space j` | toggle explorer / toggle bottom panel |
 | `space a` `space n` `space D` | quick fixes / rename / Problems tab |
+| `space v` `space V` | cell viewer / copy cell value (`:cell`, `:cell copy`) |
 
 #### Command line (`:`)
 
@@ -469,6 +474,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `:new` | new console |
 | `:cancel` | cancel the running query |
 | `:reopen` | reopen the last closed tab |
+| `:cell` `:cell copy` | toggle the cell viewer / copy the value of the focused result cell |
 
 `tab` completes command names (repeat to cycle). An unknown command shows "Unknown command".
 
@@ -643,6 +649,7 @@ work. `n` / `N` keep the direction; `*` `#` search the word under the cursor.
 | `space g` `space d` | `FocusResults` / `FocusExplorer` |
 | `space T` `space j` | `ToggleExplorer` / `ToggleBottomPanel` |
 | `space a` `space n` `space D` | code actions / rename / Problems tab |
+| `space v` `space V` | cell viewer / copy cell value (`HostCommand("cell")`, `"cell copy"`) |
 
 #### Command line (`:`)
 

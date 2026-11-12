@@ -1189,6 +1189,10 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &FocusEditor, window, cx| this.focus_editor(window, cx)))
             .on_action(cx.listener(|this, _: &FocusResults, window, cx| this.focus_results(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &ToggleCellViewer, window, cx| this.toggle_cell_viewer(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &CopyCellValue, window, cx| this.copy_cell_value(window, cx)))
             .on_action(cx.listener(|this, _: &SelectKeymap, window, cx| this.open_keymap_picker(window, cx)))
             .on_action(cx.listener(|this, _: &UseHelixKeymap, window, cx| {
                 this.set_keymap(theta_ui::KeymapMode::Helix, window, cx)

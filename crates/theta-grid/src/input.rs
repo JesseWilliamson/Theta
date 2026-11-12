@@ -188,6 +188,18 @@ impl ResultGrid {
                 cx.notify();
                 true
             }
+            "y" if modal && shift => {
+                self.copy_cell_value(cx);
+                true
+            }
+            "[" if self.inspector_open => {
+                self.fold_json(true, cx);
+                true
+            }
+            "]" if self.inspector_open => {
+                self.fold_json(false, cx);
+                true
+            }
             "y" if modal => {
                 self.copy_selection(false, cx);
                 self.modal_visual = false;
