@@ -2,14 +2,16 @@
 //! statements that return no rows.
 
 use gpui_kit::assets::IconName;
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, Entity, EventEmitter, InteractiveElement as _, IntoElement, ParentElement as _,
-    Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, px,
+    Render, ScrollEvent, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
+    px,
 };
 use theta_grid::ResultGrid;
-use theta_ui::{CHROME_TEXT_SIZE, EmptyState};
+use theta_ui::{CHROME_TEXT_SIZE, EmptyState, tool_button};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResultsEvent {
@@ -34,6 +36,9 @@ pub struct ResultsPanel {
     summary: Option<Summary>,
     show_grid: bool,
     running: bool,
+    /// The strip scrolls sideways when 60 result sets do not fit; the active one is always brought into view.
+    strip: ScrollHandle,
+    revealed: Option<usize>,
 }
 
 impl EventEmitter<ResultsEvent> for ResultsPanel {}
@@ -49,6 +54,8 @@ impl ResultsPanel {
             summary: None,
             show_grid: false,
             running: false,
+            strip: ScrollHandle::new(),
+            revealed: None,
         }
     }
 
@@ -72,6 +79,7 @@ impl ResultsPanel {
 
     /// Show the grid with these sub-tab titles (the strip appears for more than one).
     pub fn show_sets(&mut self, titles: Vec<String>, active: usize, cx: &mut Context<Self>) {
+        self.revealed = None;
         self.titles = titles;
         self.active = active;
         self.summary = None;
@@ -101,6 +109,18 @@ impl ResultsPanel {
         cx.notify();
     }
 
+    /// Move to the next (`1`) or previous (`-1`) result set, wrapping, as the keys do.
+    pub fn step(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let n = self.titles.len();
+        if n < 2 || !self.show_grid {
+            return;
+        }
+        let i = (self.active as isize + delta).rem_euclid(n as isize) as usize;
+        self.active = i;
+        cx.emit(ResultsEvent::ActivateTab(i));
+        cx.notify();
+    }
+
     pub fn titles(&self) -> &[String] {
         &self.titles
     }
@@ -116,36 +136,102 @@ impl Render for ResultsPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let strip = (self.show_grid && self.titles.len() > 1).then(|| {
+            // Bring the active set into view once per change (the strip scrolls, it does not wrap).
+            if self.revealed != Some(self.active) {
+                self.revealed = Some(self.active);
+                self.strip.scroll_to_item(self.active);
+            }
+            let max = self.strip.max_offset().x;
+            let overflowing = max > px(1.);
+            let all: Vec<(usize, SharedString)> =
+                self.titles.iter().enumerate().map(|(i, t)| (i, SharedString::from(t.clone()))).collect();
+            let (active_ix, this) = (self.active, cx.entity().downgrade());
             h_flex()
                 .h(px(26.))
                 .flex_shrink_0()
-                .px_1()
-                .gap_0p5()
-                .items_center()
                 .bg(theme.tab_bar)
                 .border_b_1()
                 .border_color(theme.border)
-                .children(self.titles.iter().enumerate().map(|(i, t)| {
-                    let active = i == self.active;
-                    div()
-                        .id(("result-tab", i))
-                        .px_2()
-                        .h(px(20.))
-                        .flex()
+                .child(
+                    h_flex()
+                        .id("result-strip")
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .px_1()
+                        .gap_0p5()
                         .items_center()
-                        .rounded_sm()
-                        .text_size(CHROME_TEXT_SIZE)
-                        .cursor_default()
-                        .text_color(if active { theme.foreground } else { theme.muted_foreground })
-                        .when(active, |d| d.bg(theme.list_active))
-                        .when(!active, |d| d.hover(|s| s.bg(theme.list_hover)))
-                        .child(SharedString::from(t.clone()))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.active = i;
-                            cx.emit(ResultsEvent::ActivateTab(i));
-                            cx.notify();
+                        .overflow_x_scroll()
+                        .track_scroll(&self.strip)
+                        // A vertical wheel has nothing else to do over the strip: it scrolls the sets sideways.
+                        .on_scroll(cx.listener(|this, e: &ScrollEvent, _, cx| {
+                            let d = e.delta.pixel_delta(px(24.));
+                            if d.y.abs() > d.x.abs() {
+                                let mut o = this.strip.offset();
+                                let max = this.strip.max_offset().x;
+                                o.x = (o.x + d.y).clamp(-max, px(0.));
+                                this.strip.set_offset(o);
+                                cx.stop_propagation();
+                                cx.notify();
+                            }
                         }))
-                }))
+                        .children(self.titles.iter().enumerate().map(|(i, t)| {
+                            let active = i == self.active;
+                            let full: SharedString = t.clone().into();
+                            div()
+                                .id(("result-tab", i))
+                                .px_2()
+                                .h(px(20.))
+                                .flex_shrink_0()
+                                .max_w(px(220.))
+                                .flex()
+                                .items_center()
+                                .rounded_sm()
+                                .text_size(CHROME_TEXT_SIZE)
+                                .cursor_default()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .text_color(if active { theme.foreground } else { theme.muted_foreground })
+                                .when(active, |d| d.bg(theme.list_active))
+                                .when(!active, |d| d.hover(|s| s.bg(theme.list_hover)))
+                                .tooltip(move |window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(full.clone()).build(window, cx)
+                                })
+                                .child(SharedString::from(t.clone()))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.active = i;
+                                    cx.emit(ResultsEvent::ActivateTab(i));
+                                    cx.notify();
+                                }))
+                        })),
+                )
+                .when(overflowing, |d| {
+                    d.child(
+                        h_flex().h_full().px_1().items_center().child(
+                            tool_button("result-sets-menu", IconName::ChevronDown, "All result sets")
+                                .dropdown_menu(move |menu, _, _| {
+                                    let mut menu = menu.max_h(px(360.)).scrollable(true);
+                                    for (i, title) in &all {
+                                        let (i, this) = (*i, this.clone());
+                                        menu = menu.item(
+                                            PopupMenuItem::new(title.clone())
+                                                .checked(active_ix == i)
+                                                .on_click(move |_, _, cx| {
+                                                    this.update(cx, |p, cx| {
+                                                        p.active = i;
+                                                        cx.emit(ResultsEvent::ActivateTab(i));
+                                                        cx.notify();
+                                                    })
+                                                    .ok();
+                                                }),
+                                        );
+                                    }
+                                    menu
+                                }),
+                        ),
+                    )
+                })
         });
         let body = if self.show_grid {
             div().flex_1().min_h_0().child(self.grid.clone()).into_any_element()

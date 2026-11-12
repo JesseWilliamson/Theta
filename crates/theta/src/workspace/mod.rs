@@ -1309,6 +1309,8 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &ShowChart, window, cx| this.show_chart(window, cx)))
             .on_action(cx.listener(|this, _: &ShowHistory, window, cx| this.show_history(window, cx)))
+            .on_action(cx.listener(|this, _: &NextResult, _, cx| this.results.update(cx, |r, cx| r.step(1, cx))))
+            .on_action(cx.listener(|this, _: &PreviousResult, _, cx| this.results.update(cx, |r, cx| r.step(-1, cx))))
             .on_action(cx.listener(|this, _: &LoadAllRows, window, cx| this.load_all_active(window, cx)))
             .on_action(
                 cx.listener(|this, _: &RefreshResults, window, cx| this.refresh_active_result(window, cx)),

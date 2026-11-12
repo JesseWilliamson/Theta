@@ -79,6 +79,8 @@ fn commands() -> Vec<Command> {
         cmd!("Local History…", "Console", IconName::Clock, ShowLocalHistory),
         cmd!("Show Chart", "View", IconName::ChartColumn, ShowChart),
         cmd!("Show History", "View", IconName::Clock, ShowHistory),
+        cmd!("Next Result Set", "View", IconName::ChevronRight, NextResult),
+        cmd!("Previous Result Set", "View", IconName::ChevronLeft, PreviousResult),
         cmd!("Toggle Cell Viewer", "View", IconName::PanelRight, ToggleCellViewer),
         cmd!("Copy Cell Value", "Data", IconName::Copy, CopyCellValue),
         cmd!("Load All Rows", "Data", IconName::ArrowDown, LoadAllRows),

@@ -25,6 +25,8 @@ actions!(
         ToggleCellViewer,
         ShowChart,
         ShowHistory,
+        NextResult,
+        PreviousResult,
         ShowLocalHistory,
         RunOnSeveral,
         CopyCellValue,

@@ -159,6 +159,7 @@ impl Workspace {
                                 let is_active = active == Some(id);
                                 let group: SharedString = format!("tab-{id}").into();
                                 let ghost_title = title.clone();
+                                let full_title = title.clone();
                                 let (order_a, order_b) = (order.clone(), order.clone());
                                 let accent = theme.ring;
                                 h_flex()
@@ -190,6 +191,10 @@ impl Workspace {
                                         )
                                     })
                                     .when(!is_active, |d| d.hover(|s| s.bg(theme.list_hover)))
+                                    // Long names are cut with an ellipsis; the tooltip has the rest.
+                                    .tooltip(move |window, cx| {
+                                        gpui_kit::component::tooltip::Tooltip::new(full_title.clone()).build(window, cx)
+                                    })
                                     .on_drag(TabDrag { id, title: ghost_title }, |d, _, _, cx| {
                                         let title = d.title.clone();
                                         cx.new(|_| TabGhost(title))
