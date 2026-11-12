@@ -20,6 +20,7 @@ pub mod lexer;
 pub mod lint;
 pub mod params;
 pub mod plan;
+pub mod schema_diff;
 pub(crate) mod scope;
 pub mod script;
 pub mod search;

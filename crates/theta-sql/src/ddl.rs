@@ -241,10 +241,10 @@ pub struct Statement {
 }
 
 impl Statement {
-    fn new(sql: impl Into<String>, explanation: impl Into<String>) -> Self {
+    pub(crate) fn new(sql: impl Into<String>, explanation: impl Into<String>) -> Self {
         Statement { sql: sql.into(), flags: Vec::new(), explanation: explanation.into() }
     }
-    fn flag(mut self, f: Flag) -> Self {
+    pub(crate) fn flag(mut self, f: Flag) -> Self {
         if !self.flags.contains(&f) {
             self.flags.push(f);
         }
@@ -309,7 +309,7 @@ fn cols_list(d: &TableDraft, ids: &[u32], kind: DatabaseKind) -> String {
     d.names(ids).iter().map(|n| q(n, kind)).collect::<Vec<_>>().join(", ")
 }
 
-fn norm(s: &str) -> String {
+pub(crate) fn norm(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase()
 }
 
@@ -545,7 +545,7 @@ fn sqlite_alias_column(d: &TableDraft, kind: DatabaseKind) -> Option<u32> {
 
 // -------------------------------------------------------------------- diff
 
-fn same_col(a: &ColumnDraft, b: &ColumnDraft) -> bool {
+pub(crate) fn same_col(a: &ColumnDraft, b: &ColumnDraft) -> bool {
     norm(&a.data_type) == norm(&b.data_type)
         && a.nullable == b.nullable
         && a.default.as_deref().map(str::trim) == b.default.as_deref().map(str::trim)
@@ -555,11 +555,11 @@ fn same_col(a: &ColumnDraft, b: &ColumnDraft) -> bool {
 }
 
 /// Constraint equality ignoring ids and column *names* (compare through ids, which survive renames).
-fn same_key(a: &KeyDraft, b: &KeyDraft) -> bool {
+pub(crate) fn same_key(a: &KeyDraft, b: &KeyDraft) -> bool {
     a.columns == b.columns && a.name == b.name
 }
 
-fn same_fk(a: &ForeignKeyDraft, b: &ForeignKeyDraft) -> bool {
+pub(crate) fn same_fk(a: &ForeignKeyDraft, b: &ForeignKeyDraft) -> bool {
     let norm_action =
         |x: &Option<String>| x.as_deref().map(str::to_ascii_uppercase).filter(|s| s != "NO ACTION");
     a.name == b.name
@@ -573,7 +573,7 @@ fn same_fk(a: &ForeignKeyDraft, b: &ForeignKeyDraft) -> bool {
         && a.initially_deferred == b.initially_deferred
 }
 
-fn same_index(a: &IndexDraft, b: &IndexDraft) -> bool {
+pub(crate) fn same_index(a: &IndexDraft, b: &IndexDraft) -> bool {
     a.name == b.name
         && a.columns == b.columns
         && a.unique == b.unique
@@ -610,7 +610,7 @@ fn type_size(t: &str) -> Option<u32> {
 }
 
 /// Whether `from` -> `to` can lose data: a different base type, or a smaller length.
-fn narrows(from: &str, to: &str) -> bool {
+pub(crate) fn narrows(from: &str, to: &str) -> bool {
     if base_type(from) != base_type(to) {
         return true;
     }
@@ -638,13 +638,7 @@ pub fn diff(original: &TableDraft, edited: &TableDraft, kind: DatabaseKind) -> V
     //    are about to change or go.
     for f in &original.foreign_keys {
         if !edited.foreign_keys.iter().any(|e| e.id == f.id && same_fk(f, e)) {
-            let name = f.name.clone().unwrap_or_default();
-            let sql = if mysql {
-                format!("ALTER TABLE {table} DROP FOREIGN KEY {}", q(&name, kind))
-            } else {
-                format!("ALTER TABLE {table} DROP CONSTRAINT {}", q(&name, kind))
-            };
-            out.push(alter(sql, format!("Drop foreign key {name}")).flag(Flag::Destructive));
+            out.push(drop_foreign_key(original, f, kind));
         }
     }
     for c in &original.checks {
@@ -765,24 +759,15 @@ pub fn diff(original: &TableDraft, edited: &TableDraft, kind: DatabaseKind) -> V
             );
         }
     }
+    let staged =
+        TableDraft { name: original.name.clone(), schema: original.schema.clone(), ..edited.clone() };
     for f in &edited.foreign_keys {
         if !original.foreign_keys.iter().any(|o| o.id == f.id && same_fk(o, f)) {
-            out.push(
-                alter(
-                    format!("ALTER TABLE {table} ADD {}", fk_clause(edited, f, kind)),
-                    format!(
-                        "Add a foreign key from ({}) to {}",
-                        edited.names(&f.columns).join(", "),
-                        f.ref_table
-                    ),
-                )
-                .flag(Flag::Lock("validates every existing row against the referenced table".into())),
-            );
+            // The table is renamed last, so the statement says the old name.
+            out.push(add_foreign_key(&staged, f, kind));
         }
     }
     // The table is renamed last, so everything before that still says the old name.
-    let staged =
-        TableDraft { name: original.name.clone(), schema: original.schema.clone(), ..edited.clone() };
     for i in &edited.indexes {
         if !original.indexes.iter().any(|o| o.id == i.id && same_index(o, i)) {
             let mut s = alter(create_index_sql(&staged, i, kind), format!("Create index {}", i.name));
@@ -819,6 +804,33 @@ pub fn diff(original: &TableDraft, edited: &TableDraft, kind: DatabaseKind) -> V
         ));
     }
     out
+}
+
+/// `ALTER TABLE ... DROP FOREIGN KEY` (MySQL) or `DROP CONSTRAINT`. Public because a schema comparison orders
+/// foreign keys separately from the rest of a table's changes: they come off before any table is dropped and go
+/// back on after every table exists.
+pub fn drop_foreign_key(d: &TableDraft, f: &ForeignKeyDraft, kind: DatabaseKind) -> Statement {
+    let table = qtable(d, kind);
+    let name = f.name.clone().unwrap_or_default();
+    let mysql = ddl_family(kind) == Family::MySql;
+    let sql = if mysql {
+        format!("ALTER TABLE {table} DROP FOREIGN KEY {}", q(&name, kind))
+    } else {
+        format!("ALTER TABLE {table} DROP CONSTRAINT {}", q(&name, kind))
+    };
+    let s = Statement::new(sql, format!("Drop foreign key {name}")).flag(Flag::Destructive);
+    if mysql { s.flag(Flag::ImplicitCommit) } else { s }
+}
+
+/// `ALTER TABLE ... ADD FOREIGN KEY`, see [`drop_foreign_key`].
+pub fn add_foreign_key(d: &TableDraft, f: &ForeignKeyDraft, kind: DatabaseKind) -> Statement {
+    let table = qtable(d, kind);
+    let s = Statement::new(
+        format!("ALTER TABLE {table} ADD {}", fk_clause(d, f, kind)),
+        format!("Add a foreign key from ({}) to {}", d.names(&f.columns).join(", "), f.ref_table),
+    )
+    .flag(Flag::Lock("validates every existing row against the referenced table".into()));
+    if ddl_family(kind) == Family::MySql { s.flag(Flag::ImplicitCommit) } else { s }
 }
 
 fn add_column(table: &str, e: &ColumnDraft, kind: DatabaseKind) -> Vec<Statement> {
