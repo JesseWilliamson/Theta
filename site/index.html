@@ -4,18 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Theta: a keyboard-first database IDE</title>
-<meta name="description" content="Theta is a native, GPU-accelerated database IDE for PostgreSQL, MySQL/MariaDB and SQLite, with Helix, Vim or standard keys and completion that writes your joins from foreign keys. Alpha, open source.">
+<meta name="description" content="Theta is a keyboard-first database IDE for PostgreSQL, MySQL, SQLite and more. Native and GPU-accelerated, with Helix, Vim or standard keys, a SQL parser that checks your queries, and completion that writes your joins from foreign keys. Alpha, open source.">
+<link rel="canonical" href="https://jessewilliamson.github.io/Theta/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Theta">
 <meta property="og:title" content="Theta: a keyboard-first database IDE">
-<meta property="og:description" content="Native SQL editor with Helix, Vim or standard keys and completion that writes your joins from foreign keys. Alpha.">
+<meta property="og:description" content="A keyboard-first database IDE for PostgreSQL, MySQL, SQLite and more, with Helix, Vim or standard keys. Alpha.">
 <meta property="og:image" content="https://jessewilliamson.github.io/Theta/assets/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Theta, a keyboard-first database IDE, with the theta mark on a dark background">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Theta: a keyboard-first database IDE">
-<meta name="twitter:description" content="Native SQL editor with Helix, Vim or standard keys and completion that writes your joins from foreign keys. Alpha.">
+<meta name="twitter:description" content="A keyboard-first database IDE for PostgreSQL, MySQL, SQLite and more, with Helix, Vim or standard keys. Alpha.">
 <meta name="twitter:image" content="https://jessewilliamson.github.io/Theta/assets/og.png">
 <!--@assets-->
 <meta name="color-scheme" content="dark">
@@ -87,7 +88,7 @@
     <div class="wrap">
       <p class="eyebrow"><svg class="m" aria-hidden="true"><use href="#theta"/></svg><span>Keyboard-first database IDE &middot; Alpha</span></p>
       <h1 id="hero-title">A database IDE that joins the dots.</h1>
-      <p class="lead">A native SQL editor for PostgreSQL, MySQL and SQLite, with Helix, Vim or standard keys and completion that writes your joins from the schema.</p>
+      <p class="lead">A native SQL editor for PostgreSQL, MySQL, SQLite and eight more databases, with Helix, Vim or standard keys and completion that writes your joins from the schema.</p>
       <div class="cta">
         <a class="btn btn-primary" href="#download" data-key="d" aria-keyshortcuts="d"><svg aria-hidden="true"><use href="#i-download"/></svg>Download alpha<kbd class="k" aria-hidden="true">D</kbd></a>
         <a class="btn" href="https://github.com/JesseWilliamson/Theta" data-repo="" data-key="g" aria-keyshortcuts="g"><svg aria-hidden="true"><use href="#i-github"/></svg>View on GitHub<kbd class="k" aria-hidden="true">G</kbd></a>
@@ -119,8 +120,7 @@
     </div>
   </section>
 
-  <!-- THE MOMENT: typed query -> suggestion -->
-  <section class="section" id="joins" aria-labelledby="joins-title">
+    <section class="section" id="joins" aria-labelledby="joins-title">
     <div class="wrap">
       <div class="moment">
         <div>
@@ -166,7 +166,7 @@
       <div class="section-head">
         <p class="eyebrow"><span class="num">02</span> Features</p>
         <h2 id="features-title">Everything between the keystroke and the answer.</h2>
-        <p>Write SQL, run it, read the result, check the plan, look at the map. One window, no mouse required.</p>
+        <p>Write SQL, run it, read the result, check the plan, chart it, compare two schemas, administer the server. One window, no mouse required.</p>
       </div>
 
       <div class="features">
@@ -178,7 +178,7 @@
             <ul>
               <li>Keywords, schemas, tables, columns, aliases, functions, snippets</li>
               <li>Inferred keys carry a confidence and are labelled <em>suggested</em></li>
-              <li>A formatter and a quiet diagnostics pass sit alongside</li>
+              <li>A formatter, and diagnostics from a real SQL parser (next)</li>
             </ul>
           </div>
           <figure class="frame">
@@ -215,11 +215,33 @@
 
         <article class="feature">
           <div class="feature-text">
+            <h3>A parser that checks your SQL as you type</h3>
+            <p>A hand-written, error-tolerant SQL parser sits behind the editor. It underlines unknown tables and columns, ambiguous columns and undefined aliases, lists them in a <em>Problems</em> tab, and offers the fix.</p>
+            <ul>
+              <li>Syntax errors, unknown or ambiguous names, column-count mismatches, ungrouped columns</li>
+              <li>Quick fixes: did you mean, qualify, expand <code>*</code>, add <code>GROUP BY</code>, comma join to <code>JOIN</code>, extract a CTE</li>
+              <li>Go to definition, find usages, and rename of aliases, CTEs and select aliases</li>
+              <li>Quiet by design: when it cannot tell, it says nothing, and the database remains the judge</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/diagnostics-900.webp 900w, assets/screens/diagnostics.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/diagnostics.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta editor with a query that selects c.emial from customers. The misspelt column is underlined and a tooltip reads Unknown column emial in customers; the Problems tab below shows a count of one.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature flip">
+          <div class="feature-text">
             <h3>A results grid you can edit, then review</h3>
             <p>Change cells, add and delete rows, then look at the staged changes before anything is written. Theta shows the generated statements and applies them in one transaction.</p>
             <ul>
               <li>Virtualised: 100,000 rows by 60 columns stays interactive</li>
-              <li>Type-aware sorting and filtering, rectangular selection, inspector for JSON and long text</li>
+              <li>Type-aware sorting and filtering, rectangular selection, a cell viewer for JSON, long text, hex dumps and images</li>
               <li>Export to CSV, TSV, JSON, Markdown or SQL <code>INSERT</code></li>
             </ul>
           </div>
@@ -234,7 +256,7 @@
           </figure>
         </article>
 
-        <article class="feature flip">
+        <article class="feature">
           <div class="feature-text">
             <h3>Change a table, and read the SQL before it runs</h3>
             <p>The Modify Table editor is a tab: a grid for columns, keys, foreign keys, indexes and checks, and beside it the exact script your edits amount to. Every statement is tagged, so a drop or a table rewrite is never a surprise.</p>
@@ -255,7 +277,7 @@
           </figure>
         </article>
 
-        <article class="feature">
+        <article class="feature flip">
           <div class="feature-text">
             <h3>New tables, with keys the catalog already knows</h3>
             <p>Name the table, type the columns, pick a foreign key from the tables that exist (or take one Theta inferred from the column names) and read the <code>CREATE TABLE</code> as it takes shape.</p>
@@ -271,6 +293,28 @@
                 <source type="image/webp" srcset="assets/screens/new-table-900.webp 900w, assets/screens/new-table.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
                 <img src="assets/screens/new-table.png" width="1600" height="1000" loading="lazy" decoding="async"
                      alt="Theta New Table tab for a table called invoices with columns id, customer_id, amount and issued_on, and a DDL Preview showing a CREATE TABLE statement with a primary key and a foreign key to customers.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature">
+          <div class="feature-text">
+            <h3>Import a CSV with the mapping in front of you</h3>
+            <p>Import Data reads a CSV or TSV into an existing table or creates a new one. It shows how each file column maps to a table column and checks the values against the target types before anything is written.</p>
+            <ul>
+              <li>Delimiter, quote and encoding (UTF-8, UTF-16, Latin-1) are detected; the file is streamed, so its size is not a limit</li>
+              <li><em>Validate</em> reports problems with line numbers; the import is one transaction, and Cancel rolls it back</li>
+              <li><em>Export Data</em> writes a table as CSV, TSV, JSON or SQL <code>INSERT</code>s, paged by primary key</li>
+              <li>Where a product cannot import, the menu says why instead of failing</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/import-csv-900.webp 900w, assets/screens/import-csv.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/import-csv.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta Import Data dialog on the Columns tab. A CSV file is mapped to an existing table called people: seven file columns with sample values, the table column and target type for each, and a warning that decimals in the score column will be rejected by an integer column. Validate, Import and Close buttons are at the bottom.">
               </picture>
             </div>
           </figure>
@@ -292,6 +336,91 @@
                 <source type="image/webp" srcset="assets/screens/plan-insights-900.webp 900w, assets/screens/plan-insights.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
                 <img src="assets/screens/plan-insights.png" width="1600" height="1000" loading="lazy" decoding="async"
                      alt="Theta plan view for an EXPLAIN ANALYZE of a PostgreSQL query. A tree of operations with timings on the right; on the left three insights, including a sequential scan that reads 300,000 rows to return 900, with a suggested CREATE INDEX statement.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature">
+          <div class="feature-text">
+            <h3>Chart a result without leaving the window</h3>
+            <p>The Chart tab draws the result of a query as a bar, line, area, scatter or pie chart. It picks the columns from the result&rsquo;s types; you can change them.</p>
+            <ul>
+              <li>Grouping into series, aggregation, and calendar-aware time axes</li>
+              <li>A legend and a hover readout, in the theme&rsquo;s colours</li>
+              <li>Nothing to configure first: run the query, open the tab</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/chart-900.webp 900w, assets/screens/chart.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/chart.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta Chart tab showing monthly revenue from a query on the orders table as an area chart over two years, with the series and aggregate pickers above it and a hover readout for March 2023 reading revenue 9,284.5.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature flip">
+          <div class="feature-text">
+            <h3>See the schema as a diagram</h3>
+            <p>A tab draws a schema, or one table and its neighbours, as boxes with columns, types and key markers. Foreign keys are edges that end at the columns they join.</p>
+            <ul>
+              <li>Layered layout with routing that avoids the boxes; pan, zoom, fit, jump to a table by name</li>
+              <li><kbd>Enter</kbd> opens the selected table</li>
+              <li>Export as SVG, or copy as Mermaid <code>erDiagram</code> text</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/er-diagram-900.webp 900w, assets/screens/er-diagram.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/er-diagram.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta tab titled Diagram: public showing eight tables of the demo schema as boxes, each listing columns with their types and PK or FK markers. Lines from orders to customers and from order_items to orders and products end at the foreign-key columns.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature">
+          <div class="feature-text">
+            <h3>Compare two schemas, or the rows of two tables</h3>
+            <p>Schema compare lists the tables, columns, keys, indexes, checks and views that exist on one side only or differ. Data compare does the same for the rows of two tables that share a key.</p>
+            <ul>
+              <li>For two schemas of the same product, a migration script that makes the target match; data compare writes a sync script</li>
+              <li>Scripts open in a console on the target and never run by themselves; destructive statements stay commented out until you ask</li>
+              <li>Rows are read in key order, so neither table has to fit in memory</li>
+              <li>Data compare covers PostgreSQL, MySQL/MariaDB and SQLite; triggers, routine bodies and privileges are not compared</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/schema-compare-900.webp 900w, assets/screens/schema-compare.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/schema-compare.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta schema compare tab. A tree on the left lists tables that differ between two schemas, with added, removed and changed columns, a foreign key and indexes. On the right, the selected table shows the source and target side by side. A footer lists what the comparison does not cover.">
+              </picture>
+            </div>
+          </figure>
+        </article>
+
+        <article class="feature flip">
+          <div class="feature-text">
+            <h3>Look at the server, not only the data</h3>
+            <p>Sessions shows who is connected, what each session runs and which one blocks another, and cancels a query or ends a session after confirming the exact SQL. Roles shows attributes, memberships and privileges.</p>
+            <ul>
+              <li>Role changes go through preview-and-confirm forms; passwords are never logged</li>
+              <li><em>Export Database</em> writes a streaming SQL dump (or calls <code>pg_dump</code> or <code>mysqldump</code>); <em>Run SQL Script</em> handles large files with progress</li>
+              <li>Run by hand on PostgreSQL 16, MariaDB 10.11 and ClickHouse 18.16 sessions; elsewhere unit-tested only or switched off with a reason</li>
+            </ul>
+          </div>
+          <figure class="frame">
+            <div class="frame-inner">
+              <picture>
+                <source type="image/webp" srcset="assets/screens/sessions-900.webp 900w, assets/screens/sessions.webp 1600w" sizes="(min-width: 980px) 760px, 100vw">
+                <img src="assets/screens/sessions.png" width="1600" height="1000" loading="lazy" decoding="async"
+                     alt="Theta Sessions tab for a PostgreSQL connection: six sessions in a table with user, database, client, application, state and wait columns, one session marked blocking and another marked blocked by it, and a detail pane below with Copy, Open in Console, Cancel Query and Terminate Session buttons.">
               </picture>
             </div>
           </figure>
@@ -343,14 +472,43 @@
 
       <div class="grid-more" role="list">
         <div role="listitem"><h4><span class="mono">SSH</span>Tunnels and keychains</h4><p>Connect through an SSH tunnel with a key file, a password or ssh-agent. Passwords go to the operating-system keychain, not to a settings file.</p></div>
-        <div role="listitem"><h4><span class="mono">TXN</span>Transactions</h4><p>Begin, commit and roll back from the title bar. While one is open, closing a tab or quitting asks what to do with it.</p></div>
+        <div role="listitem"><h4><span class="mono">TXN</span>Transactions</h4><p>Begin, commit and roll back from the title bar, or switch a connection to manual mode with an isolation level. While one is open, closing a tab or quitting asks what to do with it.</p></div>
         <div role="listitem"><h4><span class="mono">RO</span>Read-only connections</h4><p>Mark a connection read-only and give it an accent colour. Theta classifies each statement and refuses writes before they are sent.</p></div>
-        <div role="listitem"><h4><span class="mono">SQL</span>Formatter</h4><p>Format the document or a selection. Indent width and keyword case are settings.</p></div>
-        <div role="listitem"><h4><span class="mono">HIST</span>History</h4><p>Every statement you run is kept, up to 5,000, and searchable in the History tab.</p></div>
+        <div role="listitem"><h4><span class="mono">FIND</span>Search across tables</h4><p>Find a text in every column of a connection, a schema or chosen tables, one query per table with a row limit and timeout, then open the matching rows.</p></div>
+        <div role="listitem"><h4><span class="mono">COPY</span>Copy a table</h4><p>Copy a table, with or without its rows, to another schema or connection, across PostgreSQL, MySQL/MariaDB, SQLite and DuckDB. The DDL and every inexact type are shown before it runs.</p></div>
+        <div role="listitem"><h4><span class="mono">MULTI</span>Run on several connections</h4><p>Run one statement or script on each connection you tick, concurrently, with a summary of rows, time and error per connection.</p></div>
+        <div role="listitem"><h4><span class="mono">SNAP</span>Local history</h4><p>Consoles are snapshotted on every run and after pauses in typing. Diff against the editor and restore in one undoable step; the text survives a killed process.</p></div>
+        <div role="listitem"><h4><span class="mono">CELL</span>Cell and record view</h4><p>A cell viewer follows the cursor: pretty JSON with folding, wrapped text, hex dumps, images, geometry. Record view shows one row as a list of fields.</p></div>
+        <div role="listitem"><h4><span class="mono">SQL</span>Formatter and templates</h4><p>Format the document or a selection; indent width and keyword case are settings. Live templates expand with <kbd>Tab</kbd> into snippets with linked placeholders.</p></div>
+        <div role="listitem"><h4><span class="mono">PARAM</span>Query parameters</h4><p><code>?</code>, <code>$1</code>, <code>:name</code> and <code>@name</code> ask for typed values before the run. They are substituted by Theta as escaped literals, not bound by the server.</p></div>
+        <div role="listitem"><h4><span class="mono">HIST</span>Statement history</h4><p>Every statement you run is kept, up to 5,000, and searchable in the History tab.</p></div>
         <div role="listitem"><h4><span class="mono">TAB</span>Consoles that stay</h4><p>A console keeps its text, cursor, connection and tab position across restarts. Closed a tab by mistake? Reopen it with <kbd>mod-shift-t</kbd>.</p></div>
       </div>
 
-      <div class="keymap-shots" style="margin-top:clamp(64px,8vw,112px)">
+            <div class="keymap-shots" style="margin-top:clamp(64px,8vw,112px)">
+        <figure class="frame">
+          <div class="frame-inner">
+            <picture>
+              <source type="image/webp" srcset="assets/screens/quick-fix-900.webp 900w, assets/screens/quick-fix.webp 1600w" sizes="(min-width: 820px) 560px, 100vw">
+              <img src="assets/screens/quick-fix.png" width="1600" height="1000" loading="lazy" decoding="async"
+                   alt="Theta editor with a quick-fix menu open over a query. Under Quick fixes the first entry reads Change emial to email; under Source, Uppercase the keywords of this statement.">
+            </picture>
+          </div>
+          <figcaption><b>Fig. 03</b><span>A quick fix for the misspelt column, opened with <kbd>mod-.</kbd>.</span></figcaption>
+        </figure>
+        <figure class="frame">
+          <div class="frame-inner">
+            <picture>
+              <source type="image/webp" srcset="assets/screens/data-compare-900.webp 900w, assets/screens/data-compare.webp 1600w" sizes="(min-width: 820px) 560px, 100vw">
+              <img src="assets/screens/data-compare.png" width="1600" height="1000" loading="lazy" decoding="async"
+                   alt="Theta data compare tab for two copies of a people table. Rows that differ are shown in pairs with the changed cells highlighted, source value above target value; one row exists only in the source and one only in the target.">
+            </picture>
+          </div>
+          <figcaption><b>Fig. 04</b><span>Data compare: changed cells highlighted, source value above target value.</span></figcaption>
+        </figure>
+      </div>
+
+      <div class="keymap-shots">
         <figure class="frame">
           <div class="frame-inner">
             <picture>
@@ -359,7 +517,7 @@
                    alt="Theta theme picker open above the editor, filtered by the word tokyo and listing Tokyo Moon, Tokyo Night and Tokyo Storm.">
             </picture>
           </div>
-          <figcaption><b>Fig. 03</b><span>Find a theme by name in the picker, opened with <kbd>mod-k</kbd> <kbd>mod-t</kbd>.</span></figcaption>
+          <figcaption><b>Fig. 05</b><span>Find a theme by name in the picker, opened with <kbd>mod-k</kbd> <kbd>mod-t</kbd>.</span></figcaption>
         </figure>
         <figure class="frame">
           <div class="frame-inner">
@@ -369,9 +527,36 @@
                    alt="Theta New Connection dialog for PostgreSQL: host, user, database and SSL mode, an enabled SSH tunnel section with a bastion host and key file, a read-only switch and a choice of accent colours.">
             </picture>
           </div>
-          <figcaption><b>Fig. 04</b><span>The connection dialog, with an SSH tunnel. PostgreSQL, MySQL/MariaDB and SQLite.</span></figcaption>
+          <figcaption><b>Fig. 06</b><span>The connection dialog, with an SSH tunnel, a read-only switch and an accent colour.</span></figcaption>
         </figure>
       </div>
+    </div>
+  </section>
+
+  <!-- DATABASES -->
+  <section class="section" id="databases" aria-labelledby="databases-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow"><span class="num">03</span> Databases</p>
+        <h2 id="databases-title">Eleven databases, tested to different depths.</h2>
+        <p>&ldquo;Run by hand&rdquo; means the app was used against a real server. &ldquo;Live driver tests in CI&rdquo; means the driver&rsquo;s connect, typed-value, introspection, <code>EXPLAIN</code>, row-limit, cancel and error tests pass against a service container, but nobody has driven the app against that product. &ldquo;Unverified&rdquo; means no server of that product has been used at all.</p>
+      </div>
+      <div class="dl-wrap">
+        <table class="dl dl-db">
+          <thead><tr><th scope="col">Database</th><th scope="col">How far it has been tested</th><th scope="col">Notes</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">PostgreSQL</th><td>Run by hand (16 with PostGIS 3.4), and live driver tests in CI</td><td>The reference implementation.</td></tr>
+            <tr><th scope="row">MySQL / MariaDB</th><td>Run by hand against MariaDB 10.11, and live driver tests in CI</td><td>MySQL 8 query plans are tested from captured output only.</td></tr>
+            <tr><th scope="row">SQLite</th><td>Run by hand</td><td>Bundled; also the demo database.</td></tr>
+            <tr><th scope="row">DuckDB</th><td>Run by hand (2.0.0), in memory and from a file</td><td>No row editing, table editor, CSV import or extensions.</td></tr>
+            <tr><th scope="row">ClickHouse</th><td>Run by hand against 18.16; live driver tests in CI against 24.8</td><td>Read-only grid, no transactions. Modern types and <code>EXPLAIN</code> were not run by hand.</td></tr>
+            <tr><th scope="row">CockroachDB, TiDB, TimescaleDB</th><td>Live driver tests in CI; not driven by hand</td><td>Each has its own <code>EXPLAIN</code> parser; hypertables are listed for TimescaleDB.</td></tr>
+            <tr><th scope="row">SQL Server</th><td>Live driver tests in CI (SQL Server 2022); not driven by hand</td><td>SQL authentication only. No table editor or CSV import. Sessions, roles and spatial values are not covered by the test.</td></tr>
+            <tr><th scope="row">Amazon Redshift, YugabyteDB</th><td>Unverified</td><td>No test server exists. Redshift has no Explain Analyze, table editor or import.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fine-print">What a product cannot do is switched off with a reason, instead of sending SQL that fails. The per-product details are in the <a href="https://github.com/JesseWilliamson/Theta/blob/main/docs/USER_GUIDE.md#other-databases" data-repo="/blob/main/docs/USER_GUIDE.md#other-databases">user guide</a>.</p>
     </div>
   </section>
 
@@ -379,7 +564,7 @@
   <section class="section" id="keymaps" aria-labelledby="keymaps-title">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow"><span class="num">03</span> Keymaps</p>
+        <p class="eyebrow"><span class="num">04</span> Keymaps</p>
         <h2 id="keymaps-title">Three keymaps. Pick the one your hands know.</h2>
         <p>Modal editing is a first-class citizen, not a plugin. Choose on the welcome screen, in Settings, or from the command palette, and change your mind any time.</p>
       </div>
@@ -457,7 +642,7 @@
                    alt="Theta welcome view with three buttons to choose the keymap, Helix, Vim or Standard, and a cheat sheet of the chosen keymap beneath them.">
             </picture>
           </div>
-          <figcaption><b>Fig. 05</b><span>Choose on the welcome view. The cheat sheet follows your choice.</span></figcaption>
+          <figcaption><b>Fig. 07</b><span>Choose on the welcome view. The cheat sheet follows your choice.</span></figcaption>
         </figure>
         <figure class="frame">
           <div class="frame-inner">
@@ -467,7 +652,7 @@
                    alt="Theta editor in the Vim keymap with a block selection down the first column of three lines of a query, and a V-BLOCK mode chip in the status bar.">
             </picture>
           </div>
-          <figcaption><b>Fig. 06</b><span>The Vim keymap in <code>V-BLOCK</code> mode.</span></figcaption>
+          <figcaption><b>Fig. 08</b><span>The Vim keymap in <code>V-BLOCK</code> mode.</span></figcaption>
         </figure>
       </div>
     </div>
@@ -476,7 +661,7 @@
   <!-- WHY THETA -->
   <section class="section" id="why" aria-labelledby="why-title">
     <div class="wrap">
-      <p class="eyebrow"><span class="num">04</span> <span id="why-title">Why Theta?</span></p>
+      <p class="eyebrow"><span class="num">05</span> <span id="why-title">Why Theta?</span></p>
       <div class="why">
         <div class="why-mark" aria-hidden="true"><svg><use href="#theta-fine"/></svg></div>
         <div>
@@ -491,28 +676,31 @@
   <section class="section" id="status" aria-labelledby="status-title">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow"><span class="num">05</span> Status</p>
+        <p class="eyebrow"><span class="num">06</span> Status</p>
         <h2 id="status-title">Alpha, and honest about it.</h2>
       </div>
       <div class="status-grid">
         <div>
           <h3>What has been tested</h3>
           <ul class="plain-list">
-            <li><b>Linux (X11):</b> every feature on this page was run by hand against PostgreSQL 16 with PostGIS, MariaDB 10.11 and SQLite.</li>
+            <li><b>Linux (X11):</b> every feature on this page was run by hand against PostgreSQL 16 with PostGIS, MariaDB 10.11 and SQLite. DuckDB and ClickHouse 18.16 were also run by hand, though not every feature on them. Wayland has not been tried.</li>
+            <li><b>Other databases:</b> SQL Server, CockroachDB, TiDB and TimescaleDB pass live driver tests in CI and have not been driven by hand. Redshift and YugabyteDB are unverified. See the table above.</li>
+            <li><b>Server administration:</b> run by hand on PostgreSQL 16, MariaDB 10.11 and ClickHouse 18.16 (sessions). SQL Server sessions and logins, MySQL 8 lock and role queries, and dumps through <code>pg_dump</code> or <code>mysqldump</code> are unit-tested only.</li>
             <li><b>SSH tunnelling:</b> covered by the driver integration tests only.</li>
-            <li><b>macOS and Windows:</b> compiled and unit-tested in CI. Nobody has used those builds by hand yet, and they are unsigned.</li>
+            <li><b>macOS and Windows:</b> compiled and unit-tested in CI. Nobody has used those builds by hand yet. The macOS app is ad-hoc signed and not notarised; the Windows build is unsigned.</li>
             <li><b>MySQL 8 plans:</b> <code>EXPLAIN</code> parsing is tested from captured fixtures; live testing was against MariaDB.</li>
           </ul>
         </div>
         <div>
           <h3>Known limitations</h3>
           <ul class="plain-list">
-            <li>No soft wrap and no code folding. Long lines scroll sideways.</li>
-            <li>Diagnostics are heuristic and stay quiet rather than flag valid SQL. The database remains the judge.</li>
-            <li>The Vim keymap is not Vim: no Vimscript, <code>:map</code>, windows, folds or digraphs.</li>
-            <li>Undo is linear. There is no undo tree.</li>
-            <li>Read-only is enforced by Theta, not the server. A <code>SELECT</code> that calls a function with side effects runs. Use a read-only database account when it matters.</li>
-            <li>One statement runs at a time per connection, and consoles on a connection share its session and transaction.</li>
+            <li><b>Databases:</b> SQL Server cancels a statement by ending the session. ClickHouse has a read-only grid and no transactions. Read-only is enforced by Theta, not the server: a <code>SELECT</code> that calls a function with side effects runs. Use a read-only database account when it matters.</li>
+            <li><b>Editor:</b> no soft wrap or code folding, and undo is linear. The Vim keymap is not Vim: no Vimscript, <code>:map</code>, windows, folds or digraphs.</li>
+            <li><b>Diagnostics:</b> they stay quiet rather than flag valid SQL, so they miss errors (the parser flags 52&ndash;65% of the statements a server rejects for syntax). Rename covers aliases and CTEs, not tables or columns of the database. The database remains the judge.</li>
+            <li><b>Server administration:</b> Sessions, Roles and the built-in dump are off on several products, with a reason shown. The dump is not a backup: no routines, triggers, extensions, custom types or grants.</li>
+            <li><b>Tools:</b> the table editor cannot reorder the columns of an existing table. Schema compare skips triggers, routine bodies, sequences and privileges. Data compare needs a key and cannot compare an in-memory SQLite or a DuckDB database. Import sends batched <code>INSERT</code>s, not <code>COPY</code>.</li>
+            <li><b>Results:</b> the grid cannot reorder or hide columns, results are not kept across restarts, and a result export covers the rows that were loaded. Curved geometry types are not drawn.</li>
+            <li><b>Connections:</b> one statement runs at a time per connection, and consoles on a connection share its session and transaction. Without a keychain, passwords are not saved.</li>
           </ul>
         </div>
       </div>
@@ -523,9 +711,9 @@
   <section class="section" id="download" aria-labelledby="download-title">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow"><span class="num">06</span> Download</p>
+        <p class="eyebrow"><span class="num">07</span> Download</p>
         <h2 id="download-title">Get the alpha.</h2>
-        <p>Builds are attached to each release on GitHub, with a <code>SHA256SUMS</code> file. Replace <code>&lt;version&gt;</code> with the release you pick.</p>
+        <p>Builds are attached to each release on GitHub, with a <code>SHA256SUMS</code> file (check with <code>sha256sum -c SHA256SUMS --ignore-missing</code>). Replace <code>&lt;version&gt;</code> with the release you pick.</p>
       </div>
 
       <div class="dl-wrap">
@@ -547,7 +735,7 @@
       </div>
 
       <div class="notes">
-        <div><h3>macOS</h3><p>The app is ad-hoc signed but not notarised, so Gatekeeper blocks the first launch. Right-click the app, choose <em>Open</em>, then <em>Open</em> again.</p></div>
+        <div><h3>macOS</h3><p>The app is ad-hoc signed but not notarised, so Gatekeeper blocks the first launch. Run <code>xattr -dr com.apple.quarantine /Applications/Theta.app</code>, or open the app once and choose <em>Open Anyway</em> in System Settings, Privacy &amp; Security. Older macOS versions also accept right-click, <em>Open</em>.</p></div>
         <div><h3>Windows</h3><p>The executable is not code-signed, so SmartScreen warns on first launch. Choose <em>More info</em>, then <em>Run anyway</em>.</p></div>
         <div><h3>Linux</h3><p>You need a working Vulkan driver (Mesa, or the proprietary one) plus <code>libxkbcommon</code>, <code>libwayland-client</code>, <code>libxcb</code> and <code>fontconfig</code>. The AppImage uses the ones on your system.</p></div>
       </div>
@@ -564,12 +752,13 @@
     <div class="footer-grid">
       <div>
         <a class="brand" href="index.html" aria-label="Theta, home"><svg class="mark" aria-hidden="true"><use href="#theta"/></svg><span>Theta</span></a>
-        <p style="max-width:34ch">A keyboard-first database IDE for PostgreSQL, MySQL/MariaDB and SQLite. Alpha software, built in the open.</p>
+        <p style="max-width:34ch">A keyboard-first database IDE for PostgreSQL, MySQL, SQLite and more. Alpha software, built in the open.</p>
       </div>
       <div>
         <h2>Product</h2>
         <ul>
           <li><a href="index.html#features">Features</a></li>
+          <li><a href="index.html#databases">Databases</a></li>
           <li><a href="index.html#keymaps">Keymaps</a></li>
           <li><a href="index.html#status">Status</a></li>
           <li><a href="index.html#download">Download</a></li>
