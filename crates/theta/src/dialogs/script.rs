@@ -320,7 +320,7 @@ impl Render for ScriptView {
             .child(
                 v_flex()
                     .gap_1()
-                    .min_h(px(60.))
+                    .min_h(px(40.))
                     .when_some(self.status.clone(), |d, (ok, t)| {
                         d.child(div().text_size(px(12.)).text_color(if ok { theme.foreground } else { theme.danger }).child(t))
                     })

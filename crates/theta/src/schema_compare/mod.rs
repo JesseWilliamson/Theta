@@ -501,7 +501,7 @@ impl Render for SchemaCompareView {
                 h_flex()
                     .flex_1()
                     .min_h_0()
-                    .child(v_flex().w(px(420.)).h_full().border_r_1().border_color(theme.border).child(tree))
+                    .child(v_flex().w(px(340.)).flex_shrink_0().h_full().border_r_1().border_color(theme.border).child(tree))
                     .child(div().flex_1().h_full().min_w_0().overflow_hidden().child(detail)),
             )
             .child(footer)
@@ -517,8 +517,11 @@ impl SchemaCompareView {
         theme: &gpui_kit::component::Theme,
     ) -> AnyElement {
         let pane = |title: String, text: Option<String>| {
+            // An absent side needs only room for "(does not exist)"; the other one gets the rest.
+            let absent = text.is_none();
             v_flex()
-                .flex_1()
+                .when(absent, |d| d.flex_none().w(px(190.)))
+                .when(!absent, |d| d.flex_1())
                 .min_w_0()
                 .gap_1()
                 .child(div().text_size(px(11.)).text_color(theme.muted_foreground).child(title))
