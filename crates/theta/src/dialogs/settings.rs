@@ -1,4 +1,4 @@
-//! The Settings dialog: Appearance, Editor, Data, Map, Keymap reference, About.
+//! The Settings dialog: Appearance, Editor, Templates, Map, Keymap reference, About.
 //! Every control writes straight to `Settings`, which persists and applies live.
 
 use crate::exec::keyref;
@@ -21,7 +21,6 @@ use theta_ui::{CHROME_TEXT_SIZE, KeyHint, Settings};
 pub enum Section {
     Appearance,
     Editor,
-    Data,
     Templates,
     Map,
     Keymap,
@@ -29,10 +28,9 @@ pub enum Section {
 }
 
 impl Section {
-    const ALL: [Section; 7] = [
+    const ALL: [Section; 6] = [
         Section::Appearance,
         Section::Editor,
-        Section::Data,
         Section::Templates,
         Section::Map,
         Section::Keymap,
@@ -42,7 +40,6 @@ impl Section {
         match self {
             Section::Appearance => "Appearance",
             Section::Editor => "Editor",
-            Section::Data => "Data",
             Section::Templates => "Templates",
             Section::Map => "Map",
             Section::Keymap => "Keymap",
@@ -216,6 +213,9 @@ impl SettingsView {
             .border_color(theme.border.opacity(0.5))
             .child(
                 v_flex()
+                    // A long hint wraps instead of pushing the control out of the row.
+                    .flex_1()
+                    .min_w_0()
                     .gap_0p5()
                     .child(div().text_size(px(13.)).child(SharedString::from(label.to_string())))
                     .when_some(hint, |d, h| {
@@ -260,12 +260,11 @@ impl SettingsView {
     fn appearance(&self, cx: &mut Context<Self>) -> AnyElement {
         let s = Settings::get(cx).clone();
         let theme_name = theta_ui::themes::current_name(cx).to_string();
-        let clamp = |v: f32| v.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
         v_flex()
             .child(self.row(
                 "Theme",
                 Some("Changes apply immediately"),
-                Button::new("settings-theme").label(SharedString::from(format!("{theme_name} …"))).on_click(
+                Button::new("settings-theme").label(SharedString::from(format!("{theme_name}…"))).on_click(
                     |_, window, cx| {
                         window.close_dialog(cx);
                         window.dispatch_action(Box::new(crate::actions::SelectTheme), cx);
@@ -282,35 +281,19 @@ impl SettingsView {
                 }),
                 cx,
             ))
-            .child(self.row("Interface font", None, div().w(px(230.)).child(Select::new(&self.ui_font)), cx))
-            .child(self.row("Editor font", None, div().w(px(230.)).child(Select::new(&self.buf_font)), cx))
-            .child(self.row(
-                "Editor font size",
-                None,
-                self.stepper(
-                    "buf-size",
-                    format!("{:.0}", s.buffer_font_size),
-                    move |s| s.buffer_font_size = clamp(s.buffer_font_size - 1.0),
-                    move |s| s.buffer_font_size = clamp(s.buffer_font_size + 1.0),
-                ),
-                cx,
-            ))
-            .child(self.row(
-                "Editor line height",
-                Some("Multiple of the font size"),
-                self.stepper(
-                    "line-h",
-                    format!("{:.2}", s.buffer_line_height),
-                    |s| s.buffer_line_height = (s.buffer_line_height - 0.05).clamp(1.0, 2.5),
-                    |s| s.buffer_line_height = (s.buffer_line_height + 0.05).clamp(1.0, 2.5),
-                ),
-                cx,
-            ))
+            .child(self.row("Interface font", Some("The editor font is under Editor"), div().w(px(230.)).child(Select::new(&self.ui_font)), cx))
             .into_any_element()
     }
 
     fn editor(&self, cx: &mut Context<Self>) -> AnyElement {
         let s = Settings::get(cx).clone();
+        let clamp = |v: f32| v.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
+        let limit_pos = ROW_LIMITS.iter().position(|&n| n == s.row_limit).unwrap_or(2);
+        let limit_label = if s.row_limit == 0 {
+            "No limit".to_string()
+        } else {
+            crate::workspace::console::fmt_int(s.row_limit as u64)
+        };
         let seg = |id: &'static str, mode: KeymapMode| {
             let b = Button::new(id).small().label(mode.label());
             let b = if s.keymap == mode { b.primary() } else { b };
@@ -340,6 +323,29 @@ impl SettingsView {
                     cx,
                 ))
             })
+            .child(self.row("Editor font", None, div().w(px(230.)).child(Select::new(&self.buf_font)), cx))
+            .child(self.row(
+                "Editor font size",
+                None,
+                self.stepper(
+                    "buf-size",
+                    format!("{:.0}", s.buffer_font_size),
+                    move |s| s.buffer_font_size = clamp(s.buffer_font_size - 1.0),
+                    move |s| s.buffer_font_size = clamp(s.buffer_font_size + 1.0),
+                ),
+                cx,
+            ))
+            .child(self.row(
+                "Editor line height",
+                Some("Multiple of the font size"),
+                self.stepper(
+                    "line-h",
+                    format!("{:.2}", s.buffer_line_height),
+                    |s| s.buffer_line_height = (s.buffer_line_height - 0.05).clamp(1.0, 2.5),
+                    |s| s.buffer_line_height = (s.buffer_line_height + 0.05).clamp(1.0, 2.5),
+                ),
+                cx,
+            ))
             .child(self.row(
                 "Ask for query parameters",
                 Some("Prompt for values when a statement contains ?, $1, :name or @name; they are substituted into the SQL as literals"),
@@ -347,6 +353,17 @@ impl SettingsView {
                     let v = *v;
                     Settings::update(cx, |s| s.editor.parameters = v)
                 }),
+                cx,
+            ))
+            .child(self.row(
+                "Row limit",
+                Some("Results stop after this many rows; the grid says so and Load All fetches the rest"),
+                self.stepper(
+                    "row-limit",
+                    limit_label,
+                    move |s| s.row_limit = ROW_LIMITS[limit_pos.saturating_sub(1)],
+                    move |s| s.row_limit = ROW_LIMITS[(limit_pos + 1).min(ROW_LIMITS.len() - 1)],
+                ),
                 cx,
             ))
             .child(self.row(
@@ -367,29 +384,6 @@ impl SettingsView {
                     let v = *v;
                     Settings::update(cx, |s| s.format.uppercase_keywords = v)
                 }),
-                cx,
-            ))
-            .into_any_element()
-    }
-
-    fn data(&self, cx: &mut Context<Self>) -> AnyElement {
-        let s = Settings::get(cx).clone();
-        let pos = ROW_LIMITS.iter().position(|&n| n == s.row_limit).unwrap_or(2);
-        let label = if s.row_limit == 0 {
-            "No limit".to_string()
-        } else {
-            crate::workspace::console::fmt_int(s.row_limit as u64)
-        };
-        v_flex()
-            .child(self.row(
-                "Row limit",
-                Some("Results stop after this many rows; the grid shows a truncated note"),
-                self.stepper(
-                    "row-limit",
-                    label,
-                    move |s| s.row_limit = ROW_LIMITS[pos.saturating_sub(1)],
-                    move |s| s.row_limit = ROW_LIMITS[(pos + 1).min(ROW_LIMITS.len() - 1)],
-                ),
                 cx,
             ))
             .into_any_element()
@@ -522,7 +516,7 @@ impl SettingsView {
             .into_any_element()
     }
 
-    fn keymap(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn keymap(&self, list_h: f32, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let q = self.filter.read(cx).value().to_lowercase();
         let rows: Vec<&(String, String, String)> = self
@@ -541,7 +535,7 @@ impl SettingsView {
                 mode.label(),
                 theta_core::text::plural(rows.len() as u64, "row", "rows")
             )))
-            .child(div().id("keymap-rows").h(px(380.)).overflow_y_scroll().child(v_flex().children(
+            .child(div().id("keymap-rows").h(px(list_h)).overflow_y_scroll().child(v_flex().children(
                 rows.into_iter().take(600).map(|(section, action, keys)| {
                     h_flex()
                         .py_1()
@@ -644,21 +638,58 @@ impl SettingsView {
     fn about(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let line = |t: String| div().text_size(px(13.)).text_color(theme.muted_foreground).child(t);
+        let heading = |t: &'static str| div().pt_3().font_weight(FontWeight::MEDIUM).text_size(px(13.)).child(t);
+        let link = |id: &'static str, label: &'static str, url: &'static str| {
+            Button::new(id).small().label(label).on_click(move |_, _, cx| cx.open_url(url))
+        };
+        let folder = |id: &'static str, caption: &'static str, path: std::path::PathBuf| {
+            let shown = path.display().to_string();
+            h_flex()
+                .gap_3()
+                .items_center()
+                .child(div().w(px(90.)).flex_shrink_0().text_size(px(13.)).child(caption))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(12.))
+                        .text_color(theme.muted_foreground)
+                        .child(shown),
+                )
+                .child(Button::new(id).small().label("Open").on_click(move |_, _, cx| {
+                    // The folder may not exist yet on a first run; opening it then would fail silently.
+                    let _ = std::fs::create_dir_all(&path);
+                    cx.open_with_system(&path);
+                }))
+        };
+        let config = theta_ui::settings::config_dir();
         v_flex()
             .gap_2()
             .child(div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child("Theta"))
-            .child(line(format!("Version {}", env!("CARGO_PKG_VERSION"))))
+            .child(line(format!("Version {}", crate::links::version_line())))
             .child(line("A keyboard-first database IDE for PostgreSQL, MySQL, SQLite and more.".into()))
             .child(line(
                 "The name comes from the theta join (\u{3b8}-join) of relational algebra, the general form of JOIN."
                     .into(),
             ))
+            .child(line("Released under the MIT licence. Copyright (c) 2026 Jesse Williamson".into()))
             .child(
-                Button::new("about-repo")
-                    .label(env!("CARGO_PKG_REPOSITORY").trim_start_matches("https://"))
-                    .on_click(|_, _, cx| cx.open_url(env!("CARGO_PKG_REPOSITORY"))),
+                h_flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .pt_1()
+                    .child(link("about-web", "Website", crate::links::WEBSITE))
+                    .child(link("about-guide", "User Guide", crate::links::USER_GUIDE))
+                    .child(link("about-keys", "Key Reference", crate::links::KEY_REFERENCE))
+                    .child(link("about-changes", "Changelog", crate::links::CHANGELOG))
+                    .child(link("about-issues", "Issue Tracker", crate::links::ISSUES))
+                    .child(link("about-source", "Source Code", crate::links::REPOSITORY)),
             )
-            .child(div().pt_3().font_weight(FontWeight::MEDIUM).text_size(px(13.)).child("Bundled assets"))
+            .child(heading("Files"))
+            .child(folder("about-config", "Settings", config.clone()))
+            .child(folder("about-logs", "Logs", config.join("logs")))
+            .child(heading("Third-party notices"))
             .child(line("Fonts: IBM Plex Sans and Lilex, both under the SIL Open Font License 1.1.".into()))
             .child(line(
                 "Themes and UI components: gpui-kit (Apache-2.0); each theme credits its author in NOTICE."
@@ -667,26 +698,35 @@ impl SettingsView {
             .child(line(
                 "Map tiles: attribution is shown on the map for the selected basemap (OpenStreetMap by default).".into(),
             ))
+            .child(
+                h_flex().pt_1().child(link(
+                    "about-third-party",
+                    "Licences of every bundled library",
+                    crate::links::THIRD_PARTY,
+                )),
+            )
             .into_any_element()
     }
 }
 
 impl Render for SettingsView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
+        // The dialog takes what the window can spare, within reason, so a small window scrolls the page
+        // instead of clipping the dialog and a large one does not float a postage stamp.
+        let height = (f32::from(window.viewport_size().height) - 190.).clamp(300., 560.);
         let body = match self.section {
             Section::Appearance => self.appearance(cx),
             Section::Editor => self.editor(cx),
-            Section::Data => self.data(cx),
             Section::Templates => self.templates(cx),
             Section::Map => self.map(cx),
-            Section::Keymap => self.keymap(cx),
+            Section::Keymap => self.keymap(height - 96., cx),
             Section::About => self.about(cx),
         };
         h_flex()
             .gap_4()
             .items_start()
-            .h(px(470.))
+            .h(px(height))
             .child(v_flex().w(px(150.)).flex_shrink_0().gap_0p5().children(Section::ALL.into_iter().map(
                 |sec| {
                     let active = sec == self.section;

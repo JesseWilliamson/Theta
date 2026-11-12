@@ -160,7 +160,7 @@ pub fn open(
         let for_cancel = for_cancel.clone();
         dialog
             .bg(cx.theme().popover)
-            .title("Import Data")
+            .title(crate::names::IMPORT_DATA)
             .w(px(940.))
             .margin_top(px(20.))
             .overlay_closable(false)

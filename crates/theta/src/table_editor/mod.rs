@@ -104,13 +104,13 @@ pub(crate) struct ListPopup {
     pub cursor: usize,
 }
 
-/// What the tab shows as its title: "Modify customers" / "New table".
+/// What the tab shows as its title: "Modify customers" / "New Table".
 pub fn title_for(model: &DraftModel) -> String {
     match model.original() {
         Some(o) => format!("Modify {}", o.name),
         None => match model.draft().name.trim() {
-            "" => "New table".to_string(),
-            n => format!("New table {n}"),
+            "" => crate::names::NEW_TABLE.to_string(),
+            n => format!("{} {n}", crate::names::NEW_TABLE),
         },
     }
 }

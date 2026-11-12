@@ -67,7 +67,7 @@ pub fn open(
         let for_cancel = for_cancel.clone();
         dialog
             .bg(cx.theme().popover)
-            .title("Export Data")
+            .title(crate::names::EXPORT_TABLE_DATA)
             .w(px(620.))
             .overlay_closable(false)
             .child(view.clone())

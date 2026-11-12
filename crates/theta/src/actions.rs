@@ -85,6 +85,14 @@ actions!(
         RunSqlScript,
         OpenSettings,
         WelcomeDemo,
+        // Help
+        ShowAbout,
+        OpenWebsite,
+        OpenUserGuide,
+        OpenKeyReference,
+        OpenChangelog,
+        OpenIssueTracker,
+        OpenConfigFolder,
         // Explorer (key context "Explorer")
         ExplorerNext,
         ExplorerPrevious,

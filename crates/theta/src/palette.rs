@@ -54,13 +54,13 @@ fn commands() -> Vec<Command> {
         cmd!("Transactions: Manual", "Query", IconName::Play, SetManualTransactions),
         cmd!("Transaction Isolation Level…", "Query", IconName::Settings, SelectIsolationLevel),
         cmd!("Open SQL File…", "Console", IconName::FileDown, OpenSqlFile),
-        cmd!("Import Data from CSV/TSV…", "Data", IconName::FileDown, ImportData),
-        cmd!("Import CSV/TSV as New Table…", "Data", IconName::FileDown, ImportAsNewTable),
+        cmd!("Import Data…", "Data", IconName::FileDown, ImportData),
+        cmd!("Import Data as New Table…", "Data", IconName::FileDown, ImportAsNewTable),
         cmd!("Export Table Data…", "Data", IconName::FileDown, ExportTableData),
         cmd!("New Table…", "Table", IconName::Plus, NewTable),
         cmd!("Modify Table…", "Table", IconName::Settings2, ModifyTable),
         cmd!("Rename Table…", "Table", IconName::Pencil, RenameTable),
-        cmd!("Copy Table to…", "Table", IconName::Copy, CopyTable),
+        cmd!("Copy Table…", "Table", IconName::Copy, CopyTable),
         cmd!("Duplicate Table Structure…", "Table", IconName::Copy, DuplicateTableStructure),
         cmd!("Truncate Table…", "Table", IconName::Eraser, TruncateTable),
         cmd!("Drop Table…", "Table", IconName::Trash, DropTable),
@@ -95,8 +95,20 @@ fn commands() -> Vec<Command> {
         cmd!("Decrease Editor Font Size", "Appearance", IconName::ZoomOut, ZoomOut),
         cmd!("Reset Editor Font Size", "Appearance", IconName::Search, ZoomReset),
         cmd!("Open Settings File", "App", IconName::Settings, OpenSettingsFile),
+        cmd!("About Theta", "Help", IconName::Info, ShowAbout),
+        cmd!("Open Website", "Help", IconName::Globe, OpenWebsite),
+        cmd!("Open User Guide", "Help", IconName::BookOpen, OpenUserGuide),
+        cmd!("Open Key Reference", "Help", IconName::Keyboard, OpenKeyReference),
+        cmd!("Open Changelog", "Help", IconName::FileText, OpenChangelog),
+        cmd!("Report an Issue…", "Help", IconName::CircleAlert, OpenIssueTracker),
+        cmd!("Open Config Folder", "Help", IconName::Folder, OpenConfigFolder),
         cmd!("Quit", "App", IconName::Power, Quit),
     ]
+}
+
+#[cfg(test)]
+pub fn command_labels() -> Vec<&'static str> {
+    commands().into_iter().map(|c| c.label).collect()
 }
 
 /// (section, label, key hint) of every command, for the keymap reference.

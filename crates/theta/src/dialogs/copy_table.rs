@@ -94,7 +94,7 @@ pub fn open(
         let for_cancel = for_cancel.clone();
         dialog
             .bg(cx.theme().popover)
-            .title("Copy Table")
+            .title(crate::names::COPY_TABLE)
             .w(px(720.))
             .overlay_closable(false)
             .on_ok(|_, _, _| false)

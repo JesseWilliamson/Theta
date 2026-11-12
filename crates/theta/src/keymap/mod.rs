@@ -28,6 +28,7 @@
 //! In the Standard keymap the engine emits the very same action as an `Effect` (`ctrl-w` is
 //! `Effect::CloseTab`), which the workspace handles: one path, never two.
 
+pub mod menus;
 pub mod ownership;
 
 use crate::actions::*;
@@ -222,76 +223,33 @@ pub fn bind(cx: &mut App) {
     crate::er::bind_keys(cx);
 }
 
-/// macOS application menu (a no-op on platforms without a global menu bar).
+/// macOS application menu (a no-op on platforms without a global menu bar): the application menu's
+/// groups from [`menus`], preceded by the app menu with Settings and Quit.
 pub fn set_menus(cx: &mut App) {
-    cx.set_menus(vec![
-        Menu {
-            name: "Theta".into(),
-            items: vec![
-                MenuItem::action("Settings…", OpenSettings),
-                MenuItem::action("Settings File", OpenSettingsFile),
-                MenuItem::separator(),
-                MenuItem::action("Quit Theta", Quit),
-            ],
-            disabled: false,
-        },
-        Menu {
-            name: "File".into(),
-            items: vec![
-                MenuItem::action("New Console", NewConsole),
-                MenuItem::action("New Connection…", NewConnection),
-                MenuItem::action("Open SQL File…", OpenSqlFile),
-                MenuItem::action("Save Console As…", SaveConsole),
-                MenuItem::separator(),
-                MenuItem::action("Close Tab", CloseTab),
-                MenuItem::action("Reopen Closed Tab", ReopenClosedTab),
-            ],
-            disabled: false,
-        },
-        Menu {
-            name: "Connection".into(),
-            items: vec![
-                MenuItem::action("Connect…", OpenConnectionPicker),
-                MenuItem::action("Disconnect", Disconnect),
-                MenuItem::action("Refresh Schema", RefreshSchema),
-            ],
-            disabled: false,
-        },
-        Menu {
-            name: "Query".into(),
-            items: vec![
-                MenuItem::action("Run Statement", RunStatement),
-                MenuItem::action("Run All", RunAll),
-                MenuItem::action("Cancel Query", CancelQuery),
-                MenuItem::separator(),
-                MenuItem::action("Explain", Explain),
-                MenuItem::action("Explain Analyze", ExplainAnalyze),
-                MenuItem::action("Format Document", FormatDocument),
-                MenuItem::separator(),
-                MenuItem::action("Begin Transaction", BeginTransaction),
-                MenuItem::action("Commit Transaction", CommitTransaction),
-                MenuItem::action("Roll Back Transaction", RollbackTransaction),
-            ],
-            disabled: false,
-        },
-        Menu {
-            name: "View".into(),
-            items: vec![
-                MenuItem::action("Command Palette…", OpenCommandPalette),
-                MenuItem::action("Go to Table…", OpenTablePicker),
-                MenuItem::separator(),
-                MenuItem::action("Toggle Explorer", ToggleExplorer),
-                MenuItem::action("Toggle Bottom Panel", ToggleBottomPanel),
-                MenuItem::separator(),
-                MenuItem::action("Select Theme…", SelectTheme),
-                MenuItem::action("Select Keymap…", SelectKeymap),
-                MenuItem::action("Import Zed Theme…", ImportZedTheme),
-                MenuItem::separator(),
-                MenuItem::action("Increase Editor Font Size", ZoomIn),
-                MenuItem::action("Decrease Editor Font Size", ZoomOut),
-                MenuItem::action("Reset Editor Font Size", ZoomReset),
-            ],
-            disabled: false,
-        },
-    ]);
+    let convert = |entries: Vec<menus::Entry>| -> Vec<MenuItem> {
+        entries
+            .into_iter()
+            .map(|e| match e {
+                menus::Entry::Separator => MenuItem::separator(),
+                menus::Entry::Item(name, action) => MenuItem::Action {
+                    name: name.into(),
+                    action: action(),
+                    os_action: None,
+                    checked: false,
+                    disabled: false,
+                },
+            })
+            .collect()
+    };
+    let mut all = vec![Menu {
+        name: "Theta".into(),
+        items: convert(menus::appearance()),
+        disabled: false,
+    }];
+    all.extend(menus::groups().into_iter().map(|g| Menu {
+        name: g.name.into(),
+        items: convert(g.entries),
+        disabled: false,
+    }));
+    cx.set_menus(all);
 }

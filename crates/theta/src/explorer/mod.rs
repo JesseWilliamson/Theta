@@ -663,10 +663,10 @@ impl Explorer {
                     let (a, b, c, d, e) = (id.clone(), id.clone(), id.clone(), id.clone(), id.clone());
                     menu = menu
                         .separator()
-                        .item(item(&explorer, "Sessions", IconName::Activity, move |_, cx| {
+                        .item(item(&explorer, "Sessions…", IconName::Activity, move |_, cx| {
                             cx.emit(ExplorerEvent::OpenSessions { connection_id: a.clone() });
                         }))
-                        .item(item(&explorer, "Roles and Users", IconName::Users, move |_, cx| {
+                        .item(item(&explorer, "Roles and Users…", IconName::Users, move |_, cx| {
                             cx.emit(ExplorerEvent::OpenRoles { connection_id: b.clone() });
                         }))
                         .item(item(
@@ -851,7 +851,7 @@ impl Explorer {
                         })
                     }
                 }))
-                .item(item(&explorer, "Copy Table to…", IconName::Copy, {
+                .item(item(&explorer, "Copy Table…", IconName::Copy, {
                     let (c, s, t) = (c.clone(), s.clone(), t.clone());
                     move |_, cx| {
                         cx.emit(ExplorerEvent::CopyTable {
@@ -902,7 +902,7 @@ impl Explorer {
                         })
                     }
                 }))
-                .item(item(&explorer, "Export Data…", IconName::FileDown, {
+                .item(item(&explorer, "Export Table Data…", IconName::FileDown, {
                     let (c, s, t) = (c.clone(), s.clone(), t.clone());
                     move |_, cx| {
                         cx.emit(ExplorerEvent::ExportData {
@@ -920,7 +920,7 @@ impl Explorer {
                 }))
                 .item(item(
                     &explorer,
-                    "Import as New Table…",
+                    "Import Data as New Table…",
                     IconName::FileDown,
                     move |_, cx| {
                         cx.emit(ExplorerEvent::ImportNewTable { connection_id: c.clone() });

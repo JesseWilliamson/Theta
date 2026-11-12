@@ -16,6 +16,8 @@ pub mod er;
 pub mod exec;
 pub mod explorer;
 pub mod keymap;
+pub mod links;
+pub mod names;
 pub mod palette;
 pub mod panels;
 pub mod panic;

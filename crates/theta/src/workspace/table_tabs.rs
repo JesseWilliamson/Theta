@@ -1116,7 +1116,7 @@ mod tests {
     fn a_new_table_previews_exactly_what_create_table_generates(cx: &mut TestAppContext) {
         let (f, vcx) = setup(cx, false);
         let (_, editor) = open_new(&f, vcx);
-        assert_eq!(editor.read_with(vcx, |e, _| e.title()), "New table");
+        assert_eq!(editor.read_with(vcx, |e, _| e.title()), "New Table");
         assert!(script(&editor, vcx).is_empty(), "nothing to run before the first edit");
         editor.update_in(vcx, |e, window, cx| e.set_name("things", window, cx));
         // Through the entity's API.

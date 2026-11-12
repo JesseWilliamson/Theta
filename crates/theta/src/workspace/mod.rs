@@ -1339,6 +1339,15 @@ impl Render for Workspace {
             .on_action(
                 cx.listener(|this, _: &OpenSettingsFile, window, cx| this.open_settings_file(window, cx)),
             )
+            .on_action(cx.listener(|_, _: &ShowAbout, window, cx| {
+                crate::dialogs::settings::open_at(crate::dialogs::settings::Section::About, window, cx)
+            }))
+            .on_action(cx.listener(|_, _: &OpenWebsite, _, cx| cx.open_url(crate::links::WEBSITE)))
+            .on_action(cx.listener(|_, _: &OpenUserGuide, _, cx| cx.open_url(crate::links::USER_GUIDE)))
+            .on_action(cx.listener(|_, _: &OpenKeyReference, _, cx| cx.open_url(crate::links::KEY_REFERENCE)))
+            .on_action(cx.listener(|_, _: &OpenChangelog, _, cx| cx.open_url(crate::links::CHANGELOG)))
+            .on_action(cx.listener(|_, _: &OpenIssueTracker, _, cx| cx.open_url(crate::links::ISSUES)))
+            .on_action(cx.listener(|_, _: &OpenConfigFolder, _, cx| cx.open_with_system(&theta_ui::settings::config_dir())))
             .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.zoom(1.0, cx)))
             .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom(-1.0, cx)))
             .on_action(cx.listener(|this, _: &ZoomReset, _, cx| this.zoom(0.0, cx)))

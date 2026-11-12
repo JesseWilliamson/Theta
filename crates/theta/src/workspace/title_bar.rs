@@ -53,6 +53,8 @@ impl Workspace {
         let tint =
             color.as_deref().and_then(|h| h.strip_prefix('#')).and_then(|h| u32::from_str_radix(h, 16).ok());
         let running = self.running;
+        let has_console = self.active_console().is_some();
+        let has_connections = !self.store.read(cx).configs().is_empty();
         let transaction = self.txn_open_for_active(cx);
         let chip = self.render_txn_chip(transaction, cx);
 
@@ -119,20 +121,30 @@ impl Workspace {
                                 .ghost()
                                 .with_size(theta_ui::TOOL_BUTTON_SIZE)
                                 .icon(Icon::new(IconName::Menu))
-                                .dropdown_menu(|menu, window, _| {
-                                    let menu = menu_entry(menu, "New Console", Box::new(NewConsole), window);
-                                    let menu =
-                                        menu_entry(menu, "New Connection…", Box::new(NewConnection), window);
-                                    let menu = menu.separator();
-                                    let menu = menu_entry(
-                                        menu,
-                                        "Command Palette…",
-                                        Box::new(OpenCommandPalette),
-                                        window,
-                                    );
-                                    let menu =
-                                        menu_entry(menu, "Go to Table…", Box::new(OpenTablePicker), window);
-                                    menu_entry(menu.separator(), "Quit", Box::new(Quit), window)
+                                .dropdown_menu(|menu, window, cx| {
+                                    // The application menu: every command, by group (see `keymap::menus`).
+                                    let mut menu = menu;
+                                    for group in crate::keymap::menus::groups() {
+                                        let name = group.name;
+                                        menu = menu.submenu(name, window, cx, move |m, window, _| {
+                                            let mut m = m;
+                                            for entry in crate::keymap::menus::groups()
+                                                .into_iter()
+                                                .find(|g| g.name == name)
+                                                .map(|g| g.entries)
+                                                .unwrap_or_default()
+                                            {
+                                                m = match entry {
+                                                    crate::keymap::menus::Entry::Separator => m.separator(),
+                                                    crate::keymap::menus::Entry::Item(label, action) => {
+                                                        menu_entry(m, label, action(), window)
+                                                    }
+                                                };
+                                            }
+                                            m
+                                        });
+                                    }
+                                    menu
                                 }),
                         )
                         .child(div().w(px(1.)).h(px(14.)).bg(theme.border))
@@ -176,50 +188,61 @@ impl Workspace {
                                     ),
                             )
                         })
-                        .child(
-                            Button::new("run")
+                        .child({
+                            // Disabled with the reason as its tooltip, never just greyed out or, worse, left
+                            // looking available: Run needs a console, Stop needs something running.
+                            let can_run = has_console && !running;
+                            let run = Button::new("run")
                                 .small()
                                 .ghost()
-                                .icon(Icon::new(IconName::Play).text_color(theme.success))
+                                .icon(Icon::new(IconName::Play).text_color(if can_run {
+                                    theme.success
+                                } else {
+                                    theme.muted_foreground.opacity(0.6)
+                                }))
                                 .label("Run")
-                                .tooltip("Run Statement")
-                                .disabled(running)
-                                .on_click(|_, window, cx| window.dispatch_action(Box::new(RunStatement), cx)),
-                        )
-                        .child(
-                            Button::new("cancel")
+                                .disabled(!can_run)
+                                .on_click(|_, window, cx| window.dispatch_action(Box::new(RunStatement), cx));
+                            if can_run {
+                                run.tooltip_with_action("Run Statement", &RunStatement, None)
+                            } else if running {
+                                run.tooltip("A statement is running")
+                            } else if has_connections {
+                                run.tooltip("Open a console to run SQL")
+                            } else {
+                                run.tooltip("Add a connection, then open a console to run SQL")
+                            }
+                        })
+                        .child({
+                            let stop = Button::new("cancel")
                                 .small()
                                 .ghost()
                                 .icon(Icon::new(IconName::Square).text_color(if running {
                                     theme.danger
                                 } else {
-                                    theme.muted_foreground
+                                    theme.muted_foreground.opacity(0.6)
                                 }))
-                                .tooltip("Cancel Query")
                                 .disabled(!running)
-                                .on_click(|_, window, cx| window.dispatch_action(Box::new(CancelQuery), cx)),
-                        )
+                                .on_click(|_, window, cx| window.dispatch_action(Box::new(CancelQuery), cx));
+                            if running {
+                                stop.tooltip_with_action("Cancel Query", &CancelQuery, None)
+                            } else {
+                                stop.tooltip("Nothing is running")
+                            }
+                        })
                         .child(div().w(px(1.)).h(px(14.)).mx_1().bg(theme.border))
                         .child(tool_button("settings", IconName::Settings, "Settings").dropdown_menu(
                             |menu, window, _| {
-                                let menu = menu_entry(menu, "Settings…", Box::new(OpenSettings), window);
-                                let menu = menu_entry(menu, "Select Theme…", Box::new(SelectTheme), window);
-                                let menu = menu_entry(menu, "Select Keymap…", Box::new(SelectKeymap), window);
-                                let menu =
-                                    menu_entry(menu, "Import Zed Theme…", Box::new(ImportZedTheme), window);
-                                let menu = menu.separator();
-                                let menu =
-                                    menu_entry(menu, "Increase Editor Font Size", Box::new(ZoomIn), window);
-                                let menu =
-                                    menu_entry(menu, "Decrease Editor Font Size", Box::new(ZoomOut), window);
-                                let menu =
-                                    menu_entry(menu, "Reset Editor Font Size", Box::new(ZoomReset), window);
-                                menu_entry(
-                                    menu.separator(),
-                                    "Open Settings File",
-                                    Box::new(OpenSettingsFile),
-                                    window,
-                                )
+                                let mut menu = menu;
+                                for entry in crate::keymap::menus::appearance() {
+                                    menu = match entry {
+                                        crate::keymap::menus::Entry::Separator => menu.separator(),
+                                        crate::keymap::menus::Entry::Item(label, action) => {
+                                            menu_entry(menu, label, action(), window)
+                                        }
+                                    };
+                                }
+                                menu
                             },
                         )),
                 ),
@@ -232,7 +255,7 @@ impl Workspace {
 /// with every keystroke. Rows with a single keystroke keep the widget's own rendering.
 fn menu_entry(
     menu: gpui_kit::component::menu::PopupMenu,
-    label: &'static str,
+    label: String,
     action: Box<dyn gpui_kit::Action>,
     window: &gpui_kit::Window,
 ) -> gpui_kit::component::menu::PopupMenu {
@@ -249,7 +272,7 @@ fn menu_entry(
                 .w_full()
                 .gap_3()
                 .justify_between()
-                .child(label)
+                .child(label.clone())
                 .child(div().text_size(px(11.)).text_color(theme.muted_foreground).child(keys.clone()))
         })
         .action(action),
