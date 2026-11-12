@@ -450,9 +450,12 @@ async fn duckdb() {
     // for ever where it stays open, as on a CI runner), `read_csv('x.csv')` opens files, and a missing extension
     // is fetched from the network. The verdict must depend on the SQL alone, so the oracle gets no outside
     // world; those statements then fail with a permission error, which counts as "not a syntax error".
+    // It also folds constants while preparing: `select generate_series(1, 2000000000)` builds the two-billion
+    // element list there and then, which exhausted a 16 GB CI runner. A small memory limit turns
+    // that into an ordinary out-of-memory error.
     db.execute_batch(
         "SET autoinstall_known_extensions = false; SET autoload_known_extensions = false; \
-         SET enable_external_access = false;",
+         SET enable_external_access = false; SET memory_limit = '512MB';",
     )
     .unwrap();
     let mut cfg = ConnectionConfig::new("t-duck", "duck", DatabaseKind::DuckDb);
