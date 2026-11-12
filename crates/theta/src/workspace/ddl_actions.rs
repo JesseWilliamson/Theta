@@ -32,7 +32,7 @@ pub(super) struct Target {
 /// " (about 1,234 rows, the catalog's estimate)" for a table whose row count the catalog knows.
 fn estimate_note(estimate: Option<u64>) -> String {
     match estimate {
-        Some(n) => format!(" (about {}, the catalog's estimate)", theta_core::text::plural(n, "row", "rows")),
+        Some(n) => format!(" (about {}, the catalogue's estimate)", theta_core::text::plural(n, "row", "rows")),
         None => String::new(),
     }
 }

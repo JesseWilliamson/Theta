@@ -109,7 +109,7 @@ reject.
 | Product | URL schemes | Connects through | Different from the base product |
 | --- | --- | --- | --- |
 | CockroachDB | `cockroachdb://`, `cockroach://`, `crdb://` | the PostgreSQL driver | Explain is CockroachDB's text plan (and *Explain Analyze* works); *Modify Table* and *New Table* are disabled (schema changes run as online jobs that some ALTERs refuse inside a transaction) |
-| Amazon Redshift | `redshift://` | the PostgreSQL driver | catalogs are read from `information_schema`, `SVV_TABLE_INFO` and `pg_constraint` (no indexes, routines not listed); distribution style and sort key show under *Storage*; no *Explain Analyze*; *Modify Table*, *New Table* and CSV import are disabled (Redshift cannot alter types, has no savepoints and loads with `COPY`); the grid is read-only because primary keys are not enforced |
+| Amazon Redshift | `redshift://` | the PostgreSQL driver | catalogues are read from `information_schema`, `SVV_TABLE_INFO` and `pg_constraint` (no indexes, routines not listed); distribution style and sort key show under *Storage*; no *Explain Analyze*; *Modify Table*, *New Table* and CSV import are disabled (Redshift cannot alter types, has no savepoints and loads with `COPY`); the grid is read-only because primary keys are not enforced |
 | TimescaleDB | `timescaledb://`, `timescale://` | the PostgreSQL driver | hypertables are marked under *Storage* and the extension's internal schemas are hidden; everything else is PostgreSQL |
 | YugabyteDB | `yugabytedb://`, `yugabyte://`, `ysql://` | the PostgreSQL driver | *Modify Table* and *New Table* are disabled (YSQL does not support every ALTER the editor emits) |
 | TiDB | `tidb://` | the MySQL driver | Explain is TiDB's operator table; cancel uses `KILL QUERY` |
@@ -162,8 +162,8 @@ declare but that column names imply (`orders.customer_id` → `customers.id`), e
 - **Open a table**: double-click it, or select it and press `enter`. Theta opens a console titled with the
   table name, fills it with a `SELECT` of every column limited to 100 rows, and runs it. `mod-p` (*Go to
   Table…*) does the same from anywhere by fuzzy name.
-- **Refresh** the catalog after a schema change with `F5` (*Refresh Schema*) or the refresh button. The
-  catalog also feeds completion and diagnostics.
+- **Refresh** the catalogue after a schema change with `F5` (*Refresh Schema*) or the refresh button. The
+  catalogue also feeds completion and diagnostics.
 - **Right-click a table**:
   - *Open Table*, *Copy Name*, *Copy Qualified Name*;
   - *Generate* › `SELECT`, `INSERT`, `UPDATE`, `DELETE`, which open a console with the statement (the
@@ -298,7 +298,7 @@ MySQL user variables (`@x := 1`, `SET @x = 1`, `@@version`) are not parameters. 
   an ambiguous column, an alias that is not defined or is defined twice, a column-count mismatch in `INSERT` or
   `UNION`, a column that is neither grouped nor aggregated (PostgreSQL, DuckDB, SQL Server), plus
   `UPDATE`/`DELETE` without `WHERE` and suspicious predicates. Hover an underline for the message.
-  Name checks need the catalog; while it is loading, or for a schema Theta has not loaded, they stay silent
+  Name checks need the catalogue; while it is loading, or for a schema Theta has not loaded, they stay silent
   rather than guess. The checker is deliberately quiet: an underline is worth a look, but the absence of one
   proves nothing. The database has the last word.
   - **Problems** tab (`ctrl-shift-m`, Helix/Vim `space D`): every problem of the current console with its
@@ -307,7 +307,7 @@ MySQL user variables (`@x := 1`, `SET @x = 1`, `@@version`) are not parameters. 
 
 ### Code intelligence
 
-Theta parses the statement under the cursor (all six dialects) and knows what each name refers to: a catalog
+Theta parses the statement under the cursor (all six dialects) and knows what each name refers to: a catalogue
 table or column, an alias, a CTE, a column of a CTE or derived table, or nothing. When it cannot tell it says
 nothing instead of guessing. The features below work on that.
 
@@ -320,11 +320,11 @@ nothing instead of guessing. The features below work on that.
   - Source: upper-case / lower-case the keywords of the statement.
   Each action is one undo step.
 - **Go to definition** (`F12`, Helix/Vim `gd`) jumps from a use to its alias, CTE, CTE column or select alias in
-  the same statement. On a table or column of the catalog it reveals it in the explorer and shows a peek of the
+  the same statement. On a table or column of the catalogue it reveals it in the explorer and shows a peek of the
   table's columns.
 - **Occurrences**: while the cursor rests on a name, the other uses of the same thing are highlighted.
 - **Find usages** (`shift-F12`, Helix/Vim `gr`) lists them in a picker: for an alias or CTE the uses in the
-  statement, for a catalog table or column the uses in every open console.
+  statement, for a catalogue table or column the uses in every open console.
 - **Rename** (`F2`, Helix/Vim `space n`) renames an alias, a CTE, or a CTE column / select alias, everywhere it is
   used in the statement, as one undo step. It keeps the quoting style of the dialect and refuses, with the
   reason, a name that collides with another alias or CTE, would capture a different column, or is not a valid
@@ -712,7 +712,7 @@ plus every table it references and every table that references it, with the tabl
 
 - **Boxes** list each column with its type; `PK` marks primary-key columns and `FK` foreign-key columns. A table
   with more than 30 columns shows its key columns and enough others to make 30 and says "+N more columns"; every
-  column an edge touches is always shown. Views are not drawn: the catalog has no foreign keys for them.
+  column an edge touches is always shown. Views are not drawn: the catalogue has no foreign keys for them.
 - **Edges** run from the referencing column to the referenced one. The referencing table ("many") ends in a crow's
   foot, the referenced one in a bar; a key whose columns are themselves unique has a bar at both ends. A key that
   allows NULL is **dashed**. A composite key ends at a bracket that spans its columns. A self-reference loops out of
@@ -731,7 +731,7 @@ plus every table it references and every table that references it, with the tabl
   composite key is one relationship labelled with the constraint's name. There is no PNG export: GPUI can render an
   image only in its test builds.
 
-The diagram reads the catalog Theta already loaded; `r` rebuilds it after a schema refresh. The keys are in
+The diagram reads the catalogue Theta already loaded; `r` rebuilds it after a schema refresh. The keys are in
 [KEYBINDINGS.md](KEYBINDINGS.md#er-diagram-tab).
 
 ## Compare two schemas
@@ -748,11 +748,11 @@ The result is a tab. The left side is a tree: each table, view, materialized vie
 check that differs, with the attributes that differ (`type`, `nullability`, `default`, ...). The right side shows
 the chosen one with the source and the target text side by side. The header says in one line what the script will be.
 
-**What is compared** is what Theta's catalog carries: tables, columns (type, nullability, default, identity,
+**What is compared** is what Theta's catalogue carries: tables, columns (type, nullability, default, identity,
 generated expression, comment), primary keys (by their columns; the name is ignored), unique constraints, foreign
 keys (columns, referenced table and columns, `ON DELETE`, `ON UPDATE`, deferrable), indexes (columns, uniqueness,
 method, partial predicate, expression definition), checks, table comments, MySQL table options, and the definition
-text of views and materialized views. Routines are compared by name, kind, signature and return type: **the catalog
+text of views and materialized views. Routines are compared by name, kind, signature and return type: **the catalogue
 has no routine body**, so a body that changed is not noticed and a missing routine cannot be created. **Not
 compared**: triggers, sequences, column collations, privileges and ownership, partitioning and storage
 parameters, custom types, and column order. The footer of the tab repeats this.
@@ -760,7 +760,7 @@ parameters, custom types, and column order. The footer of the tab repeats this.
 Equality is stated the same way in the comparison and the script: names match without regard to case; a constraint or
 index is identified by its name, so a renamed one is one removed and one added; a reference to a table of the
 schema's own schema is the same in either schema; a sequence default (`nextval('s.t_id_seq')`) is compared
-without the schema; `NO ACTION` is no action (and so is `RESTRICT` in MySQL). SQLite's catalog has no foreign key names,
+without the schema; `NO ACTION` is no action (and so is `RESTRICT` in MySQL). SQLite's catalogue has no foreign key names,
 so there a key is identified by the columns it connects. Two products compare the canonical column type, so
 PostgreSQL's `integer` and MySQL's `int(11)` agree.
 
@@ -974,7 +974,7 @@ and a warning that has a fix gets a **Fix** button.
   through, until Execute; delete it again (or undo) to keep it. A column of a table that does not exist yet can
   be moved (`alt-up` / `alt-down`); an existing table's columns cannot, because no `ALTER TABLE` reorders them.
 - **Keys.** The primary key (an ordered list of columns) and unique constraints (name and columns).
-- **Foreign Keys.** Name, columns, referenced table (chosen from the catalog; the referenced columns default to
+- **Foreign Keys.** Name, columns, referenced table (chosen from the catalogue; the referenced columns default to
   its primary key), `ON DELETE`, `ON UPDATE` and, where the database has it, deferrable. Below the list, keys
   suggested from column names (the same inference as the explorer's *Suggested* rows) with an **Add** button; `alt-a`
   chooses one from a picker.
@@ -1009,7 +1009,7 @@ statement joins your open transaction. Read-only connections refuse. A destructi
 button: click it, or press `Tab` to move to it and `Space`.
 
 From the command line, `theta --connect URL --modify [SCHEMA.]TABLE` and `--new-table [SCHEMA]` open the editor
-as soon as the connection and its catalog are ready; in the Helix and Vim key maps `:table new [SCHEMA]` and
+as soon as the connection and its catalogue are ready; in the Helix and Vim key maps `:table new [SCHEMA]` and
 `:table modify [SCHEMA.]TABLE` do the same from a console.
 
 ## Administer a server
@@ -1046,7 +1046,7 @@ the table shows the selected session in full with the whole statement, and has *
 - **Per product**: SQL Server has no statement that cancels only the running query (`KILL` ends the session), so
   *Cancel Query* is disabled there with that reason; ClickHouse has queries, not sessions, so only *Cancel Query*
   exists. PostgreSQL lists client backends (PostgreSQL 10 or later). Not available: SQLite and DuckDB (embedded),
-  CockroachDB, Redshift, YugabyteDB, TiDB (their catalogs differ; the reason is shown).
+  CockroachDB, Redshift, YugabyteDB, TiDB (their catalogues differ; the reason is shown).
 
 ### Roles and users
 

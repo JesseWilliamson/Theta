@@ -723,7 +723,7 @@ pub fn generate(
     // What the script cannot do.
     for o in &diff.objects {
         match (o.kind, o.status) {
-            (ObjectKind::Routine, Status::OnlyInSource) => warnings.push(format!("routine {} exists only in the source; the catalog has no routine body, so it cannot be created", o.name)),
+            (ObjectKind::Routine, Status::OnlyInSource) => warnings.push(format!("routine {} exists only in the source; the catalogue has no routine body, so it cannot be created", o.name)),
             (ObjectKind::Routine, Status::OnlyInTarget) => warnings.push(format!("routine {} exists only in the target; it is not dropped by this script", o.name)),
             (ObjectKind::Routine, Status::Different) => warnings.push(format!("routine {} differs in kind or return type; change it by hand", o.name)),
             (ObjectKind::Table, Status::Different) => {

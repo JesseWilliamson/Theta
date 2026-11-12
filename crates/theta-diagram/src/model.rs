@@ -228,7 +228,7 @@ pub fn from_catalog(cat: &Catalog, scope: &Scope) -> Graph {
         ));
     }
     if matches!(scope, Scope::Schema(_)) {
-        g.notes.push("Views are not drawn: the catalog has no foreign keys for them".to_string());
+        g.notes.push("Views are not drawn: the catalogue has no foreign keys for them".to_string());
     }
     g
 }

@@ -603,7 +603,7 @@ impl Render for DiagramView {
                     .text_color(theme.muted_foreground)
                     .child(match &self.scope {
                         Scope::Schema(s) => format!("Schema {s} has no tables to draw"),
-                        Scope::Table { table, .. } => format!("Table {table} is not in the loaded catalog"),
+                        Scope::Table { table, .. } => format!("Table {table} is not in the loaded catalogue"),
                     }),
             );
         }

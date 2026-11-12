@@ -488,7 +488,7 @@ impl Render for SchemaCompareView {
             .border_color(if focused { theme.primary } else { theme.border })
             .text_size(px(11.))
             .text_color(theme.muted_foreground)
-            .child(format!("Not compared (the catalog does not carry it): {}.", NOT_COMPARED.join(", ")))
+            .child(format!("Not compared (the catalogue does not carry it): {}.", NOT_COMPARED.join(", ")))
             .child("j k move · l h open and close (space toggles) · d destructive on / off · enter or o open the script in a console · c copy it · r compare again · + only in source, − only in target, ~ different");
 
         v_flex()
@@ -583,7 +583,7 @@ impl SchemaCompareView {
     ) -> AnyElement {
         let what = match (o.kind, o.status) {
             (ObjectKind::Routine, Status::OnlyInSource) => {
-                "exists only in the source (the catalog has no routine body, so no script can create it)"
+                "exists only in the source (the catalogue has no routine body, so no script can create it)"
                     .to_string()
             }
             (ObjectKind::Routine, Status::OnlyInTarget) => {

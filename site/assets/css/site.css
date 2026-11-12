@@ -512,6 +512,7 @@ table.dl { width: 100%; border-collapse: collapse; min-width: 640px; font-size: 
 table.dl.dl-db { min-width: 0; }
 @media (max-width: 719px) { .dl-db thead { display: none; } .dl-db tr { display: block; padding: 12px 16px; border-bottom: 1px solid var(--line); } .dl-db tr:last-child { border-bottom: 0; } .dl-db th, .dl-db td { display: block; padding: 2px 0; border: 0; } .dl-db td { color: var(--muted); } }
 .dl code { color: var(--text-strong); font-size: 0.82rem; word-break: break-word; }
+.dl td:nth-child(2) code { white-space: nowrap; word-break: normal; } /* a file name never breaks mid-name; the table scrolls instead */
 .dl tr.detected { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .dl .you { display: none; margin-left: 8px; font: 500 0.625rem/1 var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-ink); border: 1px solid currentColor; border-radius: 99px; padding: 3px 6px; vertical-align: 1px; }
 .dl tr.detected .you { display: inline-block; }
