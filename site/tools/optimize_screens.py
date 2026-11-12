@@ -33,6 +33,14 @@ NAMES = {
     "11-keymap-choice-welcome": "keymap-choice",
     "15-modify-table": "modify-table",
     "16-new-table": "new-table",
+    "14-import-csv": "import-csv",
+    "17-sessions": "sessions",
+    "19-diagnostics": "diagnostics",
+    "20-quick-fix": "quick-fix",
+    "23-chart": "chart",
+    "27-er-diagram": "er-diagram",
+    "29-schema-compare": "schema-compare",
+    "30-data-compare": "data-compare",
 }
 
 
