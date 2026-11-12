@@ -619,7 +619,7 @@ Differential test, run on this machine (`cargo test -p theta-drivers --test sql_
 | PostgreSQL 16 | 2346 | 0 of 1451 | 0 of 905 | 363 of 435 (83%) | 560 of 864 (65%) |
 | MariaDB 10.11 | 2356 | 0 of 1310 | 0 of 949 | 283 of 320 (88%) | 548 of 1040 (53%) |
 | SQLite (bundled) | 2191 | 0 of 1177 | 0 of 714 | 321 of 412 (78%) | 561 of 1007 (56%) |
-| DuckDB 1.2 | 2632 | 0 of 1639 | 0 of 1039 | 341 of 463 (74%) | 516 of 993 (52%) |
+| DuckDB 1.2 | 2632 | 0 of 1639 | 0 of 1009 | 339 of 461 (74%) | 516 of 993 (52%) |
 | ClickHouse (docs, weak) | 138 | 0 | 0 | n/a | n/a |
 | T-SQL (docs, weak) | 234 | 0 | 0 | n/a | n/a |
 

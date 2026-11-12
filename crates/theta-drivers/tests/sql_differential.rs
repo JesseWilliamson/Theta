@@ -446,6 +446,15 @@ async fn duckdb() {
     let db = duckdb::Connection::open_in_memory().unwrap();
     let schema = std::fs::read_to_string(corpus_dir().join("schema_duckdb.sql")).unwrap();
     db.execute_batch(&schema).unwrap();
+    // DuckDB binds table functions and COPY while preparing: `copy t from stdin` reads standard input (and blocks
+    // for ever where it stays open, as on a CI runner), `read_csv('x.csv')` opens files, and a missing extension
+    // is fetched from the network. The verdict must depend on the SQL alone, so the oracle gets no outside
+    // world; those statements then fail with a permission error, which counts as "not a syntax error".
+    db.execute_batch(
+        "SET autoinstall_known_extensions = false; SET autoload_known_extensions = false; \
+         SET enable_external_access = false;",
+    )
+    .unwrap();
     let mut cfg = ConnectionConfig::new("t-duck", "duck", DatabaseKind::DuckDb);
     cfg.path = ":memory:".into();
     let conn = theta_drivers::connect(&cfg).await.unwrap();
