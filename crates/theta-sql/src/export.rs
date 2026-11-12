@@ -160,7 +160,7 @@ fn json_value(v: &Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Int(i) => i.to_string(),
         Value::UInt(u) => u.to_string(),
-        Value::Float(f) if f.is_finite() => f.to_string(),
+        Value::Float(f) if f.is_finite() => theta_core::value::format_float(*f),
         Value::Decimal(s) if is_json_number(s) => s.clone(),
         Value::Json(s) if serde_json::from_str::<serde_json::Value>(s).is_ok() => s.clone(),
         Value::Array(items) => format!("[{}]", items.iter().map(json_value).collect::<Vec<_>>().join(", ")),

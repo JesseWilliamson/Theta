@@ -149,7 +149,7 @@ mod tests {
         let v = [Value::Int(3), Value::Decimal("4.5".into()), Value::Null, Value::Int(3), Value::Float(-1.0)];
         let s = compute(v.iter());
         assert_eq!((s.cells, s.count, s.nulls, s.distinct), (5, 4, 1, 3));
-        assert_eq!(s.min.as_deref(), Some("-1"));
+        assert_eq!(s.min.as_deref(), Some("-1.0"));
         assert_eq!(s.max.as_deref(), Some("4.5"));
         assert_eq!(s.sum, Some(9.5));
         assert_eq!(s.avg, Some(2.375));

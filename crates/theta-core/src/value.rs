@@ -89,15 +89,26 @@ impl Value {
     }
 }
 
-fn format_float(f: f64) -> String {
+/// Text for a float that parses back to exactly the same `f64`.
+///
+/// Rust's `{}` prints the shortest round-trip digits but never switches to an
+/// exponent, so `1.5e300` becomes 300 digits and `1e-300` a screenful of zeros.
+/// Outside `1e-5 <= |f| < 1e16` we use exponent notation. A whole float keeps a
+/// `.0` so a REAL `1.0` stays distinguishable from the INTEGER `1`; `-0.0` keeps
+/// its sign because the two zeros differ for the server too.
+pub fn format_float(f: f64) -> String {
     if f.is_nan() {
-        "NaN".into()
-    } else if f.is_infinite() {
-        if f > 0.0 { "Infinity".into() } else { "-Infinity".into() }
-    } else {
-        // Rust's shortest round-trip formatting; never loses precision.
-        format!("{f}")
+        return "NaN".into();
     }
+    if f.is_infinite() {
+        return if f > 0.0 { "Infinity".into() } else { "-Infinity".into() };
+    }
+    let abs = f.abs();
+    if abs != 0.0 && !(1e-5..1e16).contains(&abs) {
+        return format!("{f:e}");
+    }
+    let s = format!("{f}");
+    if s.contains('.') { s } else { format!("{s}.0") }
 }
 
 /// Coarse type family, used for alignment, icons, editors and export.
@@ -206,5 +217,66 @@ pub struct ExecOptions {
 impl Default for ExecOptions {
     fn default() -> Self {
         Self { row_limit: Some(1000) }
+    }
+}
+
+#[cfg(test)]
+mod float_tests {
+    use super::*;
+
+    fn rt(f: f64) {
+        let text = format_float(f);
+        let back: f64 = text.parse().unwrap_or_else(|_| panic!("{text} does not parse"));
+        assert_eq!(back.to_bits(), f.to_bits(), "{f:?} printed as {text}");
+    }
+
+    #[test]
+    fn whole_floats_keep_a_point() {
+        assert_eq!(Value::Float(1.0).display(), "1.0");
+        assert_eq!(Value::Int(1).display(), "1");
+        assert_eq!(Value::Float(-250.0).display(), "-250.0");
+        assert_eq!(Value::Float(1.5).display(), "1.5");
+        assert_eq!(Value::Float(0.1).display(), "0.1");
+    }
+
+    #[test]
+    fn extreme_magnitudes_use_exponents() {
+        assert_eq!(format_float(1.5e300), "1.5e300");
+        assert_eq!(format_float(1e-7), "1e-7");
+        assert_eq!(format_float(1e16), "1e16");
+        assert_eq!(format_float(-2.5e-300), "-2.5e-300");
+        assert_eq!(format_float(123456789012345.0), "123456789012345.0");
+        assert_eq!(format_float(0.00001), "0.00001");
+    }
+
+    #[test]
+    fn round_trips() {
+        for f in [
+            0.0, -0.0, 1.0, 0.1, 0.2 + 0.1, 1.5e300, 1e-300, f64::MAX, f64::MIN_POSITIVE, 5e-324, 1e15,
+            9999999999999998.0, 1e16, 123.456, -7.25e-9, f64::EPSILON,
+        ] {
+            rt(f);
+        }
+    }
+
+    #[test]
+    fn specials() {
+        assert_eq!(format_float(f64::NAN), "NaN");
+        assert_eq!(format_float(f64::INFINITY), "Infinity");
+        assert_eq!(format_float(f64::NEG_INFINITY), "-Infinity");
+        assert_eq!(format_float(-0.0), "-0.0");
+        assert_eq!(format_float(0.0), "0.0");
+        assert!("NaN".parse::<f64>().is_ok_and(f64::is_nan));
+        assert_eq!("-Infinity".parse::<f64>(), Ok(f64::NEG_INFINITY));
+    }
+
+    #[test]
+    fn decimals_are_untouched() {
+        assert_eq!(Value::Decimal("1.50".into()).display(), "1.50");
+        assert_eq!(
+            Value::Decimal("12345678901234567890.123456789".into()).display(),
+            "12345678901234567890.123456789"
+        );
+        assert_eq!(Value::Decimal("1E+3".into()).display(), "1E+3");
     }
 }
