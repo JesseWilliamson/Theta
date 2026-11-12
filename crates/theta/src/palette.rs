@@ -61,6 +61,7 @@ fn commands() -> Vec<Command> {
         cmd!("Drop Table…", "Table", IconName::Trash, DropTable),
         cmd!("Sessions…", "Server", IconName::Activity, OpenSessions),
         cmd!("Roles and Users…", "Server", IconName::Users, OpenRoles),
+        cmd!("Search Across Tables…", "Data", IconName::Search, SearchTables),
         cmd!("Export Database…", "Server", IconName::HardDriveDownload, ExportDatabase),
         cmd!("Run SQL Script…", "Server", IconName::FileUp, RunSqlScript),
         cmd!("Save Console As…", "Console", IconName::FileDown, SaveConsole),

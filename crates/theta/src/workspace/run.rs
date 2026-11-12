@@ -480,6 +480,7 @@ impl Workspace {
                     ),
                 }
             }
+            "grep" | "search" => self.search_from_palette(window, cx),
             "cell" | "viewer" if arg == "copy" => self.copy_cell_value(window, cx),
             "cell" | "viewer" => self.toggle_cell_viewer(window, cx),
             "reopen" | "reopen-tab" => self.reopen_closed_tab(window, cx),

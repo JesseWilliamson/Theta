@@ -6,4 +6,5 @@ pub mod import;
 pub mod name;
 pub mod params;
 pub mod script;
+pub mod search;
 pub mod settings;

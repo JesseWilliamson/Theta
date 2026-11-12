@@ -652,6 +652,35 @@ and `copy_cell_value` for the palette actions, the global chords and the `:cell`
 space menus use the new `FxKind::Host`, a generic "send this `:` command to the application", so a menu entry for
 an application feature needs no engine change beyond one line in each menu.
 
+#### Search across tables
+
+Three layers, so that the dialect logic and the concurrency are each testable without a window:
+
+- `theta_sql::search` (pure) plans the search: which tables a scope means (`Scope`; system schemas only when
+  the whole connection is searched), which columns are searched (`ColumnClass` from `TypeKind`; binary and
+  geometry never), and the one statement per table. The statement counts, over `LIMIT row_limit` rows, how many
+  rows it saw, how many matched and how many each column matched (`COUNT(CASE WHEN … THEN 1 END)`, not `SUM`,
+  which is NUMERIC on MySQL and NULL on an empty table). The match is `strpos` / `LOCATE` / `instr` and not
+  `LIKE`, because a pattern needs its own escaping; case folding is explicit (`lower`) and MySQL's
+  case-sensitive form casts to `BINARY`, since its collations ignore case. The needle goes through `sql_literal`
+  and identifiers through `quote_ident`; `predicate`'s tests pin every dialect's text. `filter_statement`
+  builds the "open the matching rows" query from the same predicates, so a count and the rows it opens agree.
+- `theta_import::search::run_search` is the runner. A `Connection` runs one statement at a time, so concurrency
+  *is* the number of sessions in the pool: one worker task per session pulls the next table from a shared queue,
+  and no more than `pool.len()` statements are ever in flight. Each statement races a timer and the
+  `CancelToken`; the loser's side effect is a `Connection::cancel`, then the aborted `execute` is awaited for up to
+  five seconds so the session is idle for the next table. Every table ends as `Matched`, `NoMatch`, `TimedOut`,
+  `Failed` or `Cancelled`, or is counted in `not_run`. It lives in `theta-import` because its live tests need the
+  databases and that crate is tested in CI's libraries job (`tests/search_live.rs` seeds a scratch
+  schema/database/file per engine, checks counts that a `LIKE` implementation would get wrong, and proves the
+  concurrency bound, the timeout and the cancel with bounded `pg_sleep` / `SLEEP` statements).
+- `dialogs/search.rs` is the view. `build_rows` (pure, unit-tested) turns the results into the list rows: hits
+  in arrival order with their columns, then a "Not searched, timed out or failed" section, so nothing is hidden.
+  Server products open up to four sessions with `ConnectionStore::open_side_connection`; products whose database
+  cannot be opened twice (in-memory SQLite, DuckDB) run through the console's own session under `begin_bulk`.
+  Workers push results into a mutex; a 100 ms tick copies them into the view (the same pattern as the dump).
+  `Feature::TableSearch` in `theta-core` disables SQL Server and ClickHouse with the reason.
+
 ## Status
 
 0.1.0-alpha.8 is the eighth pre-release (0.1.0-alpha.1 to -alpha.7 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense

@@ -52,6 +52,12 @@ pub enum ExplorerEvent {
     RunScript {
         connection_id: String,
     },
+    /// Search Across Tables, scoped to what was clicked: the connection, a schema or one table.
+    SearchTables {
+        connection_id: String,
+        schema: Option<String>,
+        table: Option<String>,
+    },
     /// Open a new console, optionally pre-filled (generated SQL, DDL).
     NewConsole {
         connection_id: String,
@@ -630,7 +636,7 @@ impl Explorer {
                         this.store.update(cx, |s, cx| s.disconnect(&id3, cx));
                     }));
                     // Entries a product cannot do stay in the menu; choosing one says why.
-                    let (a, b, c, d) = (id.clone(), id.clone(), id.clone(), id.clone());
+                    let (a, b, c, d, e) = (id.clone(), id.clone(), id.clone(), id.clone(), id.clone());
                     menu = menu
                         .separator()
                         .item(item(&explorer, "Sessions", IconName::Activity, move |_, cx| {
@@ -649,6 +655,13 @@ impl Explorer {
                         ))
                         .item(item(&explorer, "Run SQL Script…", IconName::FileUp, move |_, cx| {
                             cx.emit(ExplorerEvent::RunScript { connection_id: d.clone() });
+                        }))
+                        .item(item(&explorer, "Search Across Tables…", IconName::Search, move |_, cx| {
+                            cx.emit(ExplorerEvent::SearchTables {
+                                connection_id: e.clone(),
+                                schema: None,
+                                table: None,
+                            });
                         }));
                 } else {
                     let id1 = id.clone();
@@ -752,6 +765,16 @@ impl Explorer {
                     this.generate(&k3, Generate::Ddl, cx);
                 }))
                 .separator()
+                .item(item(&explorer, "Search in Table…", IconName::Search, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::SearchTables {
+                            connection_id: c.clone(),
+                            schema: Some(s.clone()),
+                            table: Some(t.clone()),
+                        })
+                    }
+                }))
                 .item(item(&explorer, "Related Tables…", IconName::Link, {
                     let (c, s, t) = (c.clone(), s.clone(), t.clone());
                     move |_, cx| {
@@ -950,10 +973,29 @@ impl Explorer {
                     },
                 ))
             }
-            NodeKey::Schema(_, name) | NodeKey::Sequence(_, _, name) | NodeKey::Routine(_, _, name) => menu
-                .item(item(&explorer, "Copy Name", IconName::Copy, move |this, cx| {
+            NodeKey::Schema(c, name) => {
+                let (copy, schema) = (name.clone(), name.clone());
+                menu.item(item(&explorer, "Copy Name", IconName::Copy, move |this, cx| {
+                    this.copy(copy.clone(), cx)
+                }))
+                .item(item(
+                    &explorer,
+                    "Search in Schema…",
+                    IconName::Search,
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::SearchTables {
+                            connection_id: c.clone(),
+                            schema: Some(schema.clone()),
+                            table: None,
+                        });
+                    },
+                ))
+            }
+            NodeKey::Sequence(_, _, name) | NodeKey::Routine(_, _, name) => {
+                menu.item(item(&explorer, "Copy Name", IconName::Copy, move |this, cx| {
                     this.copy(name.clone(), cx)
-                })),
+                }))
+            }
             NodeKey::Status(id) | NodeKey::Detail(id, _) => {
                 let (i1, i2, i3) = (id.clone(), id.clone(), id.clone());
                 menu.item(item(&explorer, "Retry", IconName::RefreshCw, move |this, cx| this.retry(&i1, cx)))

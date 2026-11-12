@@ -8,6 +8,12 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Added
 
+- **Search Across Tables** (`mod-alt-f`, `space s`, `:grep`, explorer menu): find a text in every table of a
+  connection, a schema or a hand-picked list. One generated, fully escaped query per table (PostgreSQL, MySQL and
+  MariaDB, SQLite, DuckDB), run on up to four sessions with a row limit and a timeout per table; hits stream into a
+  list grouped by table and column, and Enter opens the table filtered to the matching rows. Skipped, timed-out
+  and failed tables are listed with the reason. SQL Server and ClickHouse are off through
+  `Feature::TableSearch`, with the reason shown.
 - **Cell viewer** (the grid's inspector, extended): images (PNG, JPEG, GIF, WebP, recognised from their magic
   bytes) are drawn; JSON can be folded (`[` / `]`, header buttons, chevrons); binary is a hex dump of up to
   64 KiB with the real length; every truncation says how large the value really is. *Toggle Cell Viewer* and

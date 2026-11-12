@@ -41,6 +41,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-2` | focus results (opens the bottom panel and the Results tab if needed) |
 | `mod-shift-v` | toggle the cell viewer for the focused result cell (focuses the results) |
 | `mod-shift-y` | copy the whole value of the focused result cell |
+| `mod-alt-f` | Search Across Tables (also from the explorer's context menu) |
 | `F5` | refresh schema, only while the explorer has focus (in the editor `F5` is *run all*) |
 | `mod-alt-r` | refresh schema, from anywhere |
 | `mod-k mod-t` | select theme (a two-chord sequence) |
@@ -154,6 +155,22 @@ Vim key maps, `:import` / `:export`), so they cannot conflict with an editor key
 
 Palette commands: *Import Data from CSV/TSV…*, *Import CSV/TSV as New Table…*, *Export Table Data…*,
 *New Table…*, *Modify Table…*, *Rename Table…*, *Duplicate Table Structure…*, *Truncate Table…*, *Drop Table…*.
+
+## Search Across Tables
+
+The dialog (see [Search across tables](USER_GUIDE.md#search-across-tables)) is a palette command (*Search Across
+Tables…*), `mod-alt-f`, `space s` in Helix and Vim, `:grep` / `:search`, and an explorer context-menu entry. Inside:
+
+| Keys | Action |
+| --- | --- |
+| `enter` in the text box | search; when the results are for the text that is in the box, open the highlighted hit instead |
+| `up` / `down` | highlight the previous / next table or column row |
+| `mod-enter` | open the highlighted hit |
+| double-click a row | open it |
+| `tab` / `shift-tab` | next / previous control |
+| `esc` | cancel the running search; otherwise close the dialog |
+
+An opened hit is a new console running `SELECT * FROM table WHERE …`, so every console key applies.
 
 ## Table editor
 
@@ -450,6 +467,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `space g` `space d` | focus results / focus explorer |
 | `space T` `space j` | toggle explorer / toggle bottom panel |
 | `space a` `space n` `space D` | quick fixes / rename / Problems tab |
+| `space s` | search across tables (`:grep`, `:search`) |
 | `space v` `space V` | cell viewer / copy cell value (`:cell`, `:cell copy`) |
 
 #### Command line (`:`)
@@ -475,6 +493,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `:cancel` | cancel the running query |
 | `:reopen` | reopen the last closed tab |
 | `:cell` `:cell copy` | toggle the cell viewer / copy the value of the focused result cell |
+| `:grep` `:search` | Search Across Tables on the active connection |
 
 `tab` completes command names (repeat to cycle). An unknown command shows "Unknown command".
 
@@ -649,6 +668,7 @@ work. `n` / `N` keep the direction; `*` `#` search the word under the cursor.
 | `space g` `space d` | `FocusResults` / `FocusExplorer` |
 | `space T` `space j` | `ToggleExplorer` / `ToggleBottomPanel` |
 | `space a` `space n` `space D` | code actions / rename / Problems tab |
+| `space s` | search across tables (`HostCommand("search")`) |
 | `space v` `space V` | cell viewer / copy cell value (`HostCommand("cell")`, `"cell copy"`) |
 
 #### Command line (`:`)

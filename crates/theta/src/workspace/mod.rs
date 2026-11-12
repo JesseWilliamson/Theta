@@ -756,6 +756,9 @@ impl Workspace {
             ExplorerEvent::ExportDatabase { connection_id } => {
                 self.open_dump_dialog(connection_id, window, cx)
             }
+            ExplorerEvent::SearchTables { connection_id, schema, table } => {
+                self.open_search_dialog(connection_id, schema.map(|s| (s, table)), window, cx)
+            }
             ExplorerEvent::RunScript { connection_id } => {
                 self.open_script_dialog(connection_id, None, window, cx)
             }
@@ -1193,6 +1196,7 @@ impl Render for Workspace {
                 cx.listener(|this, _: &ToggleCellViewer, window, cx| this.toggle_cell_viewer(window, cx)),
             )
             .on_action(cx.listener(|this, _: &CopyCellValue, window, cx| this.copy_cell_value(window, cx)))
+            .on_action(cx.listener(|this, _: &SearchTables, window, cx| this.search_from_palette(window, cx)))
             .on_action(cx.listener(|this, _: &SelectKeymap, window, cx| this.open_keymap_picker(window, cx)))
             .on_action(cx.listener(|this, _: &UseHelixKeymap, window, cx| {
                 this.set_keymap(theta_ui::KeymapMode::Helix, window, cx)

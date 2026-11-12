@@ -151,6 +151,50 @@ impl Workspace {
         dialogs::dump::open(ws, self.store.clone(), conn_id, window, cx);
     }
 
+    /// Search Across Tables. `preselect` is a schema, and a table in it, the dialog should start on.
+    pub fn open_search_dialog(
+        &mut self,
+        conn_id: String,
+        preselect: Option<(String, Option<String>)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.refuse_unsupported(&conn_id, Feature::TableSearch, window, cx) {
+            return;
+        }
+        if self.store.read(cx).catalog(&conn_id).is_none() {
+            self.notify(NoticeKind::Info, "Connect first, then search the tables", window, cx);
+            return;
+        }
+        // Headless test windows have no `Root` to host a dialog (the shortcut tests press every global chord).
+        if self.quiet {
+            return;
+        }
+        let ws = cx.entity().downgrade();
+        dialogs::search::open(ws, self.store.clone(), conn_id, preselect, window, cx);
+    }
+
+    pub(super) fn search_from_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.bulk_connection(cx) {
+            Some(conn) => self.open_search_dialog(conn, None, window, cx),
+            None => self.notify(NoticeKind::Info, "Connect to a database first", window, cx),
+        }
+    }
+
+    /// A hit of the search: a console on the table's connection with the filtering `SELECT`, run at once.
+    pub fn open_search_hit(
+        &mut self,
+        conn_id: String,
+        table: String,
+        sql: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let id = self.open_console(Some(conn_id), Some(sql), window, cx);
+        self.set_tab_title(id, table, cx);
+        self.run_request(id, crate::workspace::run::RunReq::All, window, cx);
+    }
+
     pub fn open_script_dialog(
         &mut self,
         conn_id: String,

@@ -550,6 +550,40 @@ Helix and Vim), for the details: cells, count, distinct values, NULLs, min, max,
 shortest and longest text. It follows the selection, is computed on a background thread when the selection is large,
 and *Copy* puts the figures on the clipboard.
 
+## Search across tables
+
+*Search Across Tables…* looks for a text in every column of many tables at once, like a "find in files" for the
+database. Open it from the command palette, `mod-alt-f`, `space s` (Helix and Vim), `:grep`, or the explorer's
+context menu: on a connection it searches the whole connection, on a schema *Search in Schema…*, on a table
+*Search in Table…* (the dialog opens with that scope).
+
+- **Find** the text, and choose **where**: the whole connection (system schemas are left out), one schema, or
+  tables you tick.
+- **Case sensitive** and **Whole value** (the cell must equal the text instead of containing it). The text is
+  taken literally: `%`, `_`, quotes and backslashes mean nothing special.
+- **Columns**: text, numbers, dates and times, JSON, and "UUID, boolean, other". Numbers and dates are searched
+  through their text form (`12` finds `120`). Binary and geometry columns are never searched.
+- **Rows per table** (default 100,000) and **Seconds** (default 20) bound every table. A table with more rows
+  than the limit is searched on its first rows and marked *first rows only*; a table that takes longer than the
+  time limit is stopped on the server and listed as timed out.
+
+Each table is one query, and PostgreSQL and MySQL tables are searched four at a time on sessions of their own,
+so a console stays usable while the search runs. Hits appear as they are found, grouped by table with the number
+of matching rows and, beneath it, the matching columns. `up` / `down` choose a row, `enter` (or a double click)
+opens a new console with `SELECT * FROM table WHERE …` for the matching rows (for a column row, only that
+column) and runs it. `esc` or *Cancel Search* stops the running queries.
+
+Nothing is dropped silently. Under **Not searched, timed out or failed** the list names every table that was
+skipped (no column of the chosen types), timed out, failed (for example a permission error) or was cancelled,
+with the reason, and the summary line counts them. Searching writes a summary into Messages.
+
+Where it works: PostgreSQL, MySQL and MariaDB, SQLite and DuckDB were tested; the products that speak their
+dialects (CockroachDB, TimescaleDB, YugabyteDB, Redshift, TiDB) use the same queries and were not. SQL Server and
+ClickHouse are off, and the dialog says why. An in-memory SQLite or a DuckDB database is searched through the
+console's own session, one table after another, and the connection is busy meanwhile. SQLite folds the case of
+ASCII letters only. A manual transaction that is open in a console is not visible to the search, which uses its
+own sessions.
+
 ## Edit data safely
 
 A result is editable only when every column comes from one table of the loaded schema, that table is a
