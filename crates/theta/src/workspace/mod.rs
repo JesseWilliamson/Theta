@@ -17,6 +17,7 @@
 mod admin_tabs;
 mod bottom;
 mod bulk;
+mod code_intel;
 pub mod console;
 mod ddl_actions;
 mod folders;
@@ -34,6 +35,8 @@ mod welcome;
 #[cfg(test)]
 mod admin_tests;
 #[cfg(test)]
+mod code_intel_tests;
+#[cfg(test)]
 mod ddl_refresh_tests;
 #[cfg(test)]
 mod isolation_tests;
@@ -48,6 +51,7 @@ use crate::explorer::{Explorer, ExplorerEvent};
 use crate::palette;
 use crate::panels::history::{HistoryEvent, HistoryPanel};
 use crate::panels::messages::MessagesPanel;
+use crate::panels::problems::{ProblemsEvent, ProblemsPanel};
 use crate::panels::results::{ResultsEvent, ResultsPanel};
 use crate::sqlgen;
 use console::Console;
@@ -76,19 +80,27 @@ use theta_ui::{STATUS_BAR_HEIGHT, Settings, TAB_BAR_HEIGHT, TITLE_BAR_HEIGHT, da
 pub enum BottomTab {
     Results,
     Messages,
+    Problems,
     Plan,
     Map,
     History,
 }
 
 impl BottomTab {
-    pub const ALL: [BottomTab; 5] =
-        [BottomTab::Results, BottomTab::Messages, BottomTab::Plan, BottomTab::Map, BottomTab::History];
+    pub const ALL: [BottomTab; 6] = [
+        BottomTab::Results,
+        BottomTab::Messages,
+        BottomTab::Problems,
+        BottomTab::Plan,
+        BottomTab::Map,
+        BottomTab::History,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             BottomTab::Results => "Results",
             BottomTab::Messages => "Messages",
+            BottomTab::Problems => "Problems",
             BottomTab::Plan => "Plan",
             BottomTab::Map => "Map",
             BottomTab::History => "History",
@@ -195,6 +207,7 @@ pub struct Workspace {
     console_counter: usize,
     results: Entity<ResultsPanel>,
     messages: Entity<MessagesPanel>,
+    problems: Entity<ProblemsPanel>,
     history: Entity<HistoryPanel>,
     plan: Entity<PlanPanel>,
     map: Entity<MapPanel>,
@@ -223,6 +236,9 @@ pub struct Workspace {
     discard_asked: Vec<u64>,
     #[cfg(test)]
     execute_asked: Vec<u64>,
+    /// Test windows cannot host the Rename dialog: the console and current name it would have asked about.
+    #[cfg(test)]
+    rename_asked: Vec<(u64, String)>,
     /// Tests run in windows without a `Root`, where toasts cannot be shown.
     pub(crate) quiet: bool,
     /// Test windows have no `Root` to host dialogs: when set, the Parameters dialog is answered with
@@ -256,6 +272,7 @@ impl Workspace {
         let explorer = cx.new(|cx| Explorer::new(store.clone(), window, cx));
         let results = cx.new(|cx| ResultsPanel::new(window, cx));
         let messages = cx.new(|_| MessagesPanel::new());
+        let problems = cx.new(ProblemsPanel::new);
         let history = cx.new(|cx| {
             HistoryPanel::new(HistoryStore::load(Some(data_dir.join("history.jsonl"))), window, cx)
         });
@@ -273,6 +290,9 @@ impl Workspace {
             }),
             cx.subscribe_in(&plan, window, |this, _, e: &PlanEvent, window, cx| {
                 this.on_plan_event(e.clone(), window, cx)
+            }),
+            cx.subscribe_in(&problems, window, |this, _, e: &ProblemsEvent, window, cx| {
+                this.on_problems_event(e.clone(), window, cx)
             }),
             cx.subscribe_in(&map, window, |this, _, e: &MapEvent, window, cx| {
                 this.on_map_event(e.clone(), window, cx)
@@ -301,6 +321,7 @@ impl Workspace {
             console_counter: 0,
             results: results.clone(),
             messages: messages.clone(),
+            problems: problems.clone(),
             history: history.clone(),
             plan: plan.clone(),
             map: map.clone(),
@@ -321,6 +342,8 @@ impl Workspace {
             discard_asked: Vec::new(),
             #[cfg(test)]
             execute_asked: Vec::new(),
+            #[cfg(test)]
+            rename_asked: Vec::new(),
             quiet: false,
             #[cfg(test)]
             param_answer: None,
@@ -329,6 +352,7 @@ impl Workspace {
         };
         ws.bottom_views.insert(BottomTab::Results, results.into());
         ws.bottom_views.insert(BottomTab::Messages, messages.into());
+        ws.bottom_views.insert(BottomTab::Problems, problems.into());
         ws.bottom_views.insert(BottomTab::History, history.into());
         ws.bottom_views.insert(BottomTab::Plan, plan.into());
         ws.bottom_views.insert(BottomTab::Map, map.into());
@@ -1318,6 +1342,7 @@ impl Workspace {
         match tab {
             BottomTab::Results => IconName::Table,
             BottomTab::Messages => IconName::MessageSquare,
+            BottomTab::Problems => IconName::TriangleAlert,
             BottomTab::Plan => IconName::Network,
             BottomTab::Map => IconName::Map,
             BottomTab::History => IconName::Clock,

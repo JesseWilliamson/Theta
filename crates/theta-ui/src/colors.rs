@@ -49,6 +49,8 @@ pub struct EditorColors {
     pub gutter_background: Hsla,
     pub search_match: Hsla,
     pub matching_bracket: Hsla,
+    /// Other occurrences of the name under the cursor.
+    pub occurrence: Hsla,
     pub indent_guide: Hsla,
 }
 
@@ -104,6 +106,7 @@ impl EditorColors {
             gutter_background: style.editor_gutter_background.unwrap_or(background),
             search_match: style.status.warning(cx).alpha(0.35),
             matching_bracket: accent.alpha(0.3),
+            occurrence: accent.alpha(0.16),
             indent_guide: theme.border.alpha(0.6),
         }
     }

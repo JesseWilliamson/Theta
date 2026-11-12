@@ -143,6 +143,7 @@ impl Workspace {
         }
         let slot = console.catalog.clone();
         let slot2 = slot.clone();
+        let slot3 = slot.clone();
         console.editor.update(cx, |e, _| {
             e.set_database_kind(kind);
             e.set_completion_provider(Some(Rc::new(SqlCompletion {
@@ -154,6 +155,32 @@ impl Workspace {
                 let c = slot2.read().ok().and_then(|c| c.clone());
                 theta_sql::lint(text, kind, c.as_deref())
             })));
+            e.set_occurrence_provider(Some(Arc::new(move |text: &str, byte: usize| {
+                let c = slot3.read().ok().and_then(|c| c.clone());
+                crate::exec::intel::highlights(text, byte, kind, c.as_deref())
+            })));
+        });
+    }
+
+    /// Re-run [`Workspace::configure_console`] for a console whose catalog slot was written directly (tests).
+    #[cfg(test)]
+    pub(super) fn configure_console_catalog_only(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(console) = self.consoles.get(&id) else { return };
+        let slot = console.catalog.clone();
+        let kind = self.console_kind(id, cx);
+        let slot2 = slot.clone();
+        let slot3 = slot.clone();
+        console.editor.update(cx, |e, _| {
+            e.set_database_kind(kind);
+            e.set_diagnostics_provider(Some(Arc::new(move |text: &str| {
+                let c = slot2.read().ok().and_then(|c| c.clone());
+                theta_sql::lint(text, kind, c.as_deref())
+            })));
+            e.set_occurrence_provider(Some(Arc::new(move |text: &str, byte: usize| {
+                let c = slot3.read().ok().and_then(|c| c.clone());
+                crate::exec::intel::highlights(text, byte, kind, c.as_deref())
+            })));
+            let _ = slot;
         });
     }
 
@@ -255,6 +282,7 @@ impl Workspace {
             self.show_plan_state(id, window, cx);
         }
         self.refresh_editor_status(id, cx);
+        self.refresh_problems(cx);
         self.sync_running(cx);
         if let Some(c) = self.consoles.get(&id) {
             let handle = c.editor.read(cx).focus_handle(cx);
@@ -288,6 +316,11 @@ impl Workspace {
                 self.refresh_editor_status(id, cx);
             }
             EditorEvent::StateChanged => self.refresh_editor_status(id, cx),
+            EditorEvent::DiagnosticsChanged => {
+                if self.active_tab == Some(id) {
+                    self.refresh_problems(cx);
+                }
+            }
             EditorEvent::Effect(e) => self.on_editor_effect(id, e, window, cx),
             EditorEvent::ExpandSnippet { body, replace } => {
                 self.expand_template(id, body, replace, window, cx)
@@ -309,6 +342,11 @@ impl Workspace {
             Effect::ExplainStatement { analyze } => self.explain_console(id, analyze, window, cx),
             Effect::FormatDocument => self.format_console(id, false, window, cx),
             Effect::FormatSelection => self.format_console(id, true, window, cx),
+            Effect::GoToDefinition => self.go_to_definition(id, window, cx),
+            Effect::FindUsages => self.find_usages(id, window, cx),
+            Effect::RenameSymbol => self.rename_symbol(id, window, cx),
+            Effect::CodeActions => self.code_actions(id, window, cx),
+            Effect::ShowProblems => self.show_problems(window, cx),
             Effect::Save => self.save_console_as(window, cx),
             Effect::CloseTab => self.request_close_tab(id, window, cx),
             Effect::NewTab => {
@@ -331,6 +369,8 @@ impl Workspace {
             | Effect::RequestCompletion
             | Effect::DismissCompletion
             | Effect::RevealCursor
+            | Effect::NextProblem
+            | Effect::PreviousProblem
             | Effect::Scroll(_)
             | Effect::Status(_) => {}
         }

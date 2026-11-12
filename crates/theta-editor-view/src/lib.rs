@@ -25,7 +25,9 @@ mod view;
 
 pub use actions::{KEY_CONTEXT, completion_owns, init, key_context, keymap_name, mode_name};
 pub use status::{EditorStatus, StatementStatus};
-pub use view::{CompletionProvider, DiagnosticsProvider, EditorEvent, EditorView, FrameStats};
+pub use view::{
+    CompletionProvider, DiagnosticsProvider, EditorEvent, EditorView, FrameStats, OccurrenceProvider, Problem,
+};
 
 #[cfg(test)]
 mod tests;

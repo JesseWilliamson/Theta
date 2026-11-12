@@ -2,4 +2,5 @@
 
 pub mod history;
 pub mod messages;
+pub mod problems;
 pub mod results;

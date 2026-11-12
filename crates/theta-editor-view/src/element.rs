@@ -887,6 +887,11 @@ impl EditorView {
                 push_range(self, c, c + 1, colors.matching_bracket, false, &mut rects, &mut outlines);
             }
         }
+        // other uses of the name the cursor rests on
+        let start = self.occurrences.partition_point(|m| m.end <= first_char);
+        for m in self.occurrences[start..].iter().take_while(|m| m.start < last_char) {
+            push_range(self, m.start, m.end, colors.occurrence, false, &mut rects, &mut outlines);
+        }
 
         // ---- diagnostics: squiggles + gutter dots
         let mut squiggles = Vec::new();

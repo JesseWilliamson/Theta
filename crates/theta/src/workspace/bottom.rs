@@ -19,6 +19,9 @@ fn empty_state(tab: BottomTab) -> EmptyState {
             .key_hint(KeyHint::new(&format!("{modk}-enter"))),
         BottomTab::Messages => EmptyState::new(IconName::MessageSquare, "No messages")
             .description("Notices, warnings and statement outcomes are listed here."),
+        BottomTab::Problems => EmptyState::new(IconName::Check, "No problems").description(
+            "Syntax errors, unknown names and other findings in the active console are listed here.",
+        ),
         BottomTab::Plan => EmptyState::new(IconName::Network, "No query plan")
             .description("Run Explain to see how the database executes a statement.")
             .key_hint(KeyHint::new(&format!("{modk}-e"))),
@@ -91,6 +94,22 @@ impl Workspace {
                                         theme.muted_foreground
                                     })
                                     .child(tab.label()),
+                            )
+                            .when_some(
+                                (tab == BottomTab::Problems)
+                                    .then(|| self.problems.read(cx).len())
+                                    .filter(|n| *n > 0),
+                                |d, n| {
+                                    d.child(
+                                        div()
+                                            .px_1()
+                                            .rounded_full()
+                                            .bg(theme.warning.opacity(0.25))
+                                            .text_size(px(10.))
+                                            .text_color(theme.warning)
+                                            .child(n.to_string()),
+                                    )
+                                },
                             )
                             .when_some((tab == BottomTab::Map).then_some(self.map_badge).flatten(), |d, n| {
                                 d.child(

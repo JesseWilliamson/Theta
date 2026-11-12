@@ -61,6 +61,8 @@ pub enum EditorEvent {
     },
     Focused,
     Blurred,
+    /// The set of problems changed (a new lint result arrived).
+    DiagnosticsChanged,
 }
 
 /// Supplies completions on the UI thread; must be fast (theta-sql takes 1-2 ms).
@@ -71,6 +73,23 @@ pub trait CompletionProvider: 'static {
     fn snippet_for(&self, _word: &str) -> Option<String> {
         None
     }
+}
+
+/// Supplies the byte ranges to highlight while the cursor (a byte offset) rests on a name, on a background thread.
+pub type OccurrenceProvider = Arc<dyn Fn(&str, usize) -> Vec<Range<usize>> + Send + Sync>;
+
+/// How long the cursor must rest before the occurrences of the name under it are looked up.
+const OCCURRENCE_DELAY: Duration = Duration::from_millis(250);
+
+/// One entry of the problems list.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Problem {
+    /// Byte range in [`EditorView::text`].
+    pub range: Range<usize>,
+    /// Zero-based line of the start.
+    pub line: usize,
+    pub severity: Severity,
+    pub message: String,
 }
 
 /// Supplies diagnostics for squiggles, called ~300 ms after the last edit on a background thread.
@@ -85,6 +104,8 @@ pub(crate) struct Diag {
     pub range: Range<usize>,
     pub severity: Severity,
     pub message: String,
+    /// Only an unfinished statement (see `theta_sql::Diagnostic::incomplete`).
+    pub incomplete: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -166,6 +187,11 @@ pub struct EditorView {
     pub(crate) diagnostics: Vec<Diag>,
     pub(crate) transient: Option<(u64, Diag)>,
     diag_task: Option<Task<()>>,
+    occurrence_provider: Option<OccurrenceProvider>,
+    /// Char ranges of the other uses of the name under the cursor.
+    pub(crate) occurrences: Vec<Range<usize>>,
+    occurrence_key: Option<CacheKey>,
+    occurrence_task: Option<Task<()>>,
     /// The char range of the statement being typed (set by an edit in an insert-like mode, cleared when typing pauses): its "unfinished" diagnostics stay hidden until typing pauses.
     typing: Option<Range<usize>>,
     typing_task: Option<Task<()>>,
@@ -259,6 +285,10 @@ impl EditorView {
             diagnostics: Vec::new(),
             transient: None,
             diag_task: None,
+            occurrence_provider: None,
+            occurrences: Vec::new(),
+            occurrence_key: None,
+            occurrence_task: None,
             typing: None,
             typing_task: None,
             pending_initial_diagnostics: false,
@@ -359,8 +389,10 @@ impl EditorView {
     /// shown until the next edit.
     pub fn set_transient_diagnostic(&mut self, range: Range<usize>, message: String, cx: &mut Context<Self>) {
         let chars = self.byte_range_to_chars(range);
-        self.transient =
-            Some((self.editor.revision(), Diag { range: chars, severity: Severity::Critical, message }));
+        self.transient = Some((
+            self.editor.revision(),
+            Diag { range: chars, severity: Severity::Critical, message, incomplete: false },
+        ));
         cx.notify();
     }
 
@@ -548,7 +580,10 @@ impl EditorView {
         if km != self.editor.keymap() {
             self.editor.set_keymap(km);
             self.completion = None;
-            cx.emit(EditorEvent::StateChanged);
+            {
+                self.schedule_occurrences(cx);
+                cx.emit(EditorEvent::StateChanged);
+            }
         }
         self.style = None;
         cx.notify();
@@ -662,7 +697,10 @@ impl EditorView {
         if self.editor.revision() != rev0 {
             self.on_edited(cx);
         }
-        cx.emit(EditorEvent::StateChanged);
+        {
+            self.schedule_occurrences(cx);
+            cx.emit(EditorEvent::StateChanged);
+        }
         cx.notify();
     }
 
@@ -734,7 +772,10 @@ impl EditorView {
         }
         let after = self.state_key();
         if after != before || edited {
-            cx.emit(EditorEvent::StateChanged);
+            {
+                self.schedule_occurrences(cx);
+                cx.emit(EditorEvent::StateChanged);
+            }
         }
         // Which-key timing: start the clock when a pending sequence appears.
         if self.editor.key_hints().is_some() {
@@ -829,13 +870,17 @@ impl EditorView {
                 range: 0..0,
                 severity: d.severity,
                 message: d.message.clone(),
+                incomplete: d.incomplete,
             })
     }
 
     /// Text changed outside the key path (IME, menu commands): raise the usual events.
     pub(crate) fn edited_externally(&mut self, cx: &mut Context<Self>) {
         self.on_edited(cx);
-        cx.emit(EditorEvent::StateChanged);
+        {
+            self.schedule_occurrences(cx);
+            cx.emit(EditorEvent::StateChanged);
+        }
         cx.notify();
     }
 
@@ -852,9 +897,30 @@ impl EditorView {
         }
         if edited || self.state_key() != before {
             self.pending_reveal = true;
-            cx.emit(EditorEvent::StateChanged);
+            {
+                self.schedule_occurrences(cx);
+                cx.emit(EditorEvent::StateChanged);
+            }
         }
         cx.notify();
+    }
+
+    /// Show `msg` on the editor's bottom line for a moment.
+    pub fn set_message(&mut self, msg: impl Into<String>, cx: &mut Context<Self>) {
+        self.message_serial += 1;
+        let id = self.message_serial;
+        self.message = Some((msg.into(), id));
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(MESSAGE_TTL).await;
+            this.update(cx, |v, cx| {
+                if v.message.as_ref().is_some_and(|m| m.1 == id) {
+                    v.message = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn apply_effect(&mut self, effect: Effect, window: &mut Window, cx: &mut Context<Self>) {
@@ -863,23 +929,14 @@ impl EditorView {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
             }
             Effect::RevealCursor => self.pending_reveal = true,
-            Effect::Scroll(req) => self.pending_scroll = Some(req),
-            Effect::Status(msg) => {
-                self.message_serial += 1;
-                let id = self.message_serial;
-                self.message = Some((msg, id));
-                cx.spawn(async move |this, cx| {
-                    cx.background_executor().timer(MESSAGE_TTL).await;
-                    this.update(cx, |v, cx| {
-                        if v.message.as_ref().is_some_and(|m| m.1 == id) {
-                            v.message = None;
-                            cx.notify();
-                        }
-                    })
-                    .ok();
-                })
-                .detach();
+            Effect::NextProblem | Effect::PreviousProblem => {
+                let forward = matches!(effect, Effect::NextProblem);
+                if !self.goto_problem(forward, cx) {
+                    self.set_message("no problems", cx);
+                }
             }
+            Effect::Scroll(req) => self.pending_scroll = Some(req),
+            Effect::Status(msg) => self.set_message(msg, cx),
             Effect::RequestCompletion if self.completion_provider.is_some() => {
                 self.completion = self.query_completion(true);
             }
@@ -1006,7 +1063,10 @@ impl EditorView {
         self.pending_reveal = true;
         let _ = window;
         self.on_edited(cx);
-        cx.emit(EditorEvent::StateChanged);
+        {
+            self.schedule_occurrences(cx);
+            cx.emit(EditorEvent::StateChanged);
+        }
         let _ = (rev0, before);
         // `schema.` / `alias.` continue straight into the member list.
         if item.insert_text.ends_with('.') {
@@ -1130,11 +1190,117 @@ impl EditorView {
                 range: self.byte_range_to_chars(d.range.clone()),
                 severity: d.severity,
                 message: d.message,
+                incomplete: d.incomplete,
             })
             .collect();
         diags.sort_by_key(|d| (d.range.start, d.range.end));
         self.diagnostics = diags;
+        cx.emit(EditorEvent::DiagnosticsChanged);
         cx.notify();
+    }
+
+    // ---- problems -----------------------------------------------------------------------------
+
+    /// The problems currently shown (unfinished-statement complaints about the statement being typed are
+    /// left out), as byte ranges of [`EditorView::text`].
+    pub fn problems(&self) -> Vec<Problem> {
+        self.all_diagnostics()
+            .into_iter()
+            .map(|d| Problem {
+                range: self.editor.char_to_byte(d.range.start)..self.editor.char_to_byte(d.range.end),
+                line: self.editor.char_to_line(d.range.start),
+                severity: d.severity,
+                message: d.message.clone(),
+            })
+            .collect()
+    }
+
+    /// Move the cursor to the next (or previous) problem, wrapping around. Returns whether there is one.
+    pub fn goto_problem(&mut self, forward: bool, cx: &mut Context<Self>) -> bool {
+        let cursor = self.primary_cursor();
+        let mut starts: Vec<usize> = self.all_diagnostics().iter().map(|d| d.range.start).collect();
+        starts.sort_unstable();
+        starts.dedup();
+        let target = if forward {
+            starts.iter().copied().find(|&s| s > cursor).or(starts.first().copied())
+        } else {
+            starts.iter().rev().copied().find(|&s| s < cursor).or(starts.last().copied())
+        };
+        match target {
+            Some(t) => {
+                self.goto_char(t, cx);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Put the cursor at a char offset and scroll it into view.
+    pub fn goto_char(&mut self, ch: usize, cx: &mut Context<Self>) {
+        let ch = ch.min(self.editor.len_chars());
+        self.update_editor(cx, |ed| ed.set_selections(vec![theta_editor::Selection::point(ch)], 0));
+        self.pending_reveal = true;
+        {
+            self.schedule_occurrences(cx);
+            cx.emit(EditorEvent::StateChanged);
+        }
+        cx.notify();
+    }
+
+    /// Put the cursor at a byte offset of [`EditorView::text`].
+    pub fn goto_byte(&mut self, byte: usize, cx: &mut Context<Self>) {
+        let ch = self.editor.byte_to_char(byte.min(self.editor.text().len()));
+        self.goto_char(ch, cx);
+    }
+
+    /// The primary cursor as a byte offset of [`EditorView::text`].
+    pub fn cursor_byte(&self) -> usize {
+        self.editor.char_to_byte(self.primary_cursor())
+    }
+
+    /// Apply edits given as byte ranges of [`EditorView::text`] as a single undo step.
+    pub fn replace_byte_ranges(&mut self, edits: Vec<(Range<usize>, String)>, cx: &mut Context<Self>) {
+        let changes: Vec<(Range<usize>, String)> = edits
+            .into_iter()
+            .map(|(r, t)| (self.editor.byte_to_char(r.start)..self.editor.byte_to_char(r.end), t))
+            .collect();
+        self.update_editor(cx, |ed| ed.replace_ranges(changes));
+        self.edited_externally(cx);
+    }
+
+    // ---- occurrences of the name under the cursor
+
+    /// How many occurrences of the name under the cursor are highlighted.
+    pub fn occurrence_count(&self) -> usize {
+        self.occurrences.len()
+    }
+
+    pub fn set_occurrence_provider(&mut self, provider: Option<OccurrenceProvider>) {
+        self.occurrence_provider = provider;
+        self.occurrences.clear();
+    }
+
+    fn schedule_occurrences(&mut self, cx: &mut Context<Self>) {
+        let Some(provider) = self.occurrence_provider.clone() else { return };
+        let key = (self.editor.revision(), self.primary_cursor());
+        if self.occurrence_key == Some(key) {
+            return;
+        }
+        self.occurrence_key = Some(key);
+        // The old highlights stay for the instant between keys; they are cleared when the answer says so.
+        let text = self.text_snapshot();
+        let byte = self.editor.char_to_byte(key.1);
+        self.occurrence_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(OCCURRENCE_DELAY).await;
+            let ranges = cx.background_executor().spawn(async move { provider(&text, byte) }).await;
+            this.update(cx, |v, cx| {
+                if v.occurrence_key == Some(key) {
+                    v.occurrences = ranges.into_iter().map(|r| v.byte_range_to_chars(r)).collect();
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
     }
 
     /// Diagnostics at a char index (transient first), as indexes into `all_diagnostics`.
@@ -1307,7 +1473,10 @@ impl EditorView {
         }
         self.pending_reveal = false;
         if self.state_key() != before {
-            cx.emit(EditorEvent::StateChanged);
+            {
+                self.schedule_occurrences(cx);
+                cx.emit(EditorEvent::StateChanged);
+            }
         }
         cx.notify();
     }
@@ -1316,7 +1485,10 @@ impl EditorView {
         self.drag_moved = true;
         self.editor.drag_to(idx);
         self.pause_blink(cx);
-        cx.emit(EditorEvent::StateChanged);
+        {
+            self.schedule_occurrences(cx);
+            cx.emit(EditorEvent::StateChanged);
+        }
         cx.notify();
     }
 

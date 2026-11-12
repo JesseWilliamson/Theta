@@ -18,14 +18,14 @@ use std::sync::Arc;
 use theta_core::{ConnectionConfig, DatabaseKind};
 use theta_editor::{Keymap, Mode};
 
-struct Fixture {
-    ws: Entity<Workspace>,
+pub(super) struct Fixture {
+    pub(super) ws: Entity<Workspace>,
     fired: Rc<RefCell<Vec<Option<String>>>>,
     _sub: Subscription,
     _dir: tempfile::TempDir,
 }
 
-fn setup(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
+pub(super) fn setup(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
     setup_with(cx, true, ":memory:")
 }
 
@@ -79,11 +79,11 @@ fn setup_with<'a>(
     (Fixture { ws, fired, _sub: sub, _dir: dir }, vcx)
 }
 
-fn editor_of(f: &Fixture, vcx: &mut VisualTestContext) -> Entity<theta_editor_view::EditorView> {
+pub(super) fn editor_of(f: &Fixture, vcx: &mut VisualTestContext) -> Entity<theta_editor_view::EditorView> {
     f.ws.read_with(vcx, |ws, _| ws.consoles[&ws.active_tab.expect("an active console")].editor.clone())
 }
 
-fn editor_text(f: &Fixture, vcx: &mut VisualTestContext) -> String {
+pub(super) fn editor_text(f: &Fixture, vcx: &mut VisualTestContext) -> String {
     let e = editor_of(f, vcx);
     e.read_with(vcx, |e, _| e.text())
 }
@@ -93,7 +93,7 @@ fn tab_count(f: &Fixture, vcx: &mut VisualTestContext) -> usize {
 }
 
 /// Put the focused editor into `state` with `text` and the cursor at `cursor` (chars).
-fn enter(f: &Fixture, vcx: &mut VisualTestContext, state: EditorState, text: &str, cursor: usize) {
+pub(super) fn enter(f: &Fixture, vcx: &mut VisualTestContext, state: EditorState, text: &str, cursor: usize) {
     f.ws.update_in(vcx, |ws, window, cx| {
         ws.close_modal(window, cx);
         if ws.active_tab.is_none() {
@@ -160,11 +160,11 @@ impl RefreshExt for Window {
 /// The platform's primary modifier plus `key`: Cmd on macOS, Ctrl elsewhere.
 /// App-level shortcuts are bound to it (`mod-…` in the keymap), so tests that
 /// exercise them must press what a user on that platform would press.
-fn primary(key: &str) -> String {
+pub(super) fn primary(key: &str) -> String {
     format!("{}-{key}", if cfg!(target_os = "macos") { "cmd" } else { "ctrl" })
 }
 
-fn press(vcx: &mut VisualTestContext, keystroke: &str) {
+pub(super) fn press(vcx: &mut VisualTestContext, keystroke: &str) {
     vcx.update(|window, cx| window.press(keystroke, cx));
     vcx.run_until_parked();
 }
@@ -248,11 +248,11 @@ fn every_global_binding_is_handled_by_exactly_one_side(cx: &mut TestAppContext) 
     assert!(contested > 40, "there must be many contested keystrokes ({contested})");
 }
 
-fn helix(mode: Mode) -> EditorState {
+pub(super) fn helix(mode: Mode) -> EditorState {
     EditorState { keymap: Keymap::Helix, mode, prompt: false, completion: false, pending: false }
 }
 
-fn standard() -> EditorState {
+pub(super) fn standard() -> EditorState {
     EditorState {
         keymap: Keymap::Standard,
         mode: Mode::Standard,

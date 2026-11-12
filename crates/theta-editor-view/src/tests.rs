@@ -393,6 +393,7 @@ fn diagnostics_arrive_after_the_debounce(cx: &mut TestAppContext) {
                 range: 0..sql.len().min(6),
                 severity: theta_sql::Severity::Warning,
                 message: "demo".into(),
+                incomplete: false,
             }]
         })));
     });
@@ -793,6 +794,7 @@ fn squiggles_follow_the_text_through_edits(cx: &mut TestAppContext) {
                 range: at..at + 3,
                 severity: theta_sql::Severity::Warning,
                 message: "Unknown column".into(),
+                incomplete: false,
             }]
         })));
     });
