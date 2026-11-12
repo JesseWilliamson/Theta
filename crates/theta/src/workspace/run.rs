@@ -7,6 +7,7 @@ use super::{BottomTab, ConsoleTab, Workspace, WorkspaceEvent};
 use crate::connections::{ConnState, NoticeKind, StoreEvent};
 use crate::dialogs::confirm::{self, Choice, Tone};
 use crate::exec::history::{HistoryEntry, now_ms};
+use crate::exec::local_history::{Kind as LocalKind, LocalHistory, Recorded};
 use crate::exec::pick::{self, Picked};
 use crate::exec::{changes, consoles, editable, geo};
 use crate::panels::history::HistoryEvent;
@@ -260,7 +261,64 @@ impl Workspace {
     fn save_console_now(&mut self, id: u64, cx: &mut Context<Self>) {
         if let Some(saved) = self.snapshot_console(id, cx) {
             let _ = consoles::save(&self.data_dir.join("consoles"), &saved);
+            self.record_local_history(&saved.key, &saved.text, LocalKind::Edit);
         }
+    }
+
+    /// Local history lives next to the console files: `<config>/local-history/<console key>/`.
+    pub(super) fn local_history(&self) -> LocalHistory {
+        LocalHistory::new(self.data_dir.join("local-history")).session_from(self.started_ms)
+    }
+
+    /// Snapshot `text` for a console. A failure to write must never get in the way of editing or running, so
+    /// it is only logged.
+    pub(super) fn record_local_history(&self, key: &str, text: &str, kind: LocalKind) {
+        match self.local_history().record(key, text, kind, now_ms()) {
+            Ok(Recorded::TooLarge) => {
+                eprintln!("theta: local history: a console text over 1 MiB is not snapshotted")
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("theta: local history: could not write a snapshot: {e}"),
+        }
+    }
+
+    /// Show the Local History of the active console.
+    pub(super) fn open_local_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.active_tab.filter(|id| self.consoles.contains_key(id)) else {
+            self.notify(NoticeKind::Info, "Open a console first (Ctrl+N)", window, cx);
+            return;
+        };
+        if self.quiet {
+            return;
+        }
+        let Some(c) = self.consoles.get(&id) else { return };
+        let (key, text) = (c.key.clone(), c.editor.read(cx).text());
+        // What has been typed since the last pause is not on disk yet; it belongs in the list.
+        self.record_local_history(&key, &text, LocalKind::Edit);
+        crate::dialogs::local_history::open(
+            cx.entity().downgrade(),
+            id,
+            key,
+            text,
+            self.local_history(),
+            window,
+            cx,
+        );
+    }
+
+    /// Replace the console's text with a snapshot, as one undoable edit. The text that is replaced is
+    /// snapshotted first, so the restore can be taken back from history as well as with undo.
+    pub fn restore_snapshot(&mut self, id: u64, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(c) = self.consoles.get(&id) else { return };
+        let (key, editor) = (c.key.clone(), c.editor.clone());
+        let current = editor.read(cx).text();
+        self.record_local_history(&key, &current, LocalKind::Restore);
+        editor.update(cx, |e, cx| {
+            let len = e.text().len();
+            e.replace_byte_ranges(vec![(0..len, text)], cx);
+        });
+        self.schedule_save(id, cx);
+        self.focus_editor(window, cx);
     }
 
     /// Bring back the most recently closed console (text, connection, cursor, file).
@@ -492,6 +550,7 @@ impl Workspace {
                 }
             }
             "chart" => self.show_chart(window, cx),
+            "lhistory" | "localhistory" | "lh" => self.open_local_history(window, cx),
             "grep" | "search" => self.search_from_palette(window, cx),
             "cell" | "viewer" if arg == "copy" => self.copy_cell_value(window, cx),
             "cell" | "viewer" => self.toggle_cell_viewer(window, cx),
@@ -560,6 +619,10 @@ impl Workspace {
             return;
         };
         let kind = self.console_kind(id, cx);
+        // What is about to run is the text worth remembering, exactly as it is (not the 600 ms-late save).
+        if let Some(c) = self.consoles.get(&id) {
+            self.record_local_history(&c.key.clone(), &text, LocalKind::Run);
+        }
         let picks: Vec<Picked> = match req {
             RunReq::Statement => match sel {
                 Some((start, s)) if !s.trim().is_empty() => pick::selection(&text, start, &s, kind),

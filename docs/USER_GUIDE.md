@@ -316,6 +316,24 @@ The file is re-read when it changes, and Settings › Templates lists every temp
 what was wrong with an entry it skipped. **Surround Selection with…** (palette) wraps the selected SQL in
 `SELECT count(*) FROM (…) t`, a subquery, a CTE, `EXISTS (…)` or parentheses.
 
+### Local history
+
+Every console keeps snapshots of its text on disk, in `local-history/<console>/` under the configuration folder
+(`THETA_CONFIG_DIR`): one when a statement is run (exactly the text of the console at that moment), one after a
+pause in typing (a long editing session leaves about one snapshot per fifteen seconds of work, not one per
+pause), and one of the text a restore replaces. Text that is identical to the newest snapshot is not stored
+again, blank text and texts over 1 MiB are not stored, and the oldest snapshots are pruned so that a console keeps at
+most 100 snapshots and 4 MiB, and all consoles together 64 MiB (the newest snapshot of each console is never
+pruned). Each snapshot is written to a temporary file and renamed into place, so killing Theta mid-write leaves the
+old or the new file, never half of one; after a crash or `kill -9` the console text is back and so are the snapshots.
+
+*Local History…* (palette, `mod-alt-h`, `space h` in Helix and Vim, `:lhistory`) opens a list of the active console's
+snapshots, newest first, each with its time, whether it was run, edited or saved before a restore, a first-line summary and
+how many lines it adds and removes compared with what is in the editor. The pane on the right is that comparison: red
+lines are in the editor now and go away on **Restore**, green lines come back from the snapshot. **Restore** (or `enter`)
+replaces the text as one undoable edit (`mod-z` / `u` takes it back), and the text it replaced is snapshotted first,
+so even that can be undone from the list. `up` / `down` (`j` / `k`) choose a snapshot.
+
 ### Files, history and the palette
 
 - *History*: every executed statement is recorded in `history.jsonl` and listed in the History tab (see

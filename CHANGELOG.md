@@ -8,6 +8,11 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Added
 
+- **Local history for consoles** (`mod-alt-h`, `space h`, `:lhistory`): every console's text is snapshotted when a
+  statement runs and after a pause in typing, stored under the config folder with per-console and total size caps
+  and pruning, written atomically so a killed process loses nothing it had saved. A dialog lists the snapshots with
+  time, kind, first line and a line count against the editor, shows a diff (`theta_editor::diff::line_diff`) and
+  restores a snapshot as one undoable edit.
 - **Copy Table to…** (explorer menu, palette, `:table copy`): copy a table, with or without its rows, to another
   schema or to another open connection, including across products (PostgreSQL, MySQL and MariaDB, SQLite,
   DuckDB). The column types go through an explicit mapping table; the dialog shows the `CREATE TABLE` and every

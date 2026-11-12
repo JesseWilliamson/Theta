@@ -10,5 +10,6 @@ pub mod geo;
 pub mod history;
 pub mod intel;
 pub mod keyref;
+pub mod local_history;
 pub mod params;
 pub mod pick;

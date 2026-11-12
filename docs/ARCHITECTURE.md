@@ -652,6 +652,22 @@ and `copy_cell_value` for the palette actions, the global chords and the `:cell`
 space menus use the new `FxKind::Host`, a generic "send this `:` command to the application", so a menu entry for
 an application feature needs no engine change beyond one line in each menu.
 
+#### Local history
+
+`exec/local_history.rs` is the store and its whole policy (identical text skipped, edit snapshots coalesced for
+fifteen seconds *within one session*, runs and restores always their own snapshot, a size cap per snapshot, per
+console and in total, oldest pruned first and the newest of a console never), as plain files so the tests need
+only a temp directory; `theta_editor::diff` is the pure line diff (LCS after peeling the shared head and tail, and
+a coarse removed-then-added fallback past 4 million table cells instead of an unbounded allocation). Two
+decisions worth knowing: a snapshot is a file written under a temporary name and renamed (`write_atomic`), which
+is what makes a `kill -9` safe (verified by killing a running instance and reading the files and the restored
+console from a second one); and coalescing never reaches back before `Workspace::started_ms`, because the first
+version overwrote the text a crashed session had left as soon as the next session's first edit came within fifteen
+seconds of it. The workspace records in two places only: `save_console_now` (the existing 600 ms debounce of the
+console file) and `run_request` (before anything can refuse the run); `restore_snapshot` snapshots the text it
+replaces and applies the snapshot with `replace_byte_ranges`, one undo step. `dialogs/local_history.rs` lists and
+paints; Enter is the dialog's OK and means Restore there.
+
 #### Copy table
 
 `theta_sql::copy` (pure) decides, `theta_import::copy_table` does, `dialogs/copy_table.rs` shows. The type mapping

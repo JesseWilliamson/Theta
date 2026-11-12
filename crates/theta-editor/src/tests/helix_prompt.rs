@@ -271,6 +271,7 @@ fn space_menu_effects() {
         ("<space>n", Effect::RenameSymbol),
         ("<space>D", Effect::ShowProblems),
         ("<space>s", Effect::HostCommand("search".into())),
+        ("<space>h", Effect::HostCommand("lhistory".into())),
         ("<space>C", Effect::HostCommand("chart".into())),
         ("<space>v", Effect::HostCommand("cell".into())),
         ("<space>V", Effect::HostCommand("cell copy".into())),

@@ -43,6 +43,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-shift-y` | copy the whole value of the focused result cell |
 | `mod-alt-f` | Search Across Tables (also from the explorer's context menu) |
 | `mod-shift-g` | show the Chart tab for the active result (and focus it) |
+| `mod-alt-h` | Local History of the active console |
 | `F5` | refresh schema, only while the explorer has focus (in the editor `F5` is *run all*) |
 | `mod-alt-r` | refresh schema, from anywhere |
 | `mod-k mod-t` | select theme (a two-chord sequence) |
@@ -158,6 +159,16 @@ Palette commands: *Import Data from CSV/TSV…*, *Import CSV/TSV as New Table…
 *New Table…*, *Modify Table…*, *Rename Table…*, *Copy Table to…*, *Duplicate Table Structure…*, *Truncate Table…*, *Drop Table…*.
 In the Helix and Vim key maps `:table copy [SCHEMA.]TABLE` opens Copy Table (a picker without an argument). Inside
 the Copy Table dialog: `enter` in the name box starts the copy, `esc` cancels a running copy and otherwise closes it.
+
+## Local History
+
+*Local History…* is a palette command, `mod-alt-h`, `space h` in Helix and Vim and `:lhistory`. In the dialog:
+
+| Keys | Action |
+| --- | --- |
+| `up` / `down`, `k` / `j` | previous / next snapshot |
+| `enter` | restore the chosen snapshot (one undoable edit) |
+| `esc` | close |
 
 ## Chart tab
 
@@ -485,6 +496,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `space a` `space n` `space D` | quick fixes / rename / Problems tab |
 | `space s` | search across tables (`:grep`, `:search`) |
 | `space C` | chart of the result (`:chart`) |
+| `space h` | local history of the console (`:lhistory`, `:localhistory`) |
 | `space v` `space V` | cell viewer / copy cell value (`:cell`, `:cell copy`) |
 
 #### Command line (`:`)
@@ -512,6 +524,7 @@ Press `space` in Normal mode; a which-key box lists what follows.
 | `:cell` `:cell copy` | toggle the cell viewer / copy the value of the focused result cell |
 | `:grep` `:search` | Search Across Tables on the active connection |
 | `:chart` | show the Chart tab for the active result |
+| `:lhistory` `:localhistory` | Local History of the console |
 
 `tab` completes command names (repeat to cycle). An unknown command shows "Unknown command".
 
@@ -688,6 +701,7 @@ work. `n` / `N` keep the direction; `*` `#` search the word under the cursor.
 | `space a` `space n` `space D` | code actions / rename / Problems tab |
 | `space s` | search across tables (`HostCommand("search")`) |
 | `space C` | chart of the result (`HostCommand("chart")`) |
+| `space h` | local history of the console (`HostCommand("lhistory")`) |
 | `space v` `space V` | cell viewer / copy cell value (`HostCommand("cell")`, `"cell copy"`) |
 
 #### Command line (`:`)

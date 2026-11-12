@@ -41,6 +41,8 @@ mod ddl_refresh_tests;
 #[cfg(test)]
 mod isolation_tests;
 #[cfg(test)]
+mod local_history_tests;
+#[cfg(test)]
 mod shortcut_tests;
 
 use crate::actions::*;
@@ -250,6 +252,8 @@ pub struct Workspace {
     #[cfg(test)]
     param_answer: Option<Vec<theta_sql::params::ParamValue>>,
     data_dir: std::path::PathBuf,
+    /// When this window started, for the local history's notion of a session.
+    started_ms: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -354,6 +358,7 @@ impl Workspace {
             #[cfg(test)]
             param_answer: None,
             data_dir,
+            started_ms: crate::exec::history::now_ms(),
             _subscriptions: subscriptions,
         };
         ws.bottom_views.insert(BottomTab::Results, results.into());
@@ -1210,6 +1215,9 @@ impl Render for Workspace {
                 this.pick_table_for(palette::TablePurpose::Copy, window, cx)
             }))
             .on_action(cx.listener(|this, _: &ShowChart, window, cx| this.show_chart(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &ShowLocalHistory, window, cx| this.open_local_history(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &SearchTables, window, cx| this.search_from_palette(window, cx)))
             .on_action(cx.listener(|this, _: &SelectKeymap, window, cx| this.open_keymap_picker(window, cx)))
             .on_action(cx.listener(|this, _: &UseHelixKeymap, window, cx| {

@@ -181,6 +181,8 @@ Per-product behaviour (what is disabled and why) is in the [user guide](docs/USE
   generated `UPDATE`/`INSERT`/`DELETE` statements and applies them in one transaction. A result is editable
   only when it comes from one table whose primary key is in the result; otherwise the grid shows a lock and
   says why.
+- Local history for consoles: snapshots on every run and after pauses in typing, kept on disk under size caps,
+  with a line diff against the editor and one-step, undoable restore; the text survives a killed process.
 - Charts: a Chart tab draws the result as bar, line, area, scatter or pie with sensible column defaults, grouping,
   aggregation, calendar-aware time axes, a legend and a hover readout, in the theme's colours.
 - Search across tables: one query per table finds a text in every column of a connection, a schema or chosen

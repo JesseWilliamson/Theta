@@ -417,6 +417,7 @@ fn build_trie() -> Sub {
         s.bind("D", Cmd::Fx(FxKind::ShowProblems), "problems");
         s.bind("j", Cmd::Fx(FxKind::ToggleBottomPanel), "toggle results panel");
         s.bind("s", Cmd::Fx(FxKind::Host("search")), "search across tables");
+        s.bind("h", Cmd::Fx(FxKind::Host("lhistory")), "local history of this console");
         s.bind("C", Cmd::Fx(FxKind::Host("chart")), "chart of the result");
         s.bind("v", Cmd::Fx(FxKind::Host("cell")), "cell viewer");
         s.bind("V", Cmd::Fx(FxKind::Host("cell copy")), "copy cell value");
