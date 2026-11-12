@@ -2,7 +2,7 @@
 
 A static site: hand-written HTML, one stylesheet, one small script. No framework, no build step,
 no external requests (fonts, images and icons are all in this directory). All links are relative, so
-it works under any base path (`/Quarry/` now, `/Theta/` after the rename).
+it works under any base path; it is served at `https://jessewilliamson.github.io/Theta/`.
 
 ```
 site/
@@ -10,7 +10,7 @@ site/
   keybindings.html      generated from docs/KEYBINDINGS.md
   changelog.html        generated from CHANGELOG.md
   404.html              not-found page (repairs its own links when served from a nested URL)
-  robots.txt, .nojekyll
+  robots.txt, sitemap.xml, .nojekyll
   assets/
     css/site.css        design system (tokens documented at the top)
     js/site.js          theme toggle, single-key shortcuts (D, G), nav menu, tabs, OS-aware download hint, editor-mock animation, key search
@@ -43,7 +43,7 @@ Everything below uses only the Python standard library (plus Pillow for images, 
 `build_pages.py` writes `keybindings.html` and `changelog.html`, and refreshes the nav and footer on
 every page: edit `tools/partials/nav.html` and `tools/partials/footer.html`, not the copies in the pages.
 Prose in the Markdown sources that says "Quarry" is shown as "Theta" (`RENAMES` in the script); code spans
-and URLs are left alone. Re-run it after the rename lands in the sources.
+and URLs are left alone.
 
 `tools/check.mjs` (console errors, failed or external requests, links, image attributes, overflow at 360px,
 tab order, page weight), `tools/shoot.mjs` and `tools/shoot_focus.mjs` (screenshots) are dev helpers that
@@ -67,7 +67,8 @@ need Playwright: `NODE_PATH=$(npm root -g) node site/tools/check.mjs http://loca
   symbols exist because the real glyph's hairlines vanish below about 60 px tall.
 - **Screenshots.** Pages refer to stable names in `assets/screens/` (`editor-results`, `completion-fk-joins`,
   `map`, `plan-insights`, `editable-grid`, `explorer-suggested-fks`, `theme-light`, `theme-picker`,
-  `connection-ssh`, `vim-visual-block`, `keymap-choice`). Re-shoot into `docs/screenshots/` under the same
+  `connection-ssh`, `vim-visual-block`, `keymap-choice`, `modify-table`, `new-table`, `import-csv`, `sessions`,
+  `diagnostics`, `quick-fix`, `chart`, `er-diagram`, `schema-compare`, `data-compare`). Re-shoot into `docs/screenshots/` under the same
   numbered names and run `optimize_screens.py`. Update the alt text if the picture changes meaningfully.
 - **Colours and type.** Custom properties at the top of `assets/css/site.css`, where the type scale is also documented.
   Headlines are IBM Plex Serif (Light Italic for the home hero, Light for page titles and h2, Regular for h3), prose is IBM

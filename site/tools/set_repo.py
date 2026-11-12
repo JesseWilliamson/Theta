@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 SITE = Path(__file__).resolve().parents[1]
-TEXT = {".html", ".js", ".py", ".md", ".txt", ".css", ".svg"}
+TEXT = {".html", ".js", ".py", ".md", ".txt", ".css", ".svg", ".xml"}
 
 
 def pages_url(repo_url: str) -> str:

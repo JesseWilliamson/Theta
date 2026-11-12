@@ -213,6 +213,7 @@ def head(title: str, description: str, page: str) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{t}</title>
 <meta name="description" content="{d}">
+<link rel="canonical" href="{PAGES_URL}{page}">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Theta">
 <meta property="og:title" content="{t}">
