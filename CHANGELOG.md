@@ -6,6 +6,25 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+### Fixed
+
+- Copy Table opened from the palette had no focus, so `esc` and `tab` acted on the editor behind it; its name field is focused now.
+- `ctrl-alt-enter` (Run on Several Connections) was swallowed by the editor in the Standard and Helix key maps, and with fewer than two connections it crashed the app instead of saying so.
+- The "query is already running" message named `ctrl-.`, which is Quick Fixes in the editor. Cancel is `shift-F5` in every key map (it replaces `mod-.`), and the message reads the key from the bindings.
+- The Chart tab trapped the keyboard when the result had no rows or nothing to plot: `ctrl-1`, `ctrl-2` and `esc` now work, and a second `esc` returns to the editor.
+- The History tab is usable from the keyboard (`mod-shift-h`, arrows, `enter` loads the statement into the editor, `/` searches, `esc` leaves) and says "1 row".
+- Focusing the results (`ctrl-2`, `space g`) makes the first cell (or the one that was current) active, so the first key moves from it instead of being swallowed.
+- The New Connection dialog opens with the URL field focused, `enter` anywhere saves and connects or says what is missing, an empty user is flagged like an empty host, the hints are the selected product's and marked "e.g.", and a missing password is reported once, in words.
+- Confirmation dialogs (Apply Changes, Truncate, Drop, Terminate Session, delete rows, drop role, delete connection or folder) press the focused button on `enter`, show which button is focused and say how to move; destructive ones open with Cancel focused.
+- Run SQL Script runs on `enter` in the file field, and says when there is no file.
+- The gear and application menus show the whole `Ctrl+K Ctrl+T` chord for Select Theme.
+- The Standard key map has find and replace: `ctrl-h` (or `ctrl-h` inside the find prompt), `enter` replaces one and moves on, `ctrl-enter` replaces all.
+- Reopen Closed Tab says why there is nothing to reopen after an empty console was closed, and the docs say empty consoles are not kept.
+
+### Changed
+
+- Cancel Query is `shift-F5` instead of `mod-.`.
+
 ## [0.1.0-alpha.9] - 2026-11-12
 
 ### Added

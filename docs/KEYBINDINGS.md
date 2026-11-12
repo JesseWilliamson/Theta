@@ -31,8 +31,8 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-n` | new console |
 | `mod-shift-n` | new connection |
 | `mod-o` | open SQL file |
-| `mod-w` | close tab (the console goes on the reopen stack) |
-| `mod-shift-t` | reopen the last closed tab (text, connection and cursor; the last 20 are kept across restarts) |
+| `mod-w` | close tab (a console with text goes on the reopen stack; an empty one does not) |
+| `mod-shift-t` | reopen the last closed tab (text, connection and cursor; the last 20 are kept across restarts; a console that was empty when closed is not kept) |
 | `mod-pagedown`, `mod-pageup` | next / previous tab |
 | `mod-b` | toggle explorer |
 | `mod-j` | toggle bottom panel |
@@ -47,6 +47,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-alt-s` | Compare Schemas (asks for a source and a target schema; also from the explorer's context menu on a schema) |
 | `mod-alt-x` | Compare Table Data (asks for two tables and the key; also from the explorer's context menu on a table) |
 | `mod-alt-h` | Local History of the active console |
+| `mod-shift-h` | History tab (focused): `up`/`down` (and `j`/`k` in Helix and Vim) move, `enter` loads the statement into the editor, `/` goes to the search box, `esc` returns to the editor |
 | `mod-alt-enter` | Run on Several Connections (the current statement or the script on every connection you tick). In the dialog: `up`/`down` or `j`/`k` move, `space` ticks, `a` ticks all or none, `enter` runs |
 | `F5` | refresh schema, only while the explorer has focus (in the editor `F5` is *run all*) |
 | `mod-alt-r` | refresh schema, from anywhere |
@@ -57,7 +58,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-,` | settings |
 | `mod-enter` | run statement (selection if there is one); not bound while the results grid has focus, where it submits staged edits |
 | `mod-shift-enter` | run all |
-| `mod-.` | cancel the running query |
+| `shift-F5` | cancel the running query, in every key map and wherever the focus is (`mod-.` is Quick Fixes in the editor, so it is not used). Helix and Vim Normal mode also have `space x` and `:cancel` |
 | `mod-e` | explain |
 | `mod-shift-alt-e` | explain analyze |
 | `mod-shift-f` | format document |
@@ -157,12 +158,13 @@ Vim key maps, `:import` / `:export`), so they cannot conflict with an editor key
 | `tab` / `shift-tab` | next / previous control |
 | `enter` in the file field | read the file (Import); start the export (Export) |
 | `esc` | close the dialog; while an import, validation or export runs, cancel the run (the dialog stays so the result is seen) |
-| `enter` in a confirmation | confirm the primary action; destructive confirmations (Truncate, Drop, a table change that drops something) need a click, or `tab` to the button and `space` |
+| `enter` in a confirmation | press the focused button. A confirmation opens with Cancel focused when anything in it destroys data (Truncate, Drop, Terminate Session, delete rows or a role, a table change that drops something, Delete Connection), so `enter` pressed by reflex never destroys; `tab` / `shift-tab` or `left` / `right` move between the buttons (the focused one has a ring), `enter` or `space` presses it. A harmless confirmation opens on its primary button |
+| `enter` in the file field of Run SQL Script | run the script |
 
 Palette commands: *Import Data from CSV/TSV…*, *Import CSV/TSV as New Table…*, *Export Table Data…*,
 *New Table…*, *Modify Table…*, *Rename Table…*, *Copy Table to…*, *Duplicate Table Structure…*, *Truncate Table…*, *Drop Table…*.
 In the Helix and Vim key maps `:table copy [SCHEMA.]TABLE` opens Copy Table (a picker without an argument). Inside
-the Copy Table dialog: `enter` in the name box starts the copy, `esc` cancels a running copy and otherwise closes it.
+the Copy Table dialog (the name box has the focus when it opens, however it was opened): `enter` in the name box starts the copy, `esc` cancels a running copy and otherwise closes it.
 
 ## Local History
 
@@ -246,7 +248,7 @@ The keys are plain keys of the focused chart, the same in the three key maps:
 | `1` `2` `3` `4` `5` | bar, line, area, scatter, pie |
 | `a` | next aggregate (sum, average, count, min, max) |
 | arrows, `h` `j` `k` `l` | move the readout: left / right along a series, up / down to another series |
-| `esc` | hide the readout |
+| `esc` | hide the readout; with none shown, return to the editor (also when the result has no rows or nothing to plot) |
 | `shift-tab` / `tab` | back to the controls (type, X, Y chips, Series, Aggregate) / forward again; `enter` operates the focused one |
 
 ## Search Across Tables
@@ -843,6 +845,7 @@ The deviations from real Vim (what `space` means, fixed options, no `:map` or Vi
 | `ctrl-alt-up/down`, `alt-shift-up` | add a cursor above / below |
 | `esc` | closes the completion popup; collapses to the primary selection, then clears the selection |
 | `ctrl-f` | search prompt (`find:`, prefilled with a single-line selection); `enter` accepts, `F3` / `shift-F3` next / previous |
+| `ctrl-h` | find and replace: the find prompt, and inside it `ctrl-h` goes on to the replacement. `enter` replaces the match the preview is on and moves to the next, `ctrl-enter` replaces all, `esc` cancels. The replacement uses `:substitute` syntax (`&` the match, `\1` a group, `\n` a newline) |
 | `ctrl-g` | goto-line prompt (`N` or `N:col`) |
 | `ctrl-s` `ctrl-w` `ctrl-n` / `ctrl-t` | save / close tab / new console |
 | `ctrl-shift-t` | reopen the last closed tab (application binding) |

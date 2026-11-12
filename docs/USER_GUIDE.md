@@ -56,7 +56,7 @@ For your own database choose *New Connection…* (`mod-shift-n`, the command pal
 explorer header). Choose the **Database type** from the dropdown (*PostgreSQL*, *MySQL / MariaDB*, *SQLite*, *CockroachDB*, *Amazon
 Redshift*, *TimescaleDB*, *YugabyteDB*, *TiDB*, *DuckDB*, *SQL Server*, *ClickHouse*; arrow keys and `enter`, or
 type to filter; see [Other databases](#other-databases)), fill in the fields that type needs, then
-press *Test Connection*, *Save* or *Save & Connect*. A successful test reports the server version and the
+press *Test Connection*, *Save* or *Save & Connect*. The cursor starts in the URL field (paste a URL to fill the rest); `enter` in any field is *Save & Connect*. Name, host, port and user are required (host and port start with real values, the grey text in the other fields is only an example), and a form that is not complete is not saved: the first field that needs attention is marked and focused. A successful test reports the server version and the
 round-trip time ("Connection successful · PostgreSQL 16.15 · 53 ms").
 
 | Field | Notes |
@@ -201,7 +201,7 @@ opened it; the title-bar switcher (or `:connect NAME` in Helix) rebinds it. Cons
   that understands comments, quotes and dollar-quoted bodies, so a script can hold many statements.
 - **Run All**: `mod-shift-enter` (Helix `space R`). Statements run in order and the run stops at the first
   error.
-- **Cancel Query**: `mod-.`, the stop button, or Helix `space x`. The server is asked to abort the statement.
+- **Cancel Query**: `shift-F5` (every key map, any focus), the stop button, or Helix and Vim `space x`. The server is asked to abort the statement.
 - A statement that returns rows gets a sub-tab in *Results* ("Result 1 · stores", "Result 2"). A statement
   that does not (an `UPDATE`) reports "UPDATE — 1 row affected · 0.1 ms" in the footer and in *Messages*.
 - The gutter marks the last run of each statement: a spinner while it runs, a green dot when it worked, a
@@ -429,7 +429,7 @@ every occurrence of `name` in the statement by selecting the statement (`%` for 
 Prefer the **Standard** key map if modal editing is unfamiliar: *Select Keymap…* (or *Use Standard Keymap*) in the
 command palette, Settings › Editor › *Keymap*, the welcome view, or `"keymap": "standard"` in `settings.json`. It follows
 Zed's defaults: `ctrl-z`, `ctrl-d` (next occurrence), `ctrl-/` (comment), `alt-up/down` (move line),
-`ctrl-f` find, `ctrl-g` go to line, `ctrl-s` save.
+`ctrl-f` find, `ctrl-h` find and replace (in the find prompt, `ctrl-h` goes on to the replacement; `enter` replaces one match and moves on, `ctrl-enter` replaces all), `ctrl-g` go to line, `ctrl-s` save.
 
 While the editor has focus its own keys always win: in Helix Insert mode `ctrl-w` deletes a word (it does
 not close the tab), `ctrl-k` kills to the end of the line, `ctrl-b` pages up in Normal mode, `F5` runs all
@@ -439,7 +439,7 @@ through the space menu, `:` commands and the command palette (`F1`, `space ?`, `
 and the exact table are in [KEYBINDINGS.md](KEYBINDINGS.md#who-wins-a-key).
 
 Closing a tab never loses the console: *Reopen Closed Tab* (`mod-shift-t`, the palette, or `:reopen` in
-Helix and Vim) brings back the text, connection and cursor of the last 20 closed consoles, also after a restart.
+Helix and Vim) brings back the text, connection and cursor of the last 20 closed consoles, also after a restart. A console with no text when it is closed is not kept, so there is nothing to bring back for it.
 
 ## Vim keymap
 
@@ -1152,7 +1152,7 @@ the statement and the outcome ("SELECT — 92 rows · 2.1 ms", "[3/5] UPDATE —
 notices, and errors in red with their code, detail and hint. Its toolbar has *Copy All* and *Clear*.
 
 **History** keeps up to 5,000 statements in `history.jsonl` with time, connection, duration, row count and
-success. Type in *Search history* to filter. Double-click an entry to insert it into the current console;
+success. Type in *Search history* to filter. Double-click an entry, or select it with the arrow keys (`mod-shift-h` focuses the tab; `j` / `k` also in Helix and Vim) and press `enter`, to insert it into the current console and go back to the editor (run it from there with `mod-enter`); `/` jumps to the search box;
 right-click for *Insert into Console*, *Open in New Console* and *Copy*. Applied grid changes are recorded
 too.
 
@@ -1221,7 +1221,7 @@ The palette lists, with the key each has:
 | --- | --- |
 | Console | *New Console* `mod-n`; *Open SQL File…* `mod-o`; *Save Console As…* |
 | Connection | *New Connection…* `mod-shift-n`; *Connect…*; *Disconnect*; *Refresh Schema* `F5`; *Go to Table…* `mod-p` |
-| Query | *Run Statement* `mod-enter`; *Run All* `mod-shift-enter`; *Cancel Query* `mod-.`; *Explain* `mod-e`; *Explain Analyze* `mod-shift-alt-e`; *Format Document* `mod-shift-f`; *Begin Transaction*; *Commit Transaction*; *Roll Back Transaction* |
+| Query | *Run Statement* `mod-enter`; *Run All* `mod-shift-enter`; *Cancel Query* `shift-F5`; *Explain* `mod-e`; *Explain Analyze* `mod-shift-alt-e`; *Format Document* `mod-shift-f`; *Begin Transaction*; *Commit Transaction*; *Roll Back Transaction* |
 | View | *Toggle Explorer* `mod-b`; *Toggle Bottom Panel* `mod-j`; *Focus Explorer* `mod-shift-e`; *Focus Editor* `mod-1`; *Focus Results* `mod-2`; *Close Tab* `mod-w`; *Reopen Closed Tab* `mod-shift-t` |
 | Appearance | *Select Theme…* `mod-k mod-t`; *Import Zed Theme…*; *Select Keymap…* (a picker); *Use Helix Keymap*; *Use Vim Keymap*; *Use Standard Keymap*; *Increase Editor Font Size* `mod-=`; *Decrease Editor Font Size* `mod--`; *Reset Editor Font Size* `mod-0` |
 | App | *Settings…* `mod-,`; *Open Settings File*; *Quit* `mod-q` |
@@ -1260,7 +1260,7 @@ Geometries are still drawn without a basemap.
 without TLS, *Require* for self-signed certificates, and *Verify full* only when the server certificate
 chains to a root your system trusts and matches the host name.
 
-**A query seems stuck.** Press `mod-.` to cancel. Theta asks the server to abort the statement (a cancel
+**A query seems stuck.** Press `shift-F5` to cancel. Theta asks the server to abort the statement (a cancel
 request for PostgreSQL, `KILL QUERY` for MySQL/MariaDB, `sqlite3_interrupt` for SQLite) and the console stays
 usable.
 
