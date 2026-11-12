@@ -6,6 +6,8 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+## [0.1.0-alpha.9] - 2026-11-12
+
 ### Added
 
 - **Data compare** (`mod-alt-x`, `space X`, `:datacompare`, explorer menu on a table, palette): compare the rows of two
@@ -647,7 +649,8 @@ Packaging and docs
 - The AppImage does not bundle the Vulkan or Wayland libraries.
 - The map basemap needs network access (cached tiles still draw offline).
 
-[Unreleased]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.8...HEAD
+[Unreleased]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.9...HEAD
+[0.1.0-alpha.9]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.8...v0.1.0-alpha.9
 [0.1.0-alpha.8]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.7...v0.1.0-alpha.8
 [0.1.0-alpha.7]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.6...v0.1.0-alpha.7
 [0.1.0-alpha.6]: https://github.com/JesseWilliamson/Theta/compare/v0.1.0-alpha.5...v0.1.0-alpha.6

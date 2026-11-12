@@ -13,7 +13,7 @@ editor are plain Rust libraries with ordinary tests, and the UI crates are thin 
 
 ## What works today
 
-Theta 0.1.0-alpha.8 is an alpha. The application is fully wired together: every feature below is
+Theta 0.1.0-alpha.9 is an alpha. The application is fully wired together: every feature below is
 implemented and was run by hand on Linux (X11) against PostgreSQL 16 with PostGIS, MariaDB 10.11 and
 SQLite. SSH tunnelling is covered by the driver integration tests only. The macOS and Windows builds are
 compiled and unit-tested in CI but nobody has used them by hand yet. See
