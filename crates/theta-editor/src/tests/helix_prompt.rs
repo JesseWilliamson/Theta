@@ -276,6 +276,7 @@ fn space_menu_effects() {
         ("<space>C", Effect::HostCommand("chart".into())),
         ("<space>v", Effect::HostCommand("cell".into())),
         ("<space>V", Effect::HostCommand("cell copy".into())),
+        ("<space>G", Effect::HostCommand("diagram".into())),
         ("<F12>", Effect::GoToDefinition),
         ("<S-F12>", Effect::FindUsages),
         ("<F2>", Effect::RenameSymbol),

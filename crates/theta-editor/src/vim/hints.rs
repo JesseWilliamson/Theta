@@ -54,6 +54,7 @@ pub(crate) const LEADER: &[(&str, &str)] = &[
     ("C", "chart of the result"),
     ("v", "cell viewer"),
     ("V", "copy cell value"),
+    ("G", "ER diagram of a schema or table"),
 ];
 
 impl Editor {
@@ -229,6 +230,7 @@ impl Editor {
             'C' => fx(self, FxKind::Host("chart")),
             'v' => fx(self, FxKind::Host("cell")),
             'V' => fx(self, FxKind::Host("cell copy")),
+            'G' => fx(self, FxKind::Host("diagram")),
             'c' => {
                 if let Some(r) = self.visual_region() {
                     self.vis_exit();

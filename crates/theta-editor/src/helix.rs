@@ -422,6 +422,7 @@ fn build_trie() -> Sub {
         s.bind("C", Cmd::Fx(FxKind::Host("chart")), "chart of the result");
         s.bind("v", Cmd::Fx(FxKind::Host("cell")), "cell viewer");
         s.bind("V", Cmd::Fx(FxKind::Host("cell copy")), "copy cell value");
+        s.bind("G", Cmd::Fx(FxKind::Host("diagram")), "ER diagram of a schema or table");
     }
     for (key, name) in [("z", "View"), ("Z", "View")] {
         let z = r.sub_mut(key, name);
