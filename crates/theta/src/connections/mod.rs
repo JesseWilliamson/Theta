@@ -114,6 +114,19 @@ fn folder_name_problem(name: &str) -> String {
     }
 }
 
+/// Why a connection failed, in words for the user: the one text shown by the toast, the explorer and the
+/// status bar. The driver's own prefix ("could not connect: ") is dropped because every place that shows
+/// it already says so, and a server that asks for a password the connection does not have is told as what
+/// it is, not as the driver's "invalid configuration".
+pub fn connect_failure_reason(e: &theta_core::Error, config: Option<&ConnectionConfig>) -> String {
+    let no_password = config.is_some_and(|c| !c.kind.is_file_based() && c.password.as_deref().is_none_or(str::is_empty));
+    if matches!(e, theta_core::Error::Auth(_)) && no_password {
+        return "No password is saved for this connection. Use Edit Connection to enter one.".into();
+    }
+    let text = e.to_string();
+    text.strip_prefix("could not connect: ").unwrap_or(&text).to_string()
+}
+
 pub fn new_connection_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
@@ -457,9 +470,10 @@ impl ConnectionStore {
                     }
                     Err(e) => {
                         let name = this.config(&id).map(|c| c.name.clone()).unwrap_or_default();
+                        let reason = connect_failure_reason(&e, this.config_with_secrets(&id).as_ref());
                         cx.emit(StoreEvent::Notice {
                             kind: NoticeKind::Error,
-                            message: format!("Could not connect to {name}: {e}"),
+                            message: format!("Could not connect to {name}: {reason}"),
                         });
                         this.set_state(&id, ConnState::Failed(e), cx);
                     }

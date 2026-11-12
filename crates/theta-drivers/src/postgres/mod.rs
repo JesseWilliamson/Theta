@@ -134,7 +134,13 @@ fn connect_error(e: tokio_postgres::Error) -> Error {
             Error::Connect(db.message().to_string())
         };
     }
-    Error::Connect(error_chain(&e))
+    let chain = error_chain(&e);
+    // The server asked for a password and the connection has none: tokio-postgres reports that as a
+    // configuration error rather than as a server error.
+    if chain.contains("password missing") {
+        return Error::Auth("the server asked for a password".into());
+    }
+    Error::Connect(chain)
 }
 
 /// `skip` is the number of bytes of `sent` that precede the user's SQL (the

@@ -1400,18 +1400,9 @@ enum Generate {
     Ddl,
 }
 
-/// The error text of a failed connection, plus what to do when the likely cause is a password
-/// that was never saved (no keychain on this machine).
+/// The error text of a failed connection (see `connect_failure_reason`).
 fn failure_text(e: &theta_core::Error, id: &str, store: &ConnectionStore) -> String {
-    let mut text = e.to_string();
-    let needs_password = matches!(e, theta_core::Error::Auth(_))
-        && store
-            .config_with_secrets(id)
-            .is_some_and(|c| !c.kind.is_file_based() && c.password.as_deref().is_none_or(str::is_empty));
-    if needs_password {
-        text.push_str("\nNo password is stored for this connection (there is no system keychain). Use Edit Connection to enter it.");
-    }
-    text
+    crate::connections::connect_failure_reason(e, store.config_with_secrets(id).as_ref())
 }
 
 fn parse_hex_color(hex: &str) -> Option<gpui_kit::Hsla> {

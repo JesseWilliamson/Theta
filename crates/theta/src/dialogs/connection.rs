@@ -63,6 +63,17 @@ fn ssl_title(kind: DatabaseKind) -> &'static str {
         _ => "SSL mode",
     }
 }
+/// What the URL field suggests for `kind`: its own scheme and default port, not PostgreSQL's.
+fn url_placeholder(kind: DatabaseKind) -> String {
+    let info = kind.info();
+    let scheme = info.url_schemes.first().copied().unwrap_or("postgres");
+    if info.sections.file {
+        return format!("Paste a connection URL, e.g. {scheme}:///path/to/database");
+    }
+    let port = info.default_port.map(|p| format!(":{p}")).unwrap_or_default();
+    format!("Paste a connection URL, e.g. {scheme}://user:password@host{port}/database")
+}
+
 const SSH_AUTH_LABELS: [&str; 3] = ["Key file", "Password", "SSH agent"];
 
 pub fn open(
@@ -74,10 +85,26 @@ pub fn open(
 ) {
     let form = cx.new(|cx| ConnectionForm::new(store, edit.clone(), workspace, window, cx));
     let title = if edit.is_some() { "Edit Connection" } else { "New Connection" };
+    let (shown, focus) = (form.clone(), form.clone());
     // Dialogs sit on the popover colour, not the window background: the editor behind them is the darkest
     // surface, and the dialog would otherwise merge into it.
     window.open_dialog(cx, move |dialog, _, cx| {
-        dialog.bg(cx.theme().popover).title(title).w(px(600.)).child(form.clone())
+        let on_ok = shown.clone();
+        // Enter does the same wherever the focus is: save and connect, or say what is missing. Left to
+        // the dialog it closed the form without a word.
+        dialog.bg(cx.theme().popover).title(title).w(px(600.)).child(shown.clone()).on_ok(
+            move |_, window, cx| {
+                on_ok.update(cx, |f, cx| f.save(true, window, cx));
+                false
+            },
+        )
+    });
+    // The first field that is typed into: the URL for a new connection (pasting one fills the form), the
+    // name when editing. Taken after the dialog has opened, which moves the focus to itself.
+    let editing = edit.is_some();
+    window.defer(cx, move |window, cx| {
+        let field = focus.read(cx).initial_field(editing);
+        field.update(cx, |s, cx| s.focus(window, cx));
     });
 }
 
@@ -251,12 +278,12 @@ impl ConnectionForm {
         let port = if c.port == 0 { String::new() } else { c.port.to_string() };
         let ssl_ix = ssl_index(c.kind, c.ssl_mode);
 
-        let url =
-            input(window, cx, "Paste a connection URL, e.g. postgres://user:password@host:5432/database", "");
+        let url = input(window, cx, &url_placeholder(c.kind), "");
         let name = input(window, cx, "Production (read-only)", &c.name);
         let host = input(window, cx, info.host_placeholder, &c.host);
         let port = input(window, cx, &info.default_port.map(|p| p.to_string()).unwrap_or_default(), &port);
-        let user = input(window, cx, info.user_placeholder, &c.user);
+        // "e.g." keeps an example from passing for a value that is filled in.
+        let user = input(window, cx, &format!("e.g. {}", info.user_placeholder), &c.user);
         let password = secret_input(window, cx, "Password", c.password.as_deref().unwrap_or(""));
         let database = input(window, cx, info.database_placeholder, &c.database);
         let path = input(window, cx, info.path_placeholder, &c.path);
@@ -413,6 +440,31 @@ impl ConnectionForm {
         }
     }
 
+    fn initial_field(&self, editing: bool) -> Entity<InputState> {
+        if editing { self.name.clone() } else { self.url.clone() }
+    }
+
+    /// Put the cursor in the first field that failed validation.
+    fn focus_first_error(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let field = |name: &str| match name {
+            "url" => Some(&self.url),
+            "name" => Some(&self.name),
+            "host" => Some(&self.host),
+            "port" => Some(&self.port),
+            "user" => Some(&self.user),
+            "path" => Some(&self.path),
+            "ssh_host" => Some(&self.ssh_host),
+            "ssh_port" => Some(&self.ssh_port),
+            "ssh_user" => Some(&self.ssh_user),
+            "ssh_key" => Some(&self.ssh_key_path),
+            "ssh_secret" => Some(&self.ssh_secret),
+            _ => None,
+        };
+        if let Some(input) = self.errors.iter().find_map(|(f, _)| field(f)) {
+            input.update(cx, |s, cx| s.focus(window, cx));
+        }
+    }
+
     fn text(&self, state: &Entity<InputState>, cx: &gpui_kit::App) -> String {
         state.read(cx).value().trim().to_string()
     }
@@ -470,6 +522,17 @@ impl ConnectionForm {
             );
         }
         self.kind = kind;
+        // The hints are the new product's: a SQL Server user is `sa`, not `postgres`.
+        let info = kind.info();
+        for (state, hint) in [
+            (&self.url, url_placeholder(kind)),
+            (&self.host, info.host_placeholder.to_string()),
+            (&self.user, format!("e.g. {}", info.user_placeholder)),
+            (&self.database, info.database_placeholder.to_string()),
+            (&self.path, info.path_placeholder.to_string()),
+        ] {
+            state.update(cx, |s, cx| s.set_placeholder(hint, window, cx));
+        }
         let ix = ssl_index(kind, kind.default_ssl_mode());
         self.ssl.update(cx, |s, cx| {
             s.set_items(ssl_labels(kind), window, cx);
@@ -556,6 +619,9 @@ impl ConnectionForm {
                 _ => errors.push(("port", "Port must be a number between 1 and 65535.".into())),
             }
             config.user = self.text(&self.user, cx);
+            if config.user.is_empty() {
+                errors.push(("user", "Enter a user name.".into()));
+            }
             let password = state_raw(&self.password, cx);
             config.password = (!password.is_empty()).then_some(password);
             config.database = self.text(&self.database, cx);
@@ -629,6 +695,7 @@ impl ConnectionForm {
 
     fn save(&mut self, connect: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(config) = self.build(cx) else {
+            self.focus_first_error(window, cx);
             cx.notify();
             return;
         };
@@ -654,6 +721,7 @@ impl ConnectionForm {
 
     fn run_test(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(config) = self.build(cx) else {
+            self.focus_first_error(window, cx);
             cx.notify();
             return;
         };
@@ -814,7 +882,7 @@ impl Render for ConnectionForm {
                     h_flex()
                         .gap_3()
                         .items_start()
-                        .child(field("User", Input::new(&self.user), None, cx))
+                        .child(field("User", Input::new(&self.user), self.error_for("user"), cx))
                         .child(field("Password", Input::new(&self.password).mask_toggle(), None, cx)),
                 )
                 .when(self.keychain_ok == Some(false), |d| {
