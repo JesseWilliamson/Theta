@@ -34,6 +34,7 @@ compiled and unit-tested in CI but nobody has used them by hand yet. See
 | ![Search across tables](docs/screenshots/22-search-tables.png) **Search Across Tables: hits by table and column, skipped tables listed** | ![Chart](docs/screenshots/23-chart.png) **Chart tab: an area chart with the hover readout** |
 | ![Copy table](docs/screenshots/24-copy-table.png) **Copy Table: DDL and type substitutions shown before it runs** | ![Local history](docs/screenshots/25-local-history.png) **Local History: snapshots and a diff against the editor** |
 | ![Run on several connections](docs/screenshots/26-multi-run.png) **Run on Several Connections: a summary per connection** | ![ER diagram](docs/screenshots/27-er-diagram.png) **ER diagram of a schema: keys, types, foreign keys ending at their columns** |
+| ![Data compare](docs/screenshots/30-data-compare.png) **Data compare: changed cells highlighted, source value above target value** | |
 | ![ER diagram, Theta Light](docs/screenshots/28-er-diagram-light.png) **ER diagram in Theta Light: a selected table dims the rest** | ![Schema compare](docs/screenshots/29-schema-compare.png) **Schema compare: the differences as a tree, each one side by side, and the migration script one key away** |
 
 ## Supported databases
@@ -201,6 +202,11 @@ Per-product behaviour (what is disabled and why) is in the [user guide](docs/USE
   script that makes the target match the source, ordered by dependency, with every destructive statement commented
   out until you ask for it. It opens in a console on the target and never runs by itself. The round trip (apply
   the script, compare again, expect no difference) is tested live on PostgreSQL, MariaDB and SQLite.
+- Data compare: compare the rows of two tables (same or different connection or product) that share a key. Rows are
+  read page by page in key order and merged, so a table never has to fit in memory; counts are exact, the first
+  10,000 differences are kept and shown with changed cells highlighted. A sync script (INSERT, UPDATE, and DELETE
+  commented out unless you ask) opens in a console on the target. The key order is checked on the client, so two
+  products that sort text differently are detected and read again in binary order instead of merged wrongly.
 - Search across tables: one query per table finds a text in every column of a connection, a schema or chosen
   tables, with bounded concurrency, a row limit and timeout per table, live hits and "open the matching rows".
 - Copy a table, with or without its rows, to another schema or connection, across products (PostgreSQL, MySQL

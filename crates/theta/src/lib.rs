@@ -9,6 +9,7 @@ pub mod admin;
 pub mod app;
 pub mod cli;
 pub mod connections;
+pub mod data_compare;
 pub mod demo;
 pub mod dialogs;
 pub mod er;

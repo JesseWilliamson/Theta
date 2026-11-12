@@ -8,7 +8,10 @@ use crate::connections::secrets::SecretStore;
 use gpui_kit::{TestAppContext, VisualTestContext};
 use std::sync::Arc;
 use std::time::Duration;
-use theta_core::{Catalog, ColumnInfo, ConnectionConfig, DatabaseKind, ForeignKey, Schema, Table, TypeKind};
+use theta_core::{
+    Catalog, ColumnInfo, Connection, ConnectionConfig, DatabaseKind, ExecOptions, ForeignKey, Schema, Table,
+    TypeKind,
+};
 
 fn wait_for(vcx: &mut VisualTestContext, what: &str, mut done: impl FnMut(&mut VisualTestContext) -> bool) {
     vcx.executor().allow_parking();
@@ -72,6 +75,7 @@ fn catalog() -> Catalog {
 
 struct Fx {
     ws: Entity<Workspace>,
+    store: Entity<ConnectionStore>,
     conn: String,
     _dir: tempfile::TempDir,
 }
@@ -104,7 +108,7 @@ fn boot(cx: &mut TestAppContext) -> (Fx, &mut VisualTestContext) {
         s.set_catalog_synthetic(&real_id, catalog(), c, cx);
         real_id.clone()
     });
-    (Fx { ws, conn, _dir: dir }, vcx)
+    (Fx { ws, store, conn, _dir: dir }, vcx)
 }
 
 fn tabs(f: &Fx, vcx: &mut VisualTestContext) -> Vec<(u64, String)> {
@@ -264,4 +268,132 @@ fn identical_schemas_open_an_empty_result_and_no_console(cx: &mut TestAppContext
     vcx.simulate_keystrokes("o");
     vcx.run_until_parked();
     assert_eq!(tabs(&f, vcx).len(), before, "there is nothing to migrate, so no console opens");
+}
+
+// ------------------------------------------------------------------------------------- data compare
+
+async fn sql(conn: &dyn Connection, sql: &str) {
+    conn.execute(sql, &ExecOptions { row_limit: None }).await.unwrap_or_else(|e| panic!("`{sql}`: {e}"));
+}
+
+/// Two SQLite files with a `people` table each, connected in the workspace, catalogs loaded.
+fn two_files(f: &Fx, vcx: &mut VisualTestContext, dir: &std::path::Path) -> (String, String) {
+    let mut ids = Vec::new();
+    for n in ["src", "dst"] {
+        let mut c = ConnectionConfig::new(n, n, DatabaseKind::Sqlite);
+        c.path = dir.join(format!("{n}.db")).to_string_lossy().into_owned();
+        let id = f.store.update(vcx, |s, cx| {
+            let id = s.add_temporary(c, cx);
+            s.connect(&id, cx);
+            id
+        });
+        wait_for(vcx, "sqlite file", |vcx| f.store.read_with(vcx, |s, _| s.state(&id).is_connected()));
+        ids.push(id);
+    }
+    for (id, rows) in
+        [(&ids[0], "(1,'Ann',1),(2,'Bob',2),(3,'Cy',3)"), (&ids[1], "(2,'Bob',2),(3,'Cy',9),(4,'Di',4)")]
+    {
+        let conn = f.store.read_with(vcx, |s, _| s.connection(id).unwrap());
+        vcx.executor().allow_parking();
+        crate::runtime::runtime().block_on(async {
+            sql(conn.as_ref(), "CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT, score INTEGER)")
+                .await;
+            sql(conn.as_ref(), &format!("INSERT INTO people VALUES {rows}")).await;
+        });
+        f.store.update(vcx, |s, cx| s.refresh_catalog(id, cx));
+    }
+    for id in &ids {
+        wait_for(vcx, "catalog", |vcx| {
+            f.store.read_with(vcx, |s, _| {
+                s.catalog(id).is_some_and(|c| c.find_table(Some("main"), "people").is_some())
+            })
+        });
+    }
+    (ids[0].clone(), ids[1].clone())
+}
+
+#[gpui_kit::test]
+fn data_compare_reads_both_tables_in_the_background_and_opens_a_sync_script(cx: &mut TestAppContext) {
+    let (f, vcx) = boot(cx);
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = two_files(&f, vcx, dir.path());
+    let side = |c: &str| crate::dialogs::compare_pick::Side {
+        conn_id: c.to_string(),
+        schema: "main".into(),
+        table: Some("people".into()),
+    };
+    f.ws.update_in(vcx, |ws, w, cx| {
+        ws.open_data_compare(
+            crate::dialogs::compare_pick::Picked { source: side(&a), target: side(&b), key: vec![] },
+            w,
+            cx,
+        )
+    });
+    let view = f.ws.read_with(vcx, |ws, _| {
+        ws.tabs.iter().find_map(|t| match &t.tool {
+            Some(ToolTab::DataCompare(v)) => Some(v.clone()),
+            _ => None,
+        })
+    });
+    let view = view.expect("a data compare tab");
+    wait_for(vcx, "the comparison", |vcx| !view.read_with(vcx, |v, _| v.is_running()));
+    view.read_with(vcx, |v, _| {
+        let r = v.report().expect("completed");
+        assert_eq!(
+            (r.counts.only_left, r.counts.only_right, r.counts.different, r.counts.same),
+            (1, 1, 1, 1)
+        );
+        assert!(!r.capped);
+    });
+    let before = tabs(&f, vcx).len();
+    vcx.simulate_keystrokes("o");
+    vcx.run_until_parked();
+    let after = tabs(&f, vcx);
+    assert_eq!(after.len(), before + 1);
+    assert_eq!(after.last().unwrap().1, "Sync script");
+    let text = f.ws.read_with(vcx, |ws, cx| {
+        let t = ws.tabs.last().unwrap();
+        assert_eq!(t.connection_id.as_deref(), Some(b.as_str()), "a console on the target");
+        ws.consoles.get(&t.id).map(|c| c.editor.read(cx).text()).unwrap_or_default()
+    });
+    assert!(
+        text.contains("INSERT INTO main.people")
+            && text.contains("UPDATE main.people SET score = 3 WHERE id = 3"),
+        "{text}"
+    );
+    assert!(text.contains("-- DELETE FROM main.people WHERE id = 4"), "the delete is commented out: {text}");
+}
+
+#[gpui_kit::test]
+fn a_table_without_a_key_is_refused_with_the_reason(cx: &mut TestAppContext) {
+    let (f, vcx) = boot(cx);
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = two_files(&f, vcx, dir.path());
+    // Drop the key: a table with the same columns and no primary key.
+    for id in [&a, &b] {
+        let conn = f.store.read_with(vcx, |s, _| s.connection(id).unwrap());
+        crate::runtime::runtime().block_on(async {
+            sql(conn.as_ref(), "CREATE TABLE loose (x INTEGER, y TEXT)").await;
+        });
+        f.store.update(vcx, |s, cx| s.refresh_catalog(id, cx));
+        wait_for(vcx, "catalog", |vcx| {
+            f.store.read_with(vcx, |s, _| {
+                s.catalog(id).is_some_and(|c| c.find_table(Some("main"), "loose").is_some())
+            })
+        });
+    }
+    let side = |c: &str| crate::dialogs::compare_pick::Side {
+        conn_id: c.to_string(),
+        schema: "main".into(),
+        table: Some("loose".into()),
+    };
+    let before = tabs(&f, vcx).len();
+    f.ws.update_in(vcx, |ws, w, cx| {
+        ws.open_data_compare(
+            crate::dialogs::compare_pick::Picked { source: side(&a), target: side(&b), key: vec![] },
+            w,
+            cx,
+        )
+    });
+    assert_eq!(tabs(&f, vcx).len(), before, "no tab opens without a usable key");
 }

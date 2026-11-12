@@ -8,6 +8,22 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Added
 
+- **Data compare** (`mod-alt-x`, `space X`, `:datacompare`, explorer menu on a table, palette): compare the rows of two
+  tables that share a key, on one connection or two, across PostgreSQL, MySQL and MariaDB and SQLite. The dialog
+  picks both tables and the key (the primary key, a unique constraint of the source, or columns you tick); columns
+  are matched by name ignoring case and the ones only one side has are listed and ignored; a table with no usable
+  key is refused with the reason. `theta_sql::data_diff` merges two key-ordered streams into only-in-source,
+  only-in-target, different (with the differing columns) and same, in memory bounded by two pages and the first
+  10,000 differences (the counts stay exact, and the tab says when it capped). Values are compared by documented
+  rules (`1` and `true`, numeric scale, timestamp precision and zone, NULL against NULL, JSON structurally). The key
+  order is verified on the client; a stream that is out of order (PostgreSQL or MariaDB sorting text by collation)
+  makes the runner (`theta_import::compare`) read again in binary collation, and an order that still disagrees,
+  a duplicate or a NULL key is refused with a sentence. Runs on sessions of its own with progress and cancel (esc).
+  *Open Sync Script in Console* opens `INSERT`/`UPDATE`/`DELETE` statements that make the target equal the source in
+  a console on the target (deletes commented out unless `d` includes them). An in-memory SQLite or a DuckDB database
+  cannot be compared (it cannot be opened a second time). Live tests cover PostgreSQL to PostgreSQL, PostgreSQL to
+  MariaDB and back, and SQLite to SQLite, including a composite key, text keys whose orders differ, cap, cancel and
+  the round trip (apply the script, compare again, no difference).
 - **Schema compare** (`mod-alt-s`, `space S`, `:schemacompare`, explorer menu on a schema, palette): a dialog picks a
   connection and schema for the source and the target (everything by keyboard), and a result tab shows a tree of
   differences with the chosen one side by side. The pure comparison is `theta_sql::schema_diff`: tables, columns

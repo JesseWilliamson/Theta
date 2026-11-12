@@ -141,6 +141,7 @@ pub struct ConsoleTab {
 pub enum ToolTab {
     Diagram(Entity<crate::er::DiagramView>),
     SchemaCompare(Entity<crate::schema_compare::SchemaCompareView>),
+    DataCompare(Entity<crate::data_compare::DataCompareView>),
 }
 
 /// The view that fills an administration tab.
@@ -685,6 +686,9 @@ impl Workspace {
                 self.open_table(connection_id, schema, table, window, cx)
             }
             ExplorerEvent::ReturnFocus => self.focus_editor(window, cx),
+            ExplorerEvent::CompareData { connection_id, schema, table } => {
+                self.compare_data_dialog(Some((connection_id, schema, table)), window, cx)
+            }
             ExplorerEvent::CompareSchema { connection_id, schema } => {
                 self.compare_schemas_dialog(Some((connection_id, schema)), window, cx)
             }
@@ -1253,6 +1257,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &CompareSchemas, window, cx| {
                 this.compare_schemas_dialog(None, window, cx)
             }))
+            .on_action(
+                cx.listener(|this, _: &CompareData, window, cx| this.compare_data_dialog(None, window, cx)),
+            )
             .on_action(cx.listener(|this, _: &SelectKeymap, window, cx| this.open_keymap_picker(window, cx)))
             .on_action(cx.listener(|this, _: &UseHelixKeymap, window, cx| {
                 this.set_keymap(theta_ui::KeymapMode::Helix, window, cx)

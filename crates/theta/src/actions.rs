@@ -78,6 +78,7 @@ actions!(
         SearchTables,
         ShowDiagram,
         CompareSchemas,
+        CompareData,
         RunSqlScript,
         OpenSettings,
         WelcomeDemo,

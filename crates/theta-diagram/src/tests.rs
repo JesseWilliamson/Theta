@@ -381,6 +381,7 @@ fn a_hundred_and_fifty_tables_are_fast_and_correct() {
     let l = layout(&g, &m);
     let took = t.elapsed();
     check(&g, &l, &m);
+    eprintln!("layout of 150 tables and 220 foreign keys: {took:?}");
     assert!(took.as_secs_f32() < 5.0, "150 tables took {took:?}");
 }
 
@@ -392,6 +393,7 @@ fn four_hundred_tables_do_not_blow_up() {
     let l = layout(&g, &m);
     let took = t.elapsed();
     check(&g, &l, &m);
+    eprintln!("layout of 400 tables and 700 foreign keys: {took:?}");
     assert!(took.as_secs_f32() < 15.0, "400 tables took {took:?}");
 }
 

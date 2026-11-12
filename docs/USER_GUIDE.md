@@ -739,6 +739,47 @@ for routines and MySQL table options, which an `ALTER` could rewrite the table f
 Not verified: the migration script has been run against PostgreSQL 16, MariaDB 10.11 and SQLite (live tests); other
 products that share a dialect (CockroachDB, TiDB, Redshift, ...) use the same text and were not run.
 
+## Compare the rows of two tables
+
+*Compare Table Data…* finds the rows that exist only in one of two tables and the rows whose values differ, and writes the
+`INSERT`, `UPDATE` and `DELETE` statements that make the **target** equal the **source**. Open it from the command
+palette, `mod-alt-x`, `space X` (Helix and Vim), `:datacompare`, or *Compare Data…* in a table's context menu. The dialog
+asks for a connection, schema and table for each side and for the key (see
+[KEYBINDINGS.md](KEYBINDINGS.md#compare-dialog-tables-and-data-compare-tab)).
+
+- **The key** pairs the rows: by default the source table's primary key; you can choose one of its unique constraints or
+  tick the columns. A table without a primary key needs you to choose; a key column that is not in both tables, is a
+  different kind of value on the two sides (a number and text), is NULL in some row, or occurs twice in a table is
+  refused with a sentence, and a boolean, JSON or geometry column cannot be a key.
+- **Columns** are matched by name, ignoring case. Columns only one table has, and generated columns, are listed under
+  the summary and ignored.
+- **How it runs.** Both tables are read in key order, one page of 2,000 rows at a time, each on a session of its own,
+  and merged: memory holds two pages and the differences that are kept, however large the tables are. The tab shows
+  progress (rows read from each side and differences so far), and `esc` cancels. At most the first 10,000 differing rows
+  are kept for display and for the script; the counts are exact, and the tab says when it capped. The script covers the
+  rows kept: run it and compare again for the rest. An in-memory SQLite database or a DuckDB database cannot be opened
+  a second time and is refused.
+- **When two cells are the same.** `NULL` equals `NULL` and nothing else. Numbers compare by value (`1.50` is `1.5`).
+  A timestamp ignores trailing zeros in the fraction and a zone is converted to UTC. JSON compares as JSON. Between **two
+  different products** more is forgiven: `true` is `1`, a number equals text that is that number, floats agree within
+  a relative 1e-6, and timestamps agree at the coarser of the two precisions (`.123456` is `.123`, truncation). Within one
+  product none of those four applies. Everything else is compared exactly, so text is case sensitive and trailing space
+  counts. The exact rules are the documentation of `theta_sql::data_diff::value`.
+- **Key order.** Two products sort text differently (PostgreSQL by collation, MariaDB case-insensitively, SQLite by
+  bytes), and merging two orders gives wrong answers. Theta reads each side with its own `ORDER BY`, checks every key
+  against the previous one on the client (numbers by value, text by bytes, times chronologically), and if a side is
+  not in that order reads both again with a binary collation (`COLLATE "C"`, `CAST(… AS BINARY)`, `COLLATE BINARY`).
+  The tab says when it did. If the order still disagrees, the comparison stops with the reason instead of reporting
+  differences that are not there.
+- **The grid** has one row per difference: `+` only in the source, `−` only in the target, `~` different, where the
+  source row is above the target row and the changed cells are tinted (green source value, red target value). `1`
+  to `4` filter by kind and `h` / `l` scroll to more columns.
+- **The sync script** is `DELETE`s (rows only in the target), `UPDATE`s of the changed columns, then `INSERT`s, all
+  by the target's own names, with values as literals for the target (a `0` / `1` into a boolean column becomes a
+  boolean, a timestamp with a zone becomes UTC wall time for MySQL, `OVERRIDING SYSTEM VALUE` where the target's
+  key is `GENERATED ALWAYS`). **The `DELETE`s are commented out** unless `d` includes them. It opens in a console on the
+  target and Theta runs nothing.
+
 ## Edit data safely
 
 A result is editable only when every column comes from one table of the loaded schema, that table is a

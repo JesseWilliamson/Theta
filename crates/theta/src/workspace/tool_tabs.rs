@@ -4,6 +4,7 @@
 
 use super::{ConsoleTab, ToolTab, Workspace};
 use crate::connections::NoticeKind;
+use crate::data_compare::{DataCompareView, Ends};
 use crate::dialogs::compare_pick;
 use crate::er::{DiagramEvent, DiagramView};
 use crate::palette::ChoicePicker;
@@ -24,6 +25,10 @@ impl ToolTab {
                 let h = v.read(cx).focus_handle_ref();
                 window.focus(&h, cx);
             }
+            ToolTab::DataCompare(v) => {
+                let h = v.read(cx).focus_handle_ref();
+                window.focus(&h, cx);
+            }
         }
     }
 
@@ -31,6 +36,7 @@ impl ToolTab {
         match self {
             ToolTab::Diagram(v) => v.read(cx).conn_id().to_string(),
             ToolTab::SchemaCompare(v) => v.read(cx).target_conn().to_string(),
+            ToolTab::DataCompare(v) => v.read(cx).target_conn().to_string(),
         }
     }
 }
@@ -233,6 +239,124 @@ impl Workspace {
                 self.notify(NoticeKind::Info, "Compared again with the schemas as loaded now", window, cx);
             }
         }
+    }
+
+    /// Ask which two tables to compare and by which key, then open the result tab, which starts reading.
+    pub(super) fn compare_data_dialog(
+        &mut self,
+        preset: Option<(String, String, String)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.quiet {
+            return;
+        }
+        let choices = compare_pick::choices(&self.store, cx);
+        if choices.is_empty() {
+            self.notify(
+                NoticeKind::Info,
+                "Connect to a database and wait for its schema to load first",
+                window,
+                cx,
+            );
+            return;
+        }
+        let start = preset
+            .map(|(conn_id, schema, table)| compare_pick::Side { conn_id, schema, table: Some(table) })
+            .or_else(|| {
+                let id = self.active_connection_id(cx)?;
+                let cat = self.store.read(cx).catalog(&id)?;
+                Some(compare_pick::Side {
+                    conn_id: id,
+                    schema: cat.default_schema.clone().unwrap_or_default(),
+                    table: None,
+                })
+            });
+        let model = compare_pick::Model::new(compare_pick::Mode::Table, choices, start.as_ref());
+        let ws = cx.entity().downgrade();
+        compare_pick::open(
+            "Compare Table Data",
+            "Compare",
+            model,
+            std::rc::Rc::new(move |picked, window, cx| {
+                let _ = ws.update(cx, |ws, cx| ws.open_data_compare(picked, window, cx));
+            }),
+            window,
+            cx,
+        );
+    }
+
+    pub fn open_data_compare(
+        &mut self,
+        picked: compare_pick::Picked,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let table_of = |ep: &Endpoint, name: &Option<String>| {
+            name.as_ref()
+                .and_then(|n| ep.schema.tables.iter().find(|t| t.name.eq_ignore_ascii_case(n)).cloned())
+        };
+        let (Some(source), Some(target)) =
+            (self.endpoint(&picked.source, cx), self.endpoint(&picked.target, cx))
+        else {
+            self.notify(NoticeKind::Warning, "A table to compare is no longer loaded", window, cx);
+            return;
+        };
+        let (Some(st), Some(tt)) =
+            (table_of(&source, &picked.source.table), table_of(&target, &picked.target.table))
+        else {
+            self.notify(NoticeKind::Warning, "A table to compare is no longer loaded", window, cx);
+            return;
+        };
+        for e in [&source, &target] {
+            let why =
+                self.store.read(cx).config(&e.conn_id).and_then(crate::data_compare::side_session_blocker);
+            if let Some(why) = why {
+                self.notify(NoticeKind::Warning, why, window, cx);
+                return;
+            }
+        }
+        let mapping = match theta_sql::data_diff::map_columns(&st, &tt, &picked.key) {
+            Ok(m) => m,
+            Err(why) => {
+                self.notify(NoticeKind::Warning, why, window, cx);
+                return;
+            }
+        };
+        let ends = Ends { source, source_table: st, target, target_table: tt, key: picked.key };
+        let title = crate::data_compare::title_of(&ends);
+        let target_conn = ends.target.conn_id.clone();
+        let store = self.store.clone();
+        let view = cx.new(|cx| DataCompareView::new(store, ends, mapping, cx));
+        let id = self.next_tab_id;
+        self.next_tab_id += 1;
+        let sub =
+            cx.subscribe_in(&view, window, move |this, v, ev: &CompareEvent, window, cx| match ev.clone() {
+                CompareEvent::OpenScript { conn_id, sql } => {
+                    let id = this.open_console(Some(conn_id), Some(sql), window, cx);
+                    this.set_tab_title(id, "Sync script".to_string(), cx);
+                }
+                CompareEvent::Notice(kind, m) => this.notify(kind, m, window, cx),
+                CompareEvent::Reload => v.update(cx, |v, cx| v.start(cx)),
+            });
+        self.table_subs.insert(id, sub);
+        self.tabs.push(ConsoleTab {
+            id,
+            title: title.into(),
+            connection_id: Some(target_conn.clone()),
+            modified: false,
+            initial_sql: None,
+            table: None,
+            admin: None,
+            tool: Some(ToolTab::DataCompare(view.clone())),
+        });
+        self.console_views.insert(id, view.clone().into());
+        self.active_connection = Some(target_conn);
+        self.activate_tab(id, window, cx);
+        window.defer(cx, move |window, cx| {
+            let h = view.read(cx).focus_handle_ref();
+            window.focus(&h, cx);
+        });
     }
 
     fn on_diagram_event(

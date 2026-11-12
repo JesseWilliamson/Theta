@@ -808,6 +808,28 @@ The UI is `dialogs/compare_pick.rs` (a `Model` with unit tests, shared with the 
 (the tab; it owns the two schemas it compared and never runs anything) and `workspace/tool_tabs.rs` (hosting and the
 "open the script in a console on the target" event).
 
+#### Data compare
+
+Three layers again. `theta_sql::data_diff` (pure): `value.rs` is the rules for "same value" and for the order of keys,
+`mod.rs` maps the columns, holds the `Comparer` and writes the sync script. The `Comparer` is a state machine, not a
+loop over iterators, because the rows arrive in pages from `async` reads: `feed(left, left_done, right, right_done)`
+consumes everything it can decide and returns which side it needs more of (`Need`), so the same code runs on one big
+page, on pages of one row (the test `the_page_size_never_changes_the_answer`) and against a database. It keeps the head
+of each stream, the counts and at most `cap` differing rows.
+
+*Why the order is checked on the client.* A merge needs one order. The comparer therefore refuses a key that is not
+greater than the previous one of its stream under `cmp_keys`, and `theta_import::compare::compare_tables` answers
+`MergeError::Unsorted` by reading both tables again with a binary collation, an order that is the client's by
+construction (UTF-8 bytes). It is not the default because a binary collation cannot use an index built for another
+collation. The test `without_the_check_two_orders_would_give_a_wrong_answer` shows the naive merge finding two of three
+common keys, and `data_compare_live.rs` shows a real MariaDB triggering the fallback and failing with the sentence when
+the fallback is switched off. Key classes (`KeyClass`) exist so that a number and a text key are refused up front.
+
+The tab (`data_compare/mod.rs`) runs `compare_tables` on the Tokio runtime with its own sessions
+(`ConnectionStore::open_side_connection`, so a console is never interleaved with it), shares progress through a mutex the
+tab polls every 150 ms, cancels through an `AtomicBool`, and reuses `CompareEvent` and the compare dialog of the schema
+compare. What it cannot do, it says: in-memory SQLite and DuckDB cannot be opened twice.
+
 ## Status
 
 0.1.0-alpha.8 is the eighth pre-release (0.1.0-alpha.1 to -alpha.7 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense

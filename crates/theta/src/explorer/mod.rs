@@ -64,6 +64,12 @@ pub enum ExplorerEvent {
         schema: String,
         table: Option<String>,
     },
+    /// Compare the rows of this table (as the source) with another table's.
+    CompareData {
+        connection_id: String,
+        schema: String,
+        table: String,
+    },
     /// Compare this schema (as the source) with another.
     CompareSchema {
         connection_id: String,
@@ -799,6 +805,16 @@ impl Explorer {
                             connection_id: c.clone(),
                             schema: s.clone(),
                             table: Some(t.clone()),
+                        })
+                    }
+                }))
+                .item(item(&explorer, "Compare Data…", IconName::Diff, {
+                    let (c, s, t) = (c.clone(), s.clone(), t.clone());
+                    move |_, cx| {
+                        cx.emit(ExplorerEvent::CompareData {
+                            connection_id: c.clone(),
+                            schema: s.clone(),
+                            table: t.clone(),
                         })
                     }
                 }))

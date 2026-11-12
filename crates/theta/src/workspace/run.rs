@@ -560,6 +560,7 @@ impl Workspace {
             "chart" => self.show_chart(window, cx),
             "diagram" | "er" | "erd" => self.diagram_from_palette(arg, window, cx),
             "schemacompare" | "scompare" | "schemadiff" => self.compare_schemas_dialog(None, window, cx),
+            "datacompare" | "dcompare" | "datadiff" => self.compare_data_dialog(None, window, cx),
             "lhistory" | "localhistory" | "lh" => self.open_local_history(window, cx),
             "multirun" | "multi" => self.open_multi_run(window, cx),
             "grep" | "search" => self.search_from_palette(window, cx),
