@@ -125,7 +125,7 @@ jobs:
             --set-version-string FileVersion "$v" --set-version-string ProductVersion "$v" `
             --set-version-string ProductName Theta --set-version-string FileDescription "Theta database IDE" `
             --set-version-string InternalName theta --set-version-string OriginalFilename theta.exe `
-            --set-version-string LegalCopyright "Theta contributors"
+            --set-version-string LegalCopyright "Copyright (c) 2026 Jesse Williamson"
           # Verify the subsystem really is GUI (2) and not console (3).
           $b = [IO.File]::ReadAllBytes((Resolve-Path $exe))
           $pe = [BitConverter]::ToInt32($b, 0x3c)

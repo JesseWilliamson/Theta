@@ -683,7 +683,7 @@
         <div>
           <h3>What has been tested</h3>
           <ul class="plain-list">
-            <li><b>Linux (X11):</b> every feature on this page was run by hand against PostgreSQL 16 with PostGIS, MariaDB 10.11 and SQLite. DuckDB and ClickHouse 18.16 were also run by hand, though not every feature on them. Wayland has not been tried.</li>
+            <li><b>Linux (X11):</b> every feature on this page was run by hand against at least one of PostgreSQL 16 with PostGIS, MariaDB 10.11 and SQLite, and the everyday ones (editor, results, explorer, plans) against all three. DuckDB and ClickHouse 18.16 were also run by hand, though not every feature on them. Wayland has not been tried.</li>
             <li><b>Other databases:</b> SQL Server, CockroachDB, TiDB and TimescaleDB pass live driver tests in CI and have not been driven by hand. Redshift and YugabyteDB are unverified. See the table above.</li>
             <li><b>Server administration:</b> run by hand on PostgreSQL 16, MariaDB 10.11 and ClickHouse 18.16 (sessions). SQL Server sessions and logins, MySQL 8 lock and role queries, and dumps through <code>pg_dump</code> or <code>mysqldump</code> are unit-tested only.</li>
             <li><b>SSH tunnelling:</b> covered by the driver integration tests only.</li>
