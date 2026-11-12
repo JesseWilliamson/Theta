@@ -103,7 +103,15 @@ mod tests {
         assert_eq!(reports.len(), 1);
         let log = reports[0].log.clone().expect("a log file");
         let body = std::fs::read_to_string(&log).unwrap();
-        assert!(body.contains("boom from a test") && body.contains("stack backtrace"));
+        // This failed once on CI's Linux runner with the hook's stderr output intact, so the file was
+        // not what the hook wrote. Say what was read, so that a recurrence can be explained.
+        assert!(
+            body.contains("boom from a test") && body.contains("stack backtrace"),
+            "unexpected log at {}: {} bytes, starts {:?}",
+            log.display(),
+            body.len(),
+            body.chars().take(200).collect::<String>()
+        );
         assert!(notice_text(&reports[0]).contains(&log.display().to_string()));
     }
 }
