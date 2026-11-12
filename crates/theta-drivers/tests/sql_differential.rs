@@ -92,6 +92,8 @@ fn first_word(sql: &str) -> String {
 
 #[derive(Default)]
 struct Tally {
+    /// Statements of typos.sql that the engine rejects as syntax errors and the parser let through.
+    must_missed: Vec<String>,
     total: usize,
     valid: usize,
     semantic: usize,
@@ -132,6 +134,7 @@ fn judge_all(
     ddl_is_checked: bool,
 ) -> Tally {
     let mut t = Tally::default();
+    let must_flag: std::collections::HashSet<String> = load("typos.sql").into_iter().collect();
     for (sql, verdict) in items {
         t.total += 1;
         let verdict = if assume_valid && verdict == Verdict::Skipped { Verdict::Valid } else { verdict };
@@ -151,6 +154,12 @@ fn judge_all(
             }
             Verdict::Syntax(_) => {
                 if errs.is_empty() {
+                    // The editor shows `lint`, which is the parser's errors plus the checks that are not
+                    // about syntax (a near-miss statement keyword such as `selct`), so that is what a
+                    // typo must reach.
+                    if must_flag.contains(&sql) && theta_sql::lint(&sql, kind, None).is_empty() {
+                        t.must_missed.push(sql.clone());
+                    }
                     t.missed.push(sql.clone());
                 } else {
                     t.flagged += 1;
@@ -224,6 +233,11 @@ fn assert_clean(t: &Tally) {
             eprintln!("    name-missed: {m}");
         }
     }
+    assert!(
+        t.must_missed.is_empty(),
+        "typos.sql: syntax errors that neither the parser nor the linter flag:\n  {}",
+        t.must_missed.join("\n  ")
+    );
     assert!(t.false_errors.is_empty(), "false syntax errors:\n  {}", t.false_errors.join("\n  "));
     assert!(
         t.false_resolution.is_empty(),
@@ -308,7 +322,10 @@ async fn postgres() {
         return;
     };
     let catalog = conn.introspect().await.expect("introspect");
-    let corpus = corpus_for(&["common.sql", "pg.sql", "broken.sql", "extracted.sql"], DatabaseKind::Postgres);
+    let corpus = corpus_for(
+        &["common.sql", "pg.sql", "typos.sql", "neighbours.sql", "broken.sql", "extracted.sql"],
+        DatabaseKind::Postgres,
+    );
     let v = pg_verdicts(conn.as_ref(), &corpus).await;
     let t = judge_all("PostgreSQL 16", DatabaseKind::Postgres, Some(&catalog), v, false, true);
     assert_clean(&t);
@@ -363,7 +380,10 @@ async fn mariadb() {
         return;
     };
     let catalog = conn.introspect().await.expect("introspect");
-    let corpus = corpus_for(&["common.sql", "mysql.sql", "broken.sql", "extracted.sql"], DatabaseKind::MySql);
+    let corpus = corpus_for(
+        &["common.sql", "mysql.sql", "typos.sql", "neighbours.sql", "broken.sql", "extracted.sql"],
+        DatabaseKind::MySql,
+    );
     let v = mysql_verdicts(conn.as_ref(), &corpus).await;
     // `1295` statements are "semantic" for the syntax assertion but not for resolution (only Valid counts there).
     let t = judge_all("MariaDB 10.11", DatabaseKind::MySql, Some(&catalog), v, false, false);
@@ -409,8 +429,10 @@ async fn sqlite() {
         run(conn.as_ref(), &stmt).await;
     }
     let catalog = conn.introspect().await.unwrap();
-    let corpus =
-        corpus_for(&["common.sql", "sqlite.sql", "broken.sql", "extracted.sql"], DatabaseKind::Sqlite);
+    let corpus = corpus_for(
+        &["common.sql", "sqlite.sql", "typos.sql", "neighbours.sql", "broken.sql", "extracted.sql"],
+        DatabaseKind::Sqlite,
+    );
     let v: Vec<_> = corpus.iter().map(|s| (s.clone(), sqlite_verdict(&db, strip_semicolon(s)))).collect();
     let t = judge_all("SQLite (bundled)", DatabaseKind::Sqlite, Some(&catalog), v, false, true);
     assert_clean(&t);
@@ -432,7 +454,7 @@ async fn duckdb() {
     }
     let catalog = conn.introspect().await.unwrap();
     let corpus = corpus_for(
-        &["common.sql", "pg.sql", "duckdb.sql", "broken.sql", "extracted.sql"],
+        &["common.sql", "pg.sql", "duckdb.sql", "typos.sql", "neighbours.sql", "broken.sql", "extracted.sql"],
         DatabaseKind::DuckDb,
     );
     let v: Vec<_> = corpus
