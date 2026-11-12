@@ -9,7 +9,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, ClipboardItem, Context, Entity, EventEmitter, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription,
-    UniformListScrollHandle, Window, div, px, uniform_list,
+    FocusHandle, KeyDownEvent, ScrollStrategy, UniformListScrollHandle, Window, div, px, uniform_list,
 };
 use std::ops::Range;
 use theta_ui::{CHROME_TEXT_SIZE, EmptyState};
@@ -22,6 +22,8 @@ pub enum HistoryEvent {
         connection: String,
         sql: String,
     },
+    /// Escape in the list: back to the editor.
+    Leave,
 }
 
 pub struct HistoryPanel {
@@ -31,6 +33,8 @@ pub struct HistoryPanel {
     shown: Vec<HistoryEntry>,
     scroll: UniformListScrollHandle,
     selected: Option<usize>,
+    /// The list's own focus, so the keys below act only when the list (not the search box) has it.
+    focus: FocusHandle,
     _subs: Vec<Subscription>,
 }
 
@@ -60,11 +64,17 @@ where
 impl HistoryPanel {
     pub fn new(store: HistoryStore, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search history"));
-        let sub = cx.subscribe_in(&filter, window, |this, input, e: &InputEvent, _, cx| {
-            if matches!(e, InputEvent::Change) {
+        let sub = cx.subscribe_in(&filter, window, |this, input, e: &InputEvent, window, cx| match e {
+            InputEvent::Change => {
                 this.query = input.read(cx).value().to_string();
                 this.refresh(cx);
             }
+            // Enter in the search box moves on to the matches.
+            InputEvent::PressEnter { .. } => {
+                this.select(0, cx);
+                window.focus(&this.focus, cx);
+            }
+            _ => {}
         });
         let mut me = Self {
             store,
@@ -73,6 +83,7 @@ impl HistoryPanel {
             shown: vec![],
             scroll: UniformListScrollHandle::new(),
             selected: None,
+            focus: cx.focus_handle(),
             _subs: vec![sub],
         };
         me.shown = me.store.search("").into_iter().cloned().collect();
@@ -95,6 +106,66 @@ impl HistoryPanel {
     #[cfg(test)]
     pub fn last_sql(&self) -> Option<&str> {
         self.store.entries().last().map(|e| e.sql.as_str())
+    }
+
+    pub fn focus_handle(&self) -> FocusHandle {
+        self.focus.clone()
+    }
+
+    /// Take the keyboard; the newest statement (the first row) is current unless one already is.
+    pub fn focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected.is_none() && !self.shown.is_empty() {
+            self.select(0, cx);
+        }
+        window.focus(&self.focus, cx);
+    }
+
+    fn select(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if self.shown.is_empty() {
+            return;
+        }
+        let ix = ix.min(self.shown.len() - 1);
+        self.selected = Some(ix);
+        self.scroll.scroll_to_item(ix, ScrollStrategy::Nearest);
+        cx.notify();
+    }
+
+    fn step(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let at = self.selected.map_or(if delta > 0 { -1 } else { 0 }, |i| i as isize);
+        self.select((at + delta).clamp(0, self.shown.len() as isize - 1) as usize, cx);
+    }
+
+    /// Up, down, home, end (and `j` / `k` in the modal keymaps) walk the statements, `enter` loads the
+    /// current one into the editor (run it with the usual key from there), `/` goes to the search box and
+    /// `escape` returns to the editor.
+    fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // The search box is a child whose keystrokes bubble up here.
+        if !self.focus.is_focused(window) {
+            return;
+        }
+        let m = ev.keystroke.modifiers;
+        if m.control || m.alt || m.platform {
+            return;
+        }
+        let modal = theta_ui::Settings::get(cx).keymap.is_modal();
+        match ev.keystroke.key.as_str() {
+            "down" => self.step(1, cx),
+            "up" => self.step(-1, cx),
+            "j" if modal => self.step(1, cx),
+            "k" if modal => self.step(-1, cx),
+            "home" => self.select(0, cx),
+            "end" => self.select(usize::MAX, cx),
+            "pageup" => self.step(-10, cx),
+            "pagedown" => self.step(10, cx),
+            "enter" => match self.selected.and_then(|i| self.shown.get(i)) {
+                Some(e) => cx.emit(HistoryEvent::Insert(e.sql.clone())),
+                None => return,
+            },
+            "/" => self.filter.update(cx, |s, cx| s.focus(window, cx)),
+            "escape" => cx.emit(HistoryEvent::Leave),
+            _ => return,
+        }
+        cx.stop_propagation();
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
@@ -161,12 +232,17 @@ impl HistoryPanel {
                     .text_color(theme.muted_foreground)
                     .whitespace_nowrap()
                     .child(match e.rows {
-                        Some(r) => format!("{r} rows · {} ms", e.duration_ms),
+                        Some(r) => format!(
+                            "{} · {} ms",
+                            crate::workspace::console::plural(r, "row", "rows"),
+                            e.duration_ms
+                        ),
                         None => format!("{} ms", e.duration_ms),
                     }),
             )
-            .on_click(cx.listener(move |this, ev: &gpui_kit::ClickEvent, _, cx| {
+            .on_click(cx.listener(move |this, ev: &gpui_kit::ClickEvent, window, cx| {
                 this.selected = Some(ix);
+                window.focus(&this.focus, cx);
                 if ev.click_count() >= 2 {
                     cx.emit(HistoryEvent::Insert(sql.clone()));
                 }
@@ -228,7 +304,10 @@ impl Render for HistoryPanel {
             .into_any_element()
         };
         v_flex()
+            .id("history")
             .size_full()
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| this.on_key(ev, window, cx)))
             .child(
                 div()
                     .px_2()
