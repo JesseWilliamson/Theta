@@ -11,8 +11,8 @@ Thanks for helping with Theta. The short version:
 4. No stubs, `todo!()` or placeholder data in shipped code paths. If something cannot be done, say so.
 5. Comments explain *why* (constraints, invariants, trade-offs), not what the next line does.
 6. Small, focused commits with an imperative subject (`grid: keep scroll position when filtering`). Open a
-   pull request against `main`; CI must pass (`libraries` and the three `app` builds are required, `fmt` and
-   `clippy` are advisory for now).
+   pull request against `main`; CI must pass: `libraries`, the three `app` builds and `clippy` are blocking; `fmt` is still
+   advisory (`continue-on-error`), but run `cargo fmt` anyway.
 7. Changes to `theta-core` are contract changes: describe the need in the pull request and expect discussion.
 8. Add a line under *Unreleased* in [CHANGELOG.md](CHANGELOG.md) for anything a user would notice.
 

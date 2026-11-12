@@ -1,13 +1,15 @@
 # Theta user guide
 
-Task-oriented notes for using Theta 0.1.0-alpha.4. Key bindings are summarised where they matter and
+Task-oriented notes for using Theta 0.1.0-alpha.9. Key bindings are summarised where they matter and
 listed in full in [KEYBINDINGS.md](KEYBINDINGS.md). `mod` means `cmd` on macOS and `ctrl` elsewhere.
 Names of menu items, buttons and dialog fields are written the way the application shows them. The
 examples use the demo database (`theta --demo`).
 
 Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH tunnel](#connect-through-an-ssh-tunnel) ·
 [Explorer](#the-explorer) · [Write and run SQL](#write-and-run-sql) · [Transactions](#transactions) ·
-[Editor keys](#editor-keys) · [Vim keymap](#vim-keymap) · [Results grid](#the-results-grid) · [Edit data](#edit-data-safely) · [Administer a server](#administer-a-server) ·
+[Editor keys](#editor-keys) · [Vim keymap](#vim-keymap) · [Results grid](#the-results-grid) · [Charts](#charts) · [Search across tables](#search-across-tables) ·
+[ER diagrams](#entity-relationship-diagrams) · [Compare schemas](#compare-two-schemas) · [Compare table rows](#compare-the-rows-of-two-tables) ·
+[Edit data](#edit-data-safely) · [Import and export](#import-and-export-data) · [Change a table](#change-a-table) · [Administer a server](#administer-a-server) ·
 [Explain](#explain-and-query-plans) · [Map](#the-map) · [Messages and history](#messages-and-history) ·
 [Themes](#themes) · [Settings](#settings) · [Command palette](#the-command-palette) ·
 [Troubleshooting](#troubleshooting)
@@ -18,7 +20,7 @@ Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH
 ┌ title bar:  ☰ menu · connection switcher                        TXN open [Commit] [Roll Back] ▷ Run  ■  ⚙ ┐
 ├ Explorer ─┬ console tabs  [console 1] [console 2] [+]                                                       │
 │ (left)    │ editor                                                                                          │
-│           ├ Results | Messages | Plan | Map | History   (bottom panel)                                      │
+│           ├ Results | Chart | Messages | Problems | Plan | Map | History   (bottom panel)                   │
 │           │ grid, plan or map                                                                               │
 └ status bar:  [explorer] [bottom panel]          Running 1.5 s · 200 rows · 0.2 ms · Ln 1, Col 1 · NOR · ● Demo (SQLite) · SQLite 3.54.1 ┘
 ```

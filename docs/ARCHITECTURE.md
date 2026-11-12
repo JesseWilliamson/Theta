@@ -3,8 +3,8 @@
 Theta is a database IDE: connect to databases, explore their structure, write SQL in a modal (Helix or Vim) or
 standard editor, run it, and inspect results, plans and geometry. This document explains how the code is
 split and why. Each idea points at the file where you can see it (`path:line`; paths are relative to the
-repository root; the line numbers of the editor engine are those of the 0.1.0-alpha.2 sources and the others were
-written against 0.1.0-alpha.1, so grep for the name if one has drifted). Read it before changing
+repository root; the line numbers were written against the 0.1.0-alpha.1 and -alpha.2 sources and have drifted since,
+so grep for the name when one does not match). Read it before changing
 anything, then see [DEVELOPMENT.md](DEVELOPMENT.md) for commands and workflows.
 
 ## Why it is shaped this way
@@ -180,7 +180,7 @@ Workspace (root view, crates/theta/src/workspace/mod.rs:146; renders at :820)
 ├── Explorer (left)  connections ▸ schemas ▸ tables ▸ columns, keys, indexes            explorer/
 ├── tab strip        console tabs, drag to reorder                                      workspace/tabs.rs
 ├── console area     one EditorView per console, or the welcome screen                  workspace/welcome.rs
-├── bottom panel     Results | Messages | Plan | Map | History                          workspace/bottom.rs
+├── bottom panel     Results | Chart | Messages | Problems | Plan | Map | History     workspace/bottom.rs
 ├── status bar       mode, cursor, run time, result info, connection                    workspace/status_bar.rs
 └── modal            picker (palette, tables, connections, themes) or a dialog          dialogs/, palette.rs
 ```
@@ -835,9 +835,11 @@ compare. What it cannot do, it says: in-memory SQLite and DuckDB cannot be opene
 0.1.0-alpha.9 is the ninth pre-release (0.1.0-alpha.1 to -alpha.8 came before it; the product was called Quarry until -alpha.4). The application is complete in the sense
 that every crate in the workspace is wired into it and used:
 
-- All twelve crates exist and are used; the application runs against PostgreSQL, MySQL/MariaDB and SQLite, and (since alpha.7) CockroachDB, Redshift, TimescaleDB, YugabyteDB, TiDB, DuckDB, SQL Server and ClickHouse. DuckDB runs locally; ClickHouse, CockroachDB, TimescaleDB, TiDB and SQL Server pass live tests in CI; Redshift and YugabyteDB are unverified. See the README's table.
-- Editor (Helix, Vim and Standard keymaps), completion, formatting, diagnostics, explorer, consoles, results grid with editing,
-  export, query plans with insights, map, history, transactions, themes and settings are in.
+- All fourteen crates exist and are used (the three added since alpha.5 are `theta-import`, `theta-chart` and `theta-diagram`); the application runs against PostgreSQL, MySQL/MariaDB and SQLite, and (since alpha.7) CockroachDB, Redshift, TimescaleDB, YugabyteDB, TiDB, DuckDB, SQL Server and ClickHouse. DuckDB runs locally; ClickHouse, CockroachDB, TimescaleDB, TiDB and SQL Server pass live tests in CI; Redshift and YugabyteDB are unverified. See the README's table.
+- Editor (Helix, Vim and Standard keymaps), completion, formatting, the SQL parser with diagnostics, quick fixes and rename, explorer,
+  consoles, results grid with editing, the cell viewer, export and CSV import, the table editor, charts, ER diagrams, schema and data
+  compare, table copy, search across tables, server administration, local history, running on several connections, query plans
+  with insights, map, history, transactions, themes and settings are in.
 - Verified by hand on Linux (X11). The macOS and Windows builds compile and pass the unit tests in CI but
   have not been exercised by hand.
 - Known gaps are listed in the README under *Known limitations*; the ones that are architectural are:
