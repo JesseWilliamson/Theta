@@ -71,7 +71,13 @@ The other products read their server from an environment variable and are skippe
 at the top of the first). DuckDB is embedded and always runs. The PostgreSQL and MariaDB URLs are
 hard-coded in `crates/theta-drivers/tests/common/mod.rs`. Tests create uniquely named
 schemas and databases, so they can run concurrently, and drop them afterwards; the MariaDB user therefore
-needs global privileges (`GRANT ALL ON *.* TO 'quarry'@'%'`). One way to run both locally:
+needs global privileges (`GRANT ALL ON *.* TO 'quarry'@'%'`).
+
+Give MariaDB a certificate (`ssl_cert` and `ssl_key` under `[mysqld]`; a self-signed pair is enough).
+Without one the server never offers TLS, so the MySQL tests never build a TLS client, and bugs on that
+path go unnoticed: alpha.10 crashed against every MySQL 8 server this way while the tests passed.
+
+One way to run both locally:
 
 ```sh
 docker run -d --name theta-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=quarry_demo -p 5432:5432 postgis/postgis:16-3.4

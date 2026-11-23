@@ -103,6 +103,22 @@ impl Driver for Unavailable {
     }
 }
 
+/// Make aws-lc-rs the process-wide rustls crypto provider.
+///
+/// Two providers end up compiled in: our own crates ask for aws-lc-rs, and `ureq` (map tiles,
+/// HTTP drivers) turns on rustls' `ring` feature. With both present rustls will not guess a
+/// default, so any library that calls `ClientConfig::builder()` without naming a provider panics
+/// ("Could not automatically determine the process-level CryptoProvider"). `mysql_async` is such
+/// a library. Installing one provider up front settles it for every caller. Safe to call any
+/// number of times from any thread.
+pub fn ensure_crypto_provider() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        // Err only means another provider was installed first, which is equally fine.
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
+}
+
 /// Connect, opening an SSH tunnel first when `config.ssh` is set. The returned
 /// connection owns the tunnel and tears it down on close/drop.
 pub async fn connect(config: &ConnectionConfig) -> Result<Box<dyn Connection>> {
@@ -112,6 +128,7 @@ pub async fn connect(config: &ConnectionConfig) -> Result<Box<dyn Connection>> {
 /// Like [`connect`], also returning things worth telling the user once (for example that an SSH
 /// host key was added to known_hosts on first contact).
 pub async fn connect_with_notices(config: &ConnectionConfig) -> Result<(Box<dyn Connection>, Vec<String>)> {
+    ensure_crypto_provider();
     let Some(ssh_cfg) = config.ssh.as_ref().filter(|_| !config.kind.is_file_based()) else {
         return driver_for(config.kind).connect(config).await.map(|c| (c, Vec::new()));
     };
@@ -210,5 +227,17 @@ mod plan_parse_tests {
         assert_eq!(parse_postgres_plan_json(pg, false).unwrap().root.node_type, "Sort");
         let my = include_str!("../tests/fixtures/mariadb_analyze.json");
         assert!(parse_mysql_plan_json(my, true).unwrap().analyzed);
+    }
+}
+
+#[cfg(test)]
+mod crypto_provider_tests {
+    /// Both rustls providers are compiled into this crate's test binary too, so without
+    /// `ensure_crypto_provider` this call panics exactly as MySQL connects did.
+    #[test]
+    fn a_default_rustls_provider_is_installed() {
+        super::ensure_crypto_provider();
+        let _ = rustls::ClientConfig::builder();
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
     }
 }

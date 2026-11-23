@@ -6,6 +6,13 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+### Fixed
+
+- Connecting to a MySQL or MariaDB server that offers TLS (MySQL 8 does by default), directly or
+  through SSH, no longer fails with "Could not automatically determine the process-level
+  CryptoProvider". Two rustls crypto back ends were compiled in and nothing chose between them;
+  Theta now installs aws-lc-rs as the process default before the first connection.
+
 ## [0.1.0-alpha.10] - 2026-11-12
 
 A polish release: no new features, about seventy fixes from an audit of keyboard handling, data
