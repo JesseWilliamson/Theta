@@ -738,7 +738,8 @@ impl EditorView {
                 let noop = self.completion.as_ref().and_then(|c| c.selected_item()).is_some_and(|i| {
                     current.as_deref().is_some_and(|cur| is_noop_accept(&i.insert_text, cur))
                 });
-                if noop || self.completion.as_ref().is_some_and(|c| c.enter_means_newline()) {
+                let modal = self.editor.keymap() != Keymap::Standard;
+                if noop || self.completion.as_ref().is_some_and(|c| !c.enter_accepts(modal)) {
                     self.completion = None;
                     cx.notify();
                     return false;
@@ -748,6 +749,14 @@ impl EditorView {
             CompletionKey::Close => {
                 self.completion = None;
                 cx.notify();
+                // In Vim and Helix Escape means "back to Normal"; closing the popup is a side
+                // effect, as in Zed. Spending the first press on the popup alone (Helix's own
+                // behaviour) makes Escape's effect depend on a popup that appears while typing
+                // almost any word. The Standard keymap has no mode to leave, so there the press
+                // is the popup's.
+                if self.editor.keymap() != Keymap::Standard {
+                    return false;
+                }
             }
         }
         true

@@ -50,13 +50,29 @@ impl CompletionState {
         self.items.is_empty()
     }
 
-    /// Whether Enter should leave the popup alone and insert a newline: the popup was opened by
-    /// typing, nothing was picked, and the top suggestion is only a keyword. Typing an alias
-    /// (`FROM customers c`) suggests `CROSS JOIN`; Enter must not turn the alias into that.
-    pub fn enter_means_newline(&self) -> bool {
-        !self.manual
-            && !self.navigated
-            && self.selected_item().is_some_and(|i| i.kind == CompletionKind::Keyword)
+    /// Whether Enter accepts the highlighted suggestion; otherwise it closes the popup and is a
+    /// newline. A popup opened by typing offers suggestions, it does not choose for the user:
+    ///
+    /// - Explicit interest always accepts: the list was opened on request (ctrl-space) or the
+    ///   user moved through it.
+    /// - In Vim and Helix Insert (`modal`) that is the only way, as in Helix itself, where nothing
+    ///   is selected until Tab or ctrl-n. Modal users press Enter to end a line far more often
+    ///   than to pick from a list they did not look at.
+    /// - In the Standard keymap Enter also accepts a non-keyword whose label starts with at
+    ///   least two typed characters (`cu` -> `customers`). A one-letter word (`b`, an alias) or
+    ///   a fuzzy-only match (`b` -> `abs(`) would otherwise be silently rewritten.
+    pub fn enter_accepts(&self, modal: bool) -> bool {
+        if self.manual || self.navigated {
+            return true;
+        }
+        if modal {
+            return false;
+        }
+        let Some(item) = self.selected_item() else { return false };
+        let typed = self.prefix.chars().count();
+        item.kind != CompletionKind::Keyword
+            && typed >= 2
+            && item.label.to_lowercase().starts_with(&self.prefix.to_lowercase())
     }
 
     pub fn selected_item(&self) -> Option<&CompletionItem> {
@@ -302,25 +318,33 @@ mod tests {
         assert_eq!(highlight_segments("abc", "zzz"), vec![("abc".to_string(), false)]);
     }
 
+    fn typed(prefix: &str, items: Vec<CompletionItem>) -> CompletionState {
+        let n = prefix.chars().count();
+        CompletionState::new(CompletionList { replace_range: 0..n, items }, 0..n, prefix.into()).unwrap()
+    }
+
+    fn it(label: &str, kind: CompletionKind) -> CompletionItem {
+        CompletionItem { label: label.into(), kind, detail: None, insert_text: label.into(), score: 0 }
+    }
+
     #[test]
-    fn enter_after_an_alias_is_a_newline_unless_the_user_picked_something() {
-        let kw = |l: &str| CompletionItem {
-            label: l.into(),
-            kind: CompletionKind::Keyword,
-            detail: None,
-            insert_text: l.into(),
-            score: 0,
-        };
-        let list = CompletionList { replace_range: 0..1, items: vec![kw("CROSS JOIN"), kw("CASE")] };
-        let mut s = CompletionState::new(list, 0..1, "c".into()).unwrap();
-        assert!(s.enter_means_newline());
+    fn enter_accepts_only_what_the_user_meant() {
+        use CompletionKind::{Function, Keyword, Table};
+        // Standard: two typed characters that begin a table name are a clear intent.
+        assert!(typed("cu", vec![it("customers", Table)]).enter_accepts(false));
+        // One letter, a fuzzy-only match or a keyword is a newline: `select a, b⏎` stays `b`.
+        assert!(!typed("t", vec![it("time(", Function)]).enter_accepts(false));
+        assert!(!typed("b", vec![it("abs(", Function)]).enter_accepts(false));
+        assert!(!typed("ab", vec![it("tab_b", Table)]).enter_accepts(false), "not a prefix");
+        assert!(!typed("cr", vec![it("CROSS JOIN", Keyword)]).enter_accepts(false));
+        // Vim and Helix Insert: nothing is chosen until the user moves through the list.
+        assert!(!typed("cu", vec![it("customers", Table)]).enter_accepts(true));
+        let mut s = typed("b", vec![it("abs(", Function), it("bool_and(", Function)]);
         s.move_selection(1);
-        assert!(!s.enter_means_newline(), "after an explicit choice Enter accepts");
-        // A table or column is accepted by Enter right away.
-        let mut t = state(2);
-        assert!(!t.enter_means_newline());
-        t.manual = true;
-        assert!(!t.enter_means_newline());
+        assert!(s.enter_accepts(true) && s.enter_accepts(false), "after an explicit choice Enter accepts");
+        let mut m = typed("", vec![it("orders", Table)]);
+        m.manual = true;
+        assert!(m.enter_accepts(true), "ctrl-space is a request");
     }
 
     #[test]

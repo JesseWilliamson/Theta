@@ -334,10 +334,35 @@ fn helix_double_escape_leaves_insert_mode(cx: &mut TestAppContext) {
     f.keys(cx, "iselect * from cu");
     assert!(f.view.read_with(cx, |v, _| v.completion.is_some()));
     f.keys(cx, "<esc>");
-    assert_eq!(f.mode(cx), Mode::Insert, "first escape only closes the popup");
+    assert_eq!(f.mode(cx), Mode::Normal, "one escape closes the popup and leaves Insert");
     assert!(f.view.read_with(cx, |v, _| v.completion.is_none()));
-    f.keys(cx, "<esc>");
-    assert_eq!(f.mode(cx), Mode::Normal);
+    assert_eq!(f.text(cx), "select * from cu");
+}
+
+#[gpui_kit::test]
+fn modal_enter_is_a_newline_until_the_user_picks_from_the_popup(cx: &mut TestAppContext) {
+    for km in [Keymap::Helix, Keymap::Vim] {
+        let f = setup(cx, "", km);
+        shop_completion(&f, cx);
+        // Typed line by line, as people do: no suggestion may replace what was typed.
+        f.keys(cx, "iselect id, cu<ret>from o<ret>where id = 1");
+        assert_eq!(f.text(cx), "select id, cu\nfrom o\nwhere id = 1", "{km:?}");
+        // Picking from the list is still one key away.
+        f.keys(cx, "<ret>from cu");
+        assert!(f.view.read_with(cx, |v, _| v.completion.is_some()), "{km:?}");
+        f.keys(cx, "<down><up><ret>");
+        assert!(f.text(cx).ends_with("from customers"), "{km:?}: {}", f.text(cx));
+    }
+}
+
+#[gpui_kit::test]
+fn standard_enter_accepts_a_clear_prefix_but_never_rewrites_a_short_word(cx: &mut TestAppContext) {
+    let f = setup(cx, "", Keymap::Standard);
+    shop_completion(&f, cx);
+    f.keys(cx, "select a, o<ret>");
+    assert_eq!(f.text(cx), "select a, o\n", "one letter is not a choice");
+    f.keys(cx, "from cust<ret>");
+    assert_eq!(f.text(cx), "select a, o\nfrom customers");
 }
 
 #[gpui_kit::test]
@@ -956,7 +981,7 @@ fn vim_dd_p_visual_delete_and_substitute(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn vim_ciw_never_opens_completion_in_normal_mode_and_escape_closes_the_popup_first(cx: &mut TestAppContext) {
+fn vim_ciw_never_opens_completion_in_normal_mode_and_one_escape_leaves_insert(cx: &mut TestAppContext) {
     let f = setup(cx, "select * from cu", Keymap::Vim);
     shop_completion(&f, cx);
     let open = |f: &Fixture, cx: &mut TestAppContext| f.view.read_with(cx, |v, _| v.completion_open());
@@ -969,9 +994,7 @@ fn vim_ciw_never_opens_completion_in_normal_mode_and_escape_closes_the_popup_fir
     f.keys(cx, "ord");
     assert!(open(&f, cx), "typing an identifier opens it, exactly as in Helix Insert");
     f.keys(cx, "<esc>");
-    assert_eq!((f.mode(cx), open(&f, cx)), (Mode::Insert, false), "first escape closes the popup only");
-    f.keys(cx, "<esc>");
-    assert_eq!(f.mode(cx), Mode::Normal);
+    assert_eq!((f.mode(cx), open(&f, cx)), (Mode::Normal, false), "one escape closes the popup and leaves Insert");
     assert_eq!(f.text(cx), "select * from ord");
     // and in Normal mode motions never open it
     f.keys(cx, "bb");
@@ -982,9 +1005,9 @@ fn vim_ciw_never_opens_completion_in_normal_mode_and_escape_closes_the_popup_fir
 fn vim_insert_ctrl_n_opens_the_popup_then_navigates(cx: &mut TestAppContext) {
     let f = setup(cx, "", Keymap::Vim);
     shop_completion(&f, cx);
-    f.keys(cx, "iselect * from o<esc>");
+    f.keys(cx, "iselect * from o<esc>a");
     let sel = |f: &Fixture, cx: &mut TestAppContext| f.view.read_with(cx, |v, _| v.completion_selected());
-    assert_eq!(sel(&f, cx), None, "closed by the first escape");
+    assert_eq!(sel(&f, cx), None, "closed by escape; `a` is back in Insert at the word's end");
     f.keys(cx, "<C-n>");
     assert_eq!(sel(&f, cx), Some(0), "the first ctrl-n only opens it");
     f.keys(cx, "<C-n>");

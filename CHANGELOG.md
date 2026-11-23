@@ -12,6 +12,17 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
   through SSH, no longer fails with "Could not automatically determine the process-level
   CryptoProvider". Two rustls crypto back ends were compiled in and nothing chose between them;
   Theta now installs aws-lc-rs as the process default before the first connection.
+- Typing in the editor no longer rewrites words through the completion popup. Enter accepted
+  whatever was on top of the list, so `select a, b⏎from t⏎` became `select a, abs(from time(`.
+  In Vim and Helix Insert, Enter now accepts only after you move through the list (Tab, ctrl-n,
+  arrows) or open it with ctrl-space, as in Helix. In the Standard keymap it also accepts a
+  suggestion that starts with at least two characters you typed (`cu` -> `customers`).
+
+### Changed
+
+- In Vim and Helix Insert one Escape closes the completion popup and returns to Normal mode.
+  It took two before (Helix's own behaviour), so Escape's effect depended on whether a popup
+  had appeared. The Standard keymap keeps Escape for the popup.
 
 ## [0.1.0-alpha.10] - 2026-11-12
 
