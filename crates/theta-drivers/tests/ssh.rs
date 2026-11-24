@@ -7,7 +7,7 @@ use common::*;
 use std::path::PathBuf;
 use std::time::Duration;
 use theta_core::*;
-use theta_drivers::ssh::Tunnel;
+use theta_drivers::ssh::{self, Tunnel};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -35,7 +35,7 @@ fn port() -> u16 {
 }
 
 fn ssh(auth: SshAuth) -> SshConfig {
-    SshConfig { host: "127.0.0.1".into(), port: port(), user: "thetatest".into(), auth }
+    SshConfig::new("127.0.0.1", port(), "thetatest", auth)
 }
 
 fn key(name: &str, passphrase: Option<&str>) -> SshAuth {
@@ -257,4 +257,64 @@ async fn postgres_cancel_and_tls_verification_through_a_tunnel() {
     let mut tls = pg_via(key("client_ed25519", None));
     tls.ssl_mode = SslMode::Prefer;
     check_postgres(&tls).await;
+}
+
+/// The same sshd twice: the second SSH session runs inside a `direct-tcpip` channel of the first, which
+/// is what a `ProxyJump` does. Two TCP-level hops are not needed to prove the nesting; one TCP
+/// connection to the sshd carries both sessions.
+fn two_hops() -> SshConfig {
+    let mut inner = ssh(key("client_ed25519", None));
+    inner.via = Some(Box::new(ssh(SshAuth::Password { password: "theta-test-pw".into() })));
+    inner
+}
+
+#[tokio::test]
+async fn a_jump_host_carries_the_second_session() {
+    ssh_test!();
+    wait_for(0).await;
+    let mut cfg = pg_config();
+    cfg.ssh = Some(two_hops());
+    let conn = theta_drivers::connect(&cfg).await.unwrap_or_else(|e| panic!("connect via two hops: {e:?}"));
+    assert_eq!(established_to_sshd(), 1, "the inner session rides on the outer one's TCP connection");
+    assert_eq!(scalar(conn.as_ref(), "SELECT 'two hops'").await, text("two hops"));
+    conn.close().await.unwrap();
+    wait_for(0).await;
+}
+
+#[tokio::test]
+async fn a_bad_inner_credential_or_a_dead_jump_host_is_reported() {
+    ssh_test!();
+    let mut inner = ssh(SshAuth::Password { password: "wrong".into() });
+    inner.via = Some(Box::new(ssh(key("client_ed25519", None))));
+    let e = ssh::check(&inner).await.err().expect("inner password is wrong");
+    assert!(matches!(e, Error::Auth(_)), "{e:?}");
+    // The jump host itself is not listening.
+    let mut dead = ssh(key("client_ed25519", None));
+    let mut hop = ssh(key("client_ed25519", None));
+    hop.port = 1;
+    dead.via = Some(Box::new(hop));
+    let e = ssh::check(&dead).await.err().expect("jump host is down");
+    assert!(matches!(e, Error::Tunnel(_)), "{e:?}");
+    wait_for(0).await;
+}
+
+#[tokio::test]
+async fn check_opens_the_ssh_session_only_and_hangs_up() {
+    ssh_test!();
+    wait_for(0).await;
+    ssh::check(&ssh(key("client_ed25519", None))).await.unwrap();
+    wait_for(0).await;
+    ssh::check(&two_hops()).await.unwrap();
+    wait_for(0).await;
+    let e = ssh::check(&ssh(SshAuth::Password { password: "wrong".into() })).await.err().unwrap();
+    assert!(matches!(e, Error::Auth(_)), "{e:?}");
+}
+
+#[tokio::test]
+async fn an_unresolved_reference_never_connects_directly() {
+    // Needs no sshd: the guard fires before anything is dialled.
+    let mut cfg = pg_config();
+    cfg.ssh_profile = Some("some-id".into());
+    let e = theta_drivers::connect(&cfg).await.err().expect("must refuse");
+    assert!(e.to_string().contains("not resolved"), "{e}");
 }

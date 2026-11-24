@@ -381,12 +381,12 @@ mod tests {
         );
         assert!(msg(Error::Connect("TLS setup failed: bad".into()), &c).contains("secure connection"));
         let mut s = pg(5432, "db.internal");
-        s.ssh = Some(crate::SshConfig {
-            host: "bastion".into(),
-            port: 22,
-            user: "u".into(),
-            auth: crate::SshAuth::Password { password: String::new() },
-        });
+        s.ssh = Some(crate::SshConfig::new(
+            "bastion",
+            22,
+            "u",
+            crate::SshAuth::Password { password: String::new() },
+        ));
         assert_eq!(
             msg(Error::Tunnel("timed out connecting to bastion:22".into()), &s),
             "The SSH server bastion:22 did not answer in time. Check the address, the firewall or your VPN."

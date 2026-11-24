@@ -111,6 +111,9 @@ pub struct Tunnel {
     notices: Vec<String>,
     local_port: u16,
     session: Arc<Handle<Handler>>,
+    /// The sessions the tunnel runs through, outermost first. They carry the next session's bytes
+    /// as a `direct-tcpip` channel, so they must outlive it.
+    jumps: Vec<Handle<Handler>>,
     accept_task: JoinHandle<()>,
 }
 
@@ -192,46 +195,107 @@ fn expand_home(path: &str) -> String {
     }
 }
 
-impl Tunnel {
-    pub async fn open(ssh: &SshConfig, remote_host: &str, remote_port: u16) -> Result<Tunnel> {
-        let config = Arc::new(client::Config {
-            nodelay: true,
-            inactivity_timeout: None,
-            keepalive_interval: Some(Duration::from_secs(30)),
-            ..Default::default()
-        });
+/// An authenticated session to the last server of a chain, plus the sessions it runs through.
+struct Chain {
+    session: Handle<Handler>,
+    jumps: Vec<Handle<Handler>>,
+    notices: Vec<String>,
+}
+
+/// More hops than anyone configures on purpose; stops a cycle in a hand-edited file.
+const MAX_HOPS: usize = 8;
+
+fn client_config(ssh: &SshConfig) -> Arc<client::Config> {
+    Arc::new(client::Config {
+        nodelay: true,
+        inactivity_timeout: None,
+        keepalive_interval: (ssh.keepalive_secs > 0)
+            .then(|| Duration::from_secs(u64::from(ssh.keepalive_secs))),
+        ..Default::default()
+    })
+}
+
+/// Open and authenticate the session to `ssh`, going through its `via` servers first. Each hop is an
+/// SSH session whose transport is a `direct-tcpip` channel on the previous one; the first is plain TCP.
+async fn open_chain(ssh: &SshConfig) -> Result<Chain> {
+    let mut hops: Vec<&SshConfig> = vec![ssh];
+    while let Some(next) = hops.last().and_then(|h| h.via.as_deref()) {
+        if hops.len() >= MAX_HOPS {
+            return Err(Error::Tunnel("too many SSH jump hosts (is a jump host listed twice?)".into()));
+        }
+        hops.push(next);
+    }
+    hops.reverse();
+    let mut jumps: Vec<Handle<Handler>> = Vec::new();
+    let mut notices = Vec::new();
+    let mut previous: Option<Handle<Handler>> = None;
+    for hop in hops {
         let report: Report = Arc::default();
-        let handler = Handler { host: ssh.host.clone(), port: ssh.port, report: report.clone() };
-        let addr = (ssh.host.as_str(), if ssh.port == 0 { 22 } else { ssh.port });
-        let connected = tokio::time::timeout(Duration::from_secs(15), client::connect(config, addr, handler))
+        let handler = Handler { host: hop.host.clone(), port: hop.port, report: report.clone() };
+        let port = if hop.port == 0 { 22 } else { hop.port };
+        let config = client_config(hop);
+        let timed_out = || Error::Tunnel(format!("timed out connecting to {}:{}", hop.host, hop.port));
+        let connected = match &previous {
+            None => tokio::time::timeout(
+                Duration::from_secs(15),
+                client::connect(config, (hop.host.as_str(), port), handler),
+            )
             .await
-            .map_err(|_| Error::Tunnel(format!("timed out connecting to {}:{}", ssh.host, ssh.port)))?;
+            .map_err(|_| timed_out())?,
+            Some(through) => {
+                let channel = through
+                    .channel_open_direct_tcpip(hop.host.clone(), port as u32, "127.0.0.1", 0)
+                    .await
+                    .map_err(|e| {
+                        Error::Tunnel(format!("the jump host cannot reach {}:{}: {e}", hop.host, hop.port))
+                    })?;
+                tokio::time::timeout(
+                    Duration::from_secs(15),
+                    client::connect_stream(config, channel.into_stream(), handler),
+                )
+                .await
+                .map_err(|_| timed_out())?
+            }
+        };
         let seen = report.lock().ok().and_then(|r| r.clone());
         let mut session = match connected {
             Ok(session) => session,
             Err(_) if matches!(seen, Some(HostKeyCheck::Changed { .. })) => {
                 let Some(HostKeyCheck::Changed { fingerprint, file, line }) = seen else { unreachable!() };
-                return Err(Error::Tunnel(changed_key_message(
-                    &ssh.host,
-                    ssh.port,
-                    &fingerprint,
-                    &file,
-                    line,
-                )));
+                return Err(Error::Tunnel(changed_key_message(&hop.host, hop.port, &fingerprint, &file, line)));
             }
             Err(e) => {
-                return Err(Error::Tunnel(format!("cannot connect to {}:{}: {e}", ssh.host, ssh.port)));
+                return Err(Error::Tunnel(format!("cannot connect to {}:{}: {e}", hop.host, hop.port)));
             }
         };
-        let mut notices = Vec::new();
         if let Some(HostKeyCheck::Added { fingerprint, file }) = seen {
             notices.push(format!(
                 "Added host key for {} ({fingerprint}) to {}",
-                known_hosts_name(&ssh.host, ssh.port),
+                known_hosts_name(&hop.host, hop.port),
                 file.display()
             ));
         }
-        authenticate(&mut session, ssh).await?;
+        authenticate(&mut session, hop).await?;
+        jumps.extend(previous.replace(session));
+    }
+    let session = previous.ok_or_else(|| Error::Tunnel("no SSH server given".into()))?;
+    Ok(Chain { session, jumps, notices })
+}
+
+/// Connect and authenticate to the SSH server (and its jump hosts) without forwarding anything, then
+/// hang up: what "Test" in the SSH configurations dialog does. Returns the notices a connect would show.
+pub async fn check(ssh: &SshConfig) -> Result<Vec<String>> {
+    let Chain { session, jumps, notices } = open_chain(ssh).await?;
+    let _ = session.disconnect(Disconnect::ByApplication, "", "en").await;
+    for j in jumps.iter().rev() {
+        let _ = j.disconnect(Disconnect::ByApplication, "", "en").await;
+    }
+    Ok(notices)
+}
+
+impl Tunnel {
+    pub async fn open(ssh: &SshConfig, remote_host: &str, remote_port: u16) -> Result<Tunnel> {
+        let Chain { session, jumps, notices } = open_chain(ssh).await?;
 
         // Prove the remote endpoint is reachable now, so a wrong host/port is
         // reported when connecting instead of as a mysterious DB timeout later.
@@ -258,7 +322,7 @@ impl Tunnel {
                 });
             }
         });
-        Ok(Tunnel { notices, local_port, session, accept_task })
+        Ok(Tunnel { notices, local_port, session, jumps, accept_task })
     }
 
     /// Things worth telling the user once, e.g. that a new host key was added to known_hosts.
@@ -273,6 +337,9 @@ impl Tunnel {
     pub async fn close(self) {
         self.accept_task.abort();
         let _ = self.session.disconnect(Disconnect::ByApplication, "", "en").await;
+        for j in self.jumps.iter().rev() {
+            let _ = j.disconnect(Disconnect::ByApplication, "", "en").await;
+        }
     }
 }
 

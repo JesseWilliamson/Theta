@@ -21,6 +21,7 @@ mod plan_text;
 mod postgres;
 mod sqlite;
 pub mod ssh;
+pub mod ssh_config;
 mod util;
 
 use async_trait::async_trait;
@@ -129,6 +130,12 @@ pub async fn connect(config: &ConnectionConfig) -> Result<Box<dyn Connection>> {
 /// host key was added to known_hosts on first contact).
 pub async fn connect_with_notices(config: &ConnectionConfig) -> Result<(Box<dyn Connection>, Vec<String>)> {
     ensure_crypto_provider();
+    // The app turns a saved SSH configuration into `ssh` before connecting. A reference that was not
+    // resolved must not quietly become a direct connection to a host that is only reachable through
+    // the tunnel (or, worse, one that is reachable and should not be used without it).
+    if config.ssh_profile.is_some() && config.ssh.is_none() && !config.kind.is_file_based() {
+        return Err(Error::Other("the SSH configuration of this connection was not resolved".into()));
+    }
     let Some(ssh_cfg) = config.ssh.as_ref().filter(|_| !config.kind.is_file_based()) else {
         return driver_for(config.kind).connect(config).await.map(|c| (c, Vec::new()));
     };

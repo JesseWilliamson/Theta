@@ -744,6 +744,34 @@ pub struct SshConfig {
     pub port: u16,
     pub user: String,
     pub auth: SshAuth,
+    /// Seconds between keep-alive packets on the SSH session; 0 turns them off. Defaults to
+    /// [`SshConfig::DEFAULT_KEEPALIVE_SECS`] so a file written before the setting existed still reads.
+    #[serde(default = "default_keepalive")]
+    pub keepalive_secs: u32,
+    /// A jump host: this server is reached through an SSH session to `via` (OpenSSH `ProxyJump`, one
+    /// hop per link). `None` connects directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<Box<SshConfig>>,
+}
+
+fn default_keepalive() -> u32 {
+    SshConfig::DEFAULT_KEEPALIVE_SECS
+}
+
+impl SshConfig {
+    pub const DEFAULT_KEEPALIVE_SECS: u32 = 30;
+
+    /// A direct SSH server with the default keep-alive.
+    pub fn new(host: impl Into<String>, port: u16, user: impl Into<String>, auth: SshAuth) -> Self {
+        Self {
+            host: host.into(),
+            port,
+            user: user.into(),
+            auth,
+            keepalive_secs: Self::DEFAULT_KEEPALIVE_SECS,
+            via: None,
+        }
+    }
 }
 
 /// Everything needed to open a connection. Secrets (`password`, SSH password /
@@ -773,8 +801,15 @@ pub struct ConnectionConfig {
     pub path: String,
     #[serde(default)]
     pub ssl_mode: SslMode,
+    /// An inline tunnel. Only read from files written before SSH configurations existed (the app turns
+    /// it into a reference at load) and for `--connect ... --ssh user@host`; the driver layer reads
+    /// the resolved tunnel from here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh: Option<SshConfig>,
+    /// The id of the saved SSH configuration this connection tunnels through. The app resolves it to
+    /// `ssh` just before connecting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh_profile: Option<String>,
     /// When set, the app refuses to run statements that write.
     #[serde(default)]
     pub read_only: bool,
@@ -800,6 +835,7 @@ impl ConnectionConfig {
             path: String::new(),
             ssl_mode: kind.default_ssl_mode(),
             ssh: None,
+            ssh_profile: None,
             read_only: false,
             color: None,
             transaction: TransactionConfig::default(),
