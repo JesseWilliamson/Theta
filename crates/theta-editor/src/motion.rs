@@ -142,6 +142,7 @@ pub fn chars_fwd(t: Text<'_>, from: usize) -> impl Iterator<Item = (usize, char)
 
 /// `f`/`t`/`F`/`T`: position of the n-th occurrence of `ch`. Returns the char index of the
 /// match (for `till` the neighbouring position is returned by the caller).
+#[cfg(test)]
 pub fn find_char(t: Text, from: usize, ch: char, count: usize, forward: bool) -> Option<usize> {
     let n = count.max(1);
     if forward {

@@ -52,6 +52,8 @@ pub(crate) struct HelixState {
     pub last_edit: Option<usize>,
     /// Insert mode, after ctrl-r: the next key names the register to paste.
     pub insert_register: bool,
+    /// The current command sequence entered Insert mode: only those are repeated by `.`, as in Helix.
+    pub entered_insert: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -66,7 +68,6 @@ pub(crate) enum Cmd {
     NextLongWordStart,
     PrevLongWordStart,
     NextLongWordEnd,
-    PrevWordEnd,
     FindNext,
     FindTill,
     FindPrev,
@@ -579,13 +580,14 @@ impl Editor {
         if self.hx.replaying == 0 {
             if self.hx.no_record {
                 // the `.` key itself must not overwrite what it replays
-            } else if self.hx.changed {
+            } else if self.hx.changed && self.hx.entered_insert {
                 self.hx.last_change = std::mem::take(&mut self.hx.cmd_keys);
             }
             self.hx.cmd_keys.clear();
         }
         self.hx.no_record = false;
         self.hx.changed = false;
+        self.hx.entered_insert = false;
     }
 
     pub(crate) fn helix_key(&mut self, k: &KeyInput) -> bool {
@@ -840,7 +842,6 @@ impl Editor {
             NextWordStart => self.word_cmd(WordKind::NextStart, false, cnt, extend),
             PrevWordStart => self.word_cmd(WordKind::PrevStart, false, cnt, extend),
             NextWordEnd => self.word_cmd(WordKind::NextEnd, false, cnt, extend),
-            PrevWordEnd => self.word_cmd(WordKind::PrevEnd, false, cnt, extend),
             NextLongWordStart => self.word_cmd(WordKind::NextStart, true, cnt, extend),
             PrevLongWordStart => self.word_cmd(WordKind::PrevStart, true, cnt, extend),
             NextLongWordEnd => self.word_cmd(WordKind::NextEnd, true, cnt, extend),
@@ -1640,6 +1641,7 @@ impl Editor {
     // ---- insert-entering commands ------------------------------------------------------------------------------
 
     fn start_insert(&mut self) {
+        self.hx.entered_insert = true;
         self.mode = Mode::Insert;
     }
 

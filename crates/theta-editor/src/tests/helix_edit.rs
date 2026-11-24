@@ -170,12 +170,15 @@ fn format_effect() {
 
 #[test]
 fn repeat_last_change() {
-    hx("#[a|]#aaa\n", "d.", "#[a|]#a\n");
+    // Helix's `.` repeats the last *insert* (the command that entered Insert mode and the keys typed),
+    // not `d`, `x`, `r` or `>` (helix-term/src/ui/editor.rs, `last_insert`).
+    hx("#[a|]#aaa\n", "d.", "#[a|]#aa\n");
     hx("#[a|]#bcd\n", "rx", "#[x|]#bcd\n");
     hx("#[a|]#b\n", "ix<esc>.", "xx#[|a]#b\n");
-    hx("#[a|]#\nb\nc\n", "xd.", "#[\n|]#c\n");
-    hx("#[a|]#\nb\n", ">j.", "    a\n    b#[\n|]#");
+    hx("#[a|]#\nb\nc\n", "xd.", "#[b|]#\nc\n");
+    hx("#[a|]#\nb\n", ">j.", "    a\nb#[\n|]#");
     hx("#[a|]#bc\n", "rx.", "#[x|]#bc\n");
+    hx("#[a|]#bc d\n", "cX<esc>w.", "XX#[d|]#\n");
 }
 
 #[test]

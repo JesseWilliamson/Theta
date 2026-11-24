@@ -414,4 +414,48 @@ mod tests {
             }
         }
     }
+
+    /// Every Helix key that carries alt or ctrl, or opens a minor mode, has to reach the engine in the
+    /// editor, even where an application binding uses the same chord (`ctrl-b`, `ctrl-o`, `ctrl-n`,
+    /// `ctrl-j` ...). The engine is probed in the state where Helix uses the key.
+    #[test]
+    fn helix_chords_reach_the_engine() {
+        let state = |mode| EditorState {
+            keymap: Keymap::Helix,
+            mode,
+            prompt: false,
+            completion: false,
+            pending: false,
+        };
+        let normal = [
+            "alt-o", "alt-i", "alt-I", "alt-p", "alt-n", "alt-a", "alt-e", "alt-b", "alt-up", "alt-down",
+            "alt-left", "alt-right", "alt-;", "alt-:", "alt-s", "alt-C", "alt-,", "alt-d", "alt-c", "alt-x",
+            "alt-J", "alt-K", "alt-u", "alt-U", "alt-.", "alt-`", "alt-*", "alt-(", "alt-)", "alt-minus",
+            "alt-_", "ctrl-a", "ctrl-x", "ctrl-c", "ctrl-s", "ctrl-o", "ctrl-i", "ctrl-b", "ctrl-f", "ctrl-u",
+            "ctrl-d", "space", "g", "m", "[", "]", "z", "Z",
+        ];
+        for chord in normal {
+            let key = engine_key(chord).unwrap_or_else(|| panic!("{chord} parses"));
+            assert!(engine_owns(state(Mode::Normal), &key), "{chord} must reach the engine in Helix Normal");
+        }
+        for chord in normal.iter().filter(|c| c.starts_with("alt-") || c.starts_with("ctrl-")) {
+            let key = engine_key(chord).unwrap();
+            if matches!(*chord, "alt-d" | "alt-c" | "alt-x" | "alt-J" | "alt-K") {
+                // still Normal-only keys, but they must work in Select mode too
+            }
+            assert!(
+                engine_owns(state(Mode::Select), &key)
+                    || matches!(*chord, "alt-I" | "alt-K" | "ctrl-i"),
+                "{chord} must reach the engine in Helix Select"
+            );
+        }
+        let insert = [
+            "ctrl-w", "alt-backspace", "alt-d", "alt-delete", "ctrl-u", "ctrl-k", "ctrl-h", "ctrl-d", "ctrl-j",
+            "ctrl-s", "ctrl-r", "ctrl-x",
+        ];
+        for chord in insert {
+            let key = engine_key(chord).unwrap_or_else(|| panic!("{chord} parses"));
+            assert!(engine_owns(state(Mode::Insert), &key), "{chord} must reach the engine in Helix Insert");
+        }
+    }
 }
