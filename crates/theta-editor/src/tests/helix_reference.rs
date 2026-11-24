@@ -1135,3 +1135,71 @@ fn alt_e_and_alt_b_move_to_the_edges_of_the_parent() {
 fn g_dot_goes_to_the_last_edit() {
         hx("one\ntwo\nthree\n#[|]#", "ggix<esc>jjg.", "x#[o|]#ne\ntwo\nthree\n");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Keys read from `helix-term/src/keymap/default.rs` and `commands.rs`.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn trim_selections_follows_helix() {
+    // `trim_selections`: whitespace-only and empty selections go, the rest is trimmed
+    hx("#[  ab  |]# #(   |)#", "_", "  #[ab|]#      ");
+    // nothing left: collapse and keep the primary one (the cursor stays on its block)
+    hx("#[ |]#x#( |)#y", "_", "#[ |]#x y");
+    // the primary is the first survivor that overlaps the old one, else the last
+    hx("#( a |)# #[ b |]# #( c |)#", "_", " #(a|)#   #[b|]#   #(c|)# ");
+}
+
+#[test]
+fn alt_u_and_alt_shift_u_travel_the_history() {
+    // Theta's history is linear, so `earlier` / `later` are undo / redo
+    hx("#[a|]#bc", "xd<A-u>", "#[abc|]#");
+    hx("#[a|]#bc", "xd<A-u><A-U>", "");
+}
+
+#[test]
+fn sticky_z_menu_stays_open_until_escape() {
+    let mut e = editor_from(Keymap::Helix, "#[a|]#\nb\nc\n");
+    let fx = feed(&mut e, "Zjj");
+    assert_eq!(fx.iter().filter(|x| matches!(x, Effect::Scroll(_))).count(), 2, "{fx:?}");
+    let fx = feed(&mut e, "<esc>zj");
+    assert_eq!(fx.iter().filter(|x| matches!(x, Effect::Scroll(_))).count(), 1);
+    // after Escape the menu is closed again: `j` moves down
+    feed(&mut e, "Zj<esc>j");
+    assert_eq!(state(&e), "a\n#[b|]#\nc\n");
+}
+
+#[test]
+fn g_n_and_g_p_switch_consoles() {
+    let fx = effects_of(Keymap::Helix, "#[a|]#", "gn");
+    assert_eq!(fx, vec![Effect::NextTab]);
+    let fx = effects_of(Keymap::Helix, "#[a|]#", "gp");
+    assert_eq!(fx, vec![Effect::PreviousTab]);
+}
+
+#[test]
+fn insert_mode_keys_from_the_default_keymap() {
+    // C-w / A-backspace: delete word backward; A-d / A-del: delete word forward
+    hx("foo bar#[ |]#", "i<C-w><esc>", "foo #[| ]#");
+    hx("foo bar#[ |]#", "i<A-backspace><esc>", "foo #[| ]#");
+    hx("#[f|]#oo bar", "i<A-d><esc>", "#[b|]#ar");
+    hx("#[f|]#oo bar", "i<A-del><esc>", "#[b|]#ar");
+    // C-u: kill to line start; C-k: kill to line end
+    hx("ab#[c|]#d", "a<C-u><esc>", "#[d|]#");
+    hx("a#[b|]#cd", "i<C-k><esc>", "a#[|]#");
+    // C-h = backspace, C-d = delete forward, C-j = enter
+    hx("ab#[c|]#", "a<C-h><esc>", "ab");
+    hx("#[a|]#bc", "i<C-d><esc>", "#[b|]#c");
+    hx("a#[b|]#", "a<C-j>x<esc>", "ab\nx");
+}
+
+#[test]
+fn insert_mode_ctrl_r_pastes_a_register_and_ctrl_s_splits_the_undo_step() {
+    let mut e = editor_from(Keymap::Helix, "#[a|]#");
+    e.registers.insert('q', vec!["XY".to_string()]);
+    feed(&mut e, "i<C-r>q<esc>");
+    assert_eq!(e.text(), "XYa");
+    // C-s: two undo steps for one insert session
+    hx("#[a|]#", "ix<C-s>y<esc>u", "xa");
+    hx("#[a|]#", "ix<C-s>y<esc>uu", "a");
+}

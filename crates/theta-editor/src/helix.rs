@@ -50,6 +50,8 @@ pub(crate) struct HelixState {
     pub object_sels: Vec<(u64, Selections)>,
     /// Where the last edit happened, for `g.`.
     pub last_edit: Option<usize>,
+    /// Insert mode, after ctrl-r: the next key names the register to paste.
+    pub insert_register: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -202,6 +204,8 @@ pub(crate) enum FxKind {
     Rename,
     CodeActions,
     ShowProblems,
+    NextTab,
+    PrevTab,
     NextProblem,
     PrevProblem,
     /// A `:` command of the host application (`Effect::HostCommand`), for space-menu entries that open
@@ -355,8 +359,8 @@ fn build_trie() -> Sub {
     r.bind("=", Format, "format selection");
     r.bind("J", Join, "join lines");
     r.bind("alt-J", JoinSpace, "join lines, select spaces");
-    r.bind("u", Undo, "undo");
-    r.bind("U", Redo, "redo");
+    r.bind("u alt-u", Undo, "undo");
+    r.bind("U alt-U", Redo, "redo");
     r.bind("ctrl-c", ToggleComments, "toggle line comments");
     r.bind("ctrl-a", Increment, "increment number");
     r.bind("ctrl-x", Decrement, "decrement number");
@@ -393,6 +397,8 @@ fn build_trie() -> Sub {
         g.bind(".", GotoLastEdit, "goto last modification");
         g.bind("d", Cmd::Fx(FxKind::GoToDefinition), "go to definition");
         g.bind("r", Cmd::Fx(FxKind::FindUsages), "find usages");
+        g.bind("n", Cmd::Fx(FxKind::NextTab), "next console");
+        g.bind("p", Cmd::Fx(FxKind::PrevTab), "previous console");
     }
     {
         let m = r.sub_mut("m", "Match");
@@ -621,7 +627,12 @@ impl Editor {
         self.hx.pending.push(k.clone());
         match lookup(trie(), &self.hx.pending) {
             Lookup::Leaf(cmd) => {
+                // `Z` is the sticky view mode: it stays open until Escape.
+                let sticky = self.hx.pending.len() > 1 && self.hx.pending[0] == KeyInput::ch('Z');
                 self.hx.pending.clear();
+                if sticky {
+                    self.hx.pending.push(KeyInput::ch('Z'));
+                }
                 let count = self.hx.count.take();
                 self.run(cmd, count);
                 if self.hx.await_.is_none() {
@@ -1256,6 +1267,8 @@ impl Editor {
             FxKind::Rename => self.effects.push(Effect::RenameSymbol),
             FxKind::CodeActions => self.effects.push(Effect::CodeActions),
             FxKind::ShowProblems => self.effects.push(Effect::ShowProblems),
+            FxKind::NextTab => self.effects.push(Effect::NextTab),
+            FxKind::PrevTab => self.effects.push(Effect::PreviousTab),
             FxKind::NextProblem => self.effects.push(Effect::NextProblem),
             FxKind::PrevProblem => self.effects.push(Effect::PreviousProblem),
             FxKind::Host(cmd) => self.effects.push(Effect::HostCommand(cmd.to_string())),
@@ -1552,29 +1565,35 @@ impl Editor {
         }
     }
 
+    /// `_`: trim whitespace from every selection and drop the ones that are only whitespace. When
+    /// nothing is left Helix collapses to the cursor and keeps the primary one. The primary becomes
+    /// the first survivor that overlaps the old primary, else the last survivor.
     fn trim_selections(&mut self) {
         let t = self.rope.slice(..);
+        let old_primary = self.sels.primary();
         let mut out = Vec::new();
-        let mut primary = 0;
-        for (i, s) in self.sels.v.iter().enumerate() {
+        for s in &self.sels.v {
             let (mut a, mut b) = (s.from(), s.to());
+            if a == b || (a..b).all(|i| t.char(i).is_whitespace()) {
+                continue;
+            }
             while a < b && t.char(a).is_whitespace() {
                 a += 1;
             }
             while b > a && t.char(b - 1).is_whitespace() {
                 b -= 1;
             }
-            if a < b {
-                if i == self.sels.primary {
-                    primary = out.len();
-                }
-                out.push(Selection::new(a, b).with_direction(s.is_forward()));
-            }
+            out.push(Selection::new(a, b).with_direction(s.is_forward()));
         }
         if out.is_empty() {
-            self.status("no selections remaining");
+            let p = Selection::point(self.sels.primary().block_cursor(t));
+            self.set_primary_only(p);
             return;
         }
+        let overlaps = |r: &Selection| {
+            r.from() == old_primary.from() || (r.to() > old_primary.from() && old_primary.to() > r.from())
+        };
+        let primary = out.iter().position(overlaps).unwrap_or(out.len() - 1);
         self.set_sels(Selections::new(out, primary));
     }
 

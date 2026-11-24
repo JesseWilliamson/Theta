@@ -375,6 +375,16 @@ impl Editor {
     /// Helix insert mode.
     pub(crate) fn insert_key(&mut self, k: &KeyInput) -> bool {
         let m = &k.modifiers;
+        if std::mem::take(&mut self.hx.insert_register) {
+            if let Some(c) = k.text_char() {
+                let vals = self.reg_read(Some(c));
+                if !vals.is_empty() {
+                    let joined = vals.join(self.line_ending);
+                    self.hx_insert_text(&joined);
+                }
+            }
+            return true;
+        }
         if let Some(c) = k.text_char() {
             self.type_char(c);
             return true;
@@ -397,6 +407,11 @@ impl Editor {
             (Key::Char('u'), true, false) => self.kill_to_line_start(),
             (Key::Char('k'), true, false) => self.kill_to_line_end(),
             (Key::Char('x'), true, false) => self.effects.push(Effect::RequestCompletion),
+            // ctrl-j is Enter; ctrl-s ends the undo step so far (the text typed next is a new step);
+            // ctrl-r waits for a register name and pastes that register.
+            (Key::Char('j'), true, false) => self.insert_newline(),
+            (Key::Char('s'), true, false) => self.commit_group(),
+            (Key::Char('r'), true, false) => self.hx.insert_register = true,
             (Key::Left, false, false) => self.move_horizontal(false, 1, false),
             (Key::Right, false, false) => self.move_horizontal(true, 1, false),
             (Key::Up, false, false) => self.move_vertical(false, 1, false),
