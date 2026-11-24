@@ -492,7 +492,7 @@ fn native_tool(
     if names.is_empty() {
         return (None, Some("this product has no native dump tool Theta can drive".into()));
     }
-    if config.ssh.is_some() {
+    if config.ssh.is_some() || config.ssh_profile.is_some() {
         return (
             None,
             Some(

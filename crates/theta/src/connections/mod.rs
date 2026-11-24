@@ -5,6 +5,8 @@
 //!
 //! * the list of saved [`ConnectionConfig`]s, persisted to
 //!   `<config_dir>/connections.json` **without secrets**;
+//! * the saved SSH configurations connections tunnel through, in `<config_dir>/ssh_configs.json`
+//!   (see [`ssh`]);
 //! * secrets, in the OS keychain (see [`secrets`]);
 //! * per-connection live state ([`ConnState`]) including the introspected catalog.
 //!
@@ -12,11 +14,13 @@
 
 pub mod folders;
 pub mod secrets;
+pub mod ssh;
 pub mod url;
 
 use crate::runtime;
 use gpui_kit::{Context, EventEmitter};
 use secrets::{Secret, SecretStore, strip_secrets};
+use ssh::{SshProfile, StoredSsh};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -100,8 +104,46 @@ pub struct ConnectionStore {
     /// Ids that are not written to disk (`--connect`).
     temporary: HashSet<String>,
     layout: folders::Layout,
+    /// Saved SSH configurations with secrets stripped (`ssh_configs.json`, next to `connections.json`).
+    ssh: Vec<SshProfile>,
     secrets: Arc<SecretStore>,
     path: Option<PathBuf>,
+}
+
+/// Where the SSH configurations are kept, given where the connections are.
+fn ssh_path_for(connections: &std::path::Path) -> PathBuf {
+    connections.with_file_name("ssh_configs.json")
+}
+
+/// Turns what the store holds into what the driver layer takes: the connection with its secrets and its
+/// saved SSH configuration resolved to a plain `SshConfig`. Cheap to clone into an async task, which is
+/// the only reason it exists apart from the store.
+#[derive(Clone)]
+pub struct Resolver {
+    profiles: Vec<SshProfile>,
+    secrets: Arc<SecretStore>,
+}
+
+impl Resolver {
+    /// `config` with the saved tunnel it names resolved into `ssh`. Secrets other than the tunnel's are
+    /// left as they are, so a form's unsaved password survives (Test Connection).
+    pub fn attach_ssh(&self, mut config: ConnectionConfig) -> Result<ConnectionConfig, Error> {
+        if let Some(id) = config.ssh_profile.as_deref().filter(|_| !config.kind.is_file_based()) {
+            config.ssh = Some(ssh::resolve(&self.profiles, &self.secrets, id)?);
+        }
+        Ok(config)
+    }
+
+    /// A saved SSH configuration as the driver takes it, jump hosts and secrets included.
+    pub fn ssh(&self, id: &str) -> Result<theta_core::SshConfig, Error> {
+        ssh::resolve(&self.profiles, &self.secrets, id)
+    }
+
+    /// The saved connection as the drivers take it: secrets filled in, tunnel resolved. The one place
+    /// that happens, just before connecting.
+    pub fn runnable(&self, config: &ConnectionConfig) -> Result<ConnectionConfig, Error> {
+        self.attach_ssh(self.secrets.with_secrets(config))
+    }
 }
 
 impl EventEmitter<StoreEvent> for ConnectionStore {}
@@ -186,6 +228,26 @@ impl ConnectionStore {
         let mut warning = None;
         let mut configs = Vec::new();
         let mut layout = folders::Layout::default();
+        let mut ssh_profiles = Vec::new();
+        if let Some(p) = &path {
+            let sp = ssh_path_for(p);
+            match std::fs::read_to_string(&sp) {
+                Ok(text) if text.trim().is_empty() => {}
+                Ok(text) => match serde_json::from_str::<StoredSsh>(&text) {
+                    Ok(stored) => ssh_profiles = stored.configs,
+                    Err(e) => {
+                        let backup = sp.with_extension("json.broken");
+                        let moved = std::fs::rename(&sp, &backup).is_ok();
+                        warning = Some(format!(
+                            "ssh_configs.json could not be read: {e}.{}",
+                            if moved { format!(" It was kept as {}.", backup.display()) } else { String::new() }
+                        ));
+                    }
+                },
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => warning = Some(theta_core::friendly::io_message(&e, &sp, theta_core::friendly::IoOp::Read)),
+            }
+        }
         if let Some(p) = &path {
             match std::fs::read_to_string(p) {
                 Ok(text) if text.trim().is_empty() => {}
@@ -217,15 +279,30 @@ impl ConnectionStore {
                 Err(e) => warning = Some(theta_core::friendly::io_message(&e, p, theta_core::friendly::IoOp::Read)),
             }
         }
+        // Files from before SSH configurations kept the tunnel inline in each connection.
+        let migrated = ssh::migrate_inline(&mut configs, &mut ssh_profiles, &secrets);
         let store = Self {
             configs,
             states: HashMap::new(),
             catalog_errors: HashMap::new(),
             temporary: HashSet::new(),
             layout,
+            ssh: ssh_profiles,
             secrets,
             path,
         };
+        if migrated && let Some(p) = &store.path {
+            // An older Theta cannot read references, so keep what it wrote, once.
+            let backup = p.with_extension("json.bak");
+            if !backup.exists() {
+                let _ = std::fs::copy(p, &backup);
+            }
+            // The configurations first: if the second write fails, the connections still carry their
+            // inline tunnel and the next start reuses the configurations written here.
+            if let Err(e) = store.write_ssh().and_then(|()| store.write_connections()) {
+                warning.get_or_insert(theta_core::friendly::io_message(&e, p, theta_core::friendly::IoOp::Write));
+            }
+        }
         (store, warning)
     }
 
@@ -273,15 +350,26 @@ impl ConnectionStore {
         id: &str,
     ) -> Option<impl std::future::Future<Output = Result<Arc<dyn Connection>, Error>> + use<>> {
         let config = self.config(id)?.clone();
-        let secrets = self.secrets.clone();
+        let resolver = self.resolver();
         Some(runtime::spawn_result(async move {
-            let config = secrets.with_secrets(&config);
+            let config = resolver.runnable(&config)?;
             // The reason is worded here, where the host and port are known; callers show it as it is.
             let (connection, _notices) = open_connection(&config)
                 .await
                 .map_err(|e| Error::Other(connect_failure_reason(&e, Some(&config))))?;
             Ok(Arc::from(connection))
         }))
+    }
+
+    pub fn resolver(&self) -> Resolver {
+        Resolver { profiles: self.ssh.clone(), secrets: self.secrets.clone() }
+    }
+
+    /// The saved connection as it is run, best effort, for wording an error: the tunnel's host is what
+    /// a failed tunnel's message names. Never fails; an unresolvable tunnel is just absent.
+    pub fn config_for_messages(&self, id: &str) -> Option<ConnectionConfig> {
+        let c = self.config_with_secrets(id)?;
+        Some(self.resolver().attach_ssh(c.clone()).unwrap_or(c))
     }
 
     pub fn catalog_error(&self, id: &str) -> Option<&Error> {
@@ -298,8 +386,8 @@ impl ConnectionStore {
 
     // ---- persistence ----
 
-    fn persist(&mut self, cx: &mut Context<Self>) {
-        let Some(path) = &self.path else { return };
+    fn write_connections(&self) -> std::io::Result<()> {
+        let Some(path) = &self.path else { return Ok(()) };
         let stored = StoredConnections {
             connections: self
                 .configs
@@ -313,12 +401,103 @@ impl ConnectionStore {
             folders: self.layout.folders.clone(),
         };
         let json = serde_json::to_string_pretty(&stored).unwrap_or_default() + "\n";
-        if let Err(e) = theta_ui::settings::write_atomic(path, json.as_bytes()) {
+        theta_ui::settings::write_atomic(path, json.as_bytes())
+    }
+
+    fn write_ssh(&self) -> std::io::Result<()> {
+        let Some(path) = self.path.as_deref().map(ssh_path_for) else { return Ok(()) };
+        let stored = StoredSsh { configs: self.ssh.iter().map(SshProfile::stripped).collect() };
+        let json = serde_json::to_string_pretty(&stored).unwrap_or_default() + "\n";
+        theta_ui::settings::write_atomic(&path, json.as_bytes())
+    }
+
+    fn persist(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.path.clone() else { return };
+        if let Err(e) = self.write_connections() {
             cx.emit(StoreEvent::Notice {
                 kind: NoticeKind::Error,
-                message: theta_core::friendly::io_message(&e, path, theta_core::friendly::IoOp::Write),
+                message: theta_core::friendly::io_message(&e, &path, theta_core::friendly::IoOp::Write),
             });
         }
+    }
+
+    fn persist_ssh(&mut self, cx: &mut Context<Self>) {
+        if let Err(e) = self.write_ssh() {
+            let path = self.path.as_deref().map(ssh_path_for).unwrap_or_default();
+            cx.emit(StoreEvent::Notice {
+                kind: NoticeKind::Error,
+                message: theta_core::friendly::io_message(&e, &path, theta_core::friendly::IoOp::Write),
+            });
+        }
+    }
+
+    // ---- SSH configurations ----
+
+    pub fn ssh_profiles(&self) -> &[SshProfile] {
+        &self.ssh
+    }
+
+    pub fn ssh_profile(&self, id: &str) -> Option<&SshProfile> {
+        self.ssh.iter().find(|p| p.id == id)
+    }
+
+    /// The configuration with its secrets filled in (for the edit dialog and the test button).
+    pub fn ssh_profile_with_secrets(&self, id: &str) -> Option<SshProfile> {
+        self.ssh_profile(id).map(|p| p.clone().with_secret(&self.secrets.load(&ssh::secret_key(id))))
+    }
+
+    /// The saved connections that depend on a configuration, directly or through a jump host.
+    pub fn ssh_users(&self, id: &str) -> Vec<&ConnectionConfig> {
+        ssh::users_of(&self.ssh, &self.configs, id)
+    }
+
+    /// Add a configuration (its secrets go to the keychain). Returns its id.
+    pub fn add_ssh(&mut self, mut profile: SshProfile, cx: &mut Context<Self>) -> String {
+        if profile.id.is_empty() {
+            profile.id = ssh::new_id();
+        }
+        let id = profile.id.clone();
+        self.secrets.save(&ssh::secret_key(&id), &profile.secret());
+        self.ssh.push(profile.stripped());
+        self.ssh_changed(cx);
+        id
+    }
+
+    /// Replace the configuration with the same id. Sessions that are open keep the tunnel they were
+    /// opened with; the change applies the next time a connection connects.
+    pub fn update_ssh(&mut self, profile: SshProfile, cx: &mut Context<Self>) {
+        let Some(slot) = self.ssh.iter_mut().find(|p| p.id == profile.id) else { return };
+        self.secrets.save(&ssh::secret_key(&profile.id), &profile.secret());
+        *slot = profile.stripped();
+        self.ssh_changed(cx);
+    }
+
+    pub fn duplicate_ssh(&mut self, id: &str, cx: &mut Context<Self>) -> Option<String> {
+        let mut copy = self.ssh_profile_with_secrets(id)?;
+        copy.id = ssh::new_id();
+        copy.name = ssh::unique_name(&self.ssh, &format!("{} copy", copy.name));
+        Some(self.add_ssh(copy, cx))
+    }
+
+    /// Delete a configuration. The connections that use it, and the configurations that jump through
+    /// it, are detached: they connect directly from now on. (The dialog tells the user first.)
+    pub fn remove_ssh(&mut self, id: &str, cx: &mut Context<Self>) {
+        for c in self.configs.iter_mut().filter(|c| c.ssh_profile.as_deref() == Some(id)) {
+            c.ssh_profile = None;
+        }
+        for p in self.ssh.iter_mut().filter(|p| p.via.as_deref() == Some(id)) {
+            p.via = None;
+        }
+        self.ssh.retain(|p| p.id != id);
+        self.secrets.remove(&ssh::secret_key(id));
+        self.persist(cx);
+        self.ssh_changed(cx);
+    }
+
+    fn ssh_changed(&mut self, cx: &mut Context<Self>) {
+        self.persist_ssh(cx);
+        cx.emit(StoreEvent::ListChanged);
+        cx.notify();
     }
 
     // ---- folders and order ----
@@ -496,9 +675,9 @@ impl ConnectionStore {
         let Some(config) = self.config(id).cloned() else { return };
         self.catalog_errors.remove(id);
         self.set_state(id, ConnState::Connecting, cx);
-        let secrets = self.secrets.clone();
+        let resolver = self.resolver();
         let work = runtime::spawn_result(async move {
-            let config = secrets.with_secrets(&config);
+            let config = resolver.runnable(&config)?;
             let (connection, notices) = open_connection(&config).await?;
             let connection: Arc<dyn Connection> = Arc::from(connection);
             let server = connection.server_info().await?;
@@ -542,7 +721,7 @@ impl ConnectionStore {
                     }
                     Err(e) => {
                         let name = this.config(&id).map(|c| c.name.clone()).unwrap_or_default();
-                        let reason = connect_failure_reason(&e, this.config_with_secrets(&id).as_ref());
+                        let reason = connect_failure_reason(&e, this.config_for_messages(&id).as_ref());
                         cx.emit(StoreEvent::Notice {
                             kind: NoticeKind::Error,
                             message: format!("Could not connect to {name}: {reason}"),
@@ -655,6 +834,24 @@ pub async fn test_connection(config: ConnectionConfig) -> Result<TestOutcome, Er
         Ok(TestOutcome { server_version: info?.version, latency })
     })
     .await
+}
+
+/// What "Test" says about an SSH configuration: how long the SSH login took, or why it failed in words
+/// for the user (and the driver's own text, when the sentence leaves something out).
+pub async fn test_ssh(config: theta_core::SshConfig) -> Result<Duration, (String, Option<String>)> {
+    let started = Instant::now();
+    // The wording of a tunnel error names the SSH server from a connection that has one; a stand-in
+    // carries it here, since only the SSH server is tested, not any database behind it.
+    let mut stand_in = ConnectionConfig::new("", "", theta_core::DatabaseKind::Postgres);
+    stand_in.ssh = Some(config.clone());
+    let result = runtime::spawn_result(async move { theta_drivers::ssh::check(&config).await.map(|_| ()) }).await;
+    match result {
+        Ok(()) => Ok(started.elapsed()),
+        Err(e) => {
+            let said = theta_core::friendly::connect_error(&e, Some(&stand_in));
+            Err((said.message, said.details))
+        }
+    }
 }
 
 /// A connection that does nothing, behind synthetic catalogs (`--stress-catalog`).
@@ -873,6 +1070,283 @@ mod tests {
             assert!(s.layout().folder_of.is_empty(), "the copy went back to the top level");
             assert!(s.config(&copy).is_some(), "deleting a folder never deletes connections");
         });
+    }
+}
+
+#[cfg(test)]
+mod ssh_store_tests {
+    use super::secrets::Secret;
+    use super::*;
+    use gpui_kit::{AppContext as _, TestAppContext};
+    use theta_core::{DatabaseKind, SshAuth};
+
+    /// A connections.json as the version before SSH configurations wrote it: the tunnel inline, no
+    /// secrets (the keychain holds the passphrase and the password).
+    const OLD_FORMAT: &str = r#"{
+  "connections": [
+    {"id": "c-prod", "name": "prod", "kind": "mysql", "host": "10.0.0.5", "port": 3306, "user": "app",
+     "database": "shop", "path": "", "ssl_mode": "prefer",
+     "ssh": {"host": "bastion.example.com", "port": 22, "user": "deploy",
+             "auth": {"method": "key_file", "path": "/home/me/.ssh/id_ed25519", "passphrase": null}},
+     "read_only": false},
+    {"id": "c-stage", "name": "stage", "kind": "postgres", "host": "10.0.1.5", "port": 5432, "user": "app",
+     "database": "shop", "path": "", "ssl_mode": "prefer",
+     "ssh": {"host": "bastion.example.com", "port": 22, "user": "deploy",
+             "auth": {"method": "key_file", "path": "/home/me/.ssh/id_ed25519", "passphrase": null}},
+     "read_only": true, "folder": "f1"},
+    {"id": "c-old", "name": "legacy", "kind": "postgres", "host": "db.old", "port": 5432, "user": "u",
+     "database": "", "path": "", "ssl_mode": "prefer",
+     "ssh": {"host": "gate.old", "port": 2222, "user": "ops", "auth": {"method": "password", "password": ""}}},
+    {"id": "c-direct", "name": "local", "kind": "postgres", "host": "localhost", "port": 5432, "user": "me",
+     "database": "", "path": "", "ssl_mode": "prefer"}
+  ],
+  "folders": [{"id": "f1", "name": "Staging"}]
+}"#;
+
+    fn seed_old_secrets(secrets: &SecretStore) {
+        secrets.save(
+            "c-prod",
+            &Secret {
+                password: Some("dbpw".into()),
+                ssh_passphrase: Some("key-phrase".into()),
+                ..Default::default()
+            },
+        );
+        secrets.save("c-stage", &Secret { ssh_passphrase: Some("key-phrase".into()), ..Default::default() });
+        secrets.save("c-old", &Secret { ssh_password: Some("gate-pw".into()), ..Default::default() });
+    }
+
+    fn old_store(dir: &std::path::Path) -> (ConnectionStore, Arc<SecretStore>, Option<String>) {
+        std::fs::write(dir.join("connections.json"), OLD_FORMAT).unwrap();
+        let secrets = Arc::new(SecretStore::memory_only());
+        seed_old_secrets(&secrets);
+        let (s, w) = ConnectionStore::load(Some(dir.join("connections.json")), secrets.clone());
+        (s, secrets, w)
+    }
+
+    #[test]
+    fn an_old_connections_file_becomes_shared_ssh_configurations_without_losing_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, secrets, warning) = old_store(dir.path());
+        assert!(warning.is_none(), "{warning:?}");
+
+        // Two connections with the same tunnel share one configuration; the third has its own.
+        assert_eq!(store.ssh_profiles().len(), 2);
+        let prod = store.config("c-prod").unwrap();
+        let stage = store.config("c-stage").unwrap();
+        assert_eq!(prod.ssh_profile, stage.ssh_profile);
+        let shared = store.ssh_profile(prod.ssh_profile.as_deref().unwrap()).unwrap();
+        assert_eq!(shared.name, "deploy@bastion.example.com:22");
+        assert_eq!(
+            (shared.host.as_str(), shared.port, shared.user.as_str()),
+            ("bastion.example.com", 22, "deploy")
+        );
+        let legacy = store.ssh_profile(store.config("c-old").unwrap().ssh_profile.as_deref().unwrap()).unwrap();
+        assert_eq!(legacy.name, "ops@gate.old:2222");
+        assert!(store.config("c-direct").unwrap().ssh_profile.is_none());
+        assert!(store.configs().iter().all(|c| c.ssh.is_none()), "no inline tunnel survives");
+
+        // Secrets moved to the configurations' own keychain keys; the connection keeps its password.
+        let with_secret = store.ssh_profile_with_secrets(&shared.id).unwrap();
+        assert_eq!(
+            with_secret.auth,
+            SshAuth::KeyFile { path: "/home/me/.ssh/id_ed25519".into(), passphrase: Some("key-phrase".into()) }
+        );
+        assert_eq!(
+            store.ssh_profile_with_secrets(&legacy.id).unwrap().auth,
+            SshAuth::Password { password: "gate-pw".into() }
+        );
+        assert_eq!(secrets.load("c-prod"), Secret { password: Some("dbpw".into()), ..Default::default() });
+        assert!(secrets.load("c-stage").is_empty() && secrets.load("c-old").is_empty());
+
+        // Resolution gives the driver the full tunnel.
+        let run = store.resolver().runnable(store.config("c-stage").unwrap()).unwrap();
+        let tunnel = run.ssh.unwrap();
+        assert_eq!(tunnel.host, "bastion.example.com");
+        assert_eq!(tunnel.auth, with_secret.auth);
+
+        // The files on disk: references, no inline tunnel, no secret anywhere; the old file is kept.
+        let connections = std::fs::read_to_string(dir.path().join("connections.json")).unwrap();
+        let configs = std::fs::read_to_string(dir.path().join("ssh_configs.json")).unwrap();
+        assert!(!connections.contains("\"ssh\"") && connections.contains("ssh_profile"), "{connections}");
+        assert!(connections.contains("Staging") && connections.contains("\"folder\": \"f1\""));
+        for text in [&connections, &configs] {
+            for secret in ["key-phrase", "gate-pw", "dbpw"] {
+                assert!(!text.contains(secret), "{secret} leaked: {text}");
+            }
+        }
+        let backup = std::fs::read_to_string(dir.path().join("connections.json.bak")).unwrap();
+        assert_eq!(backup, OLD_FORMAT);
+    }
+
+    #[test]
+    fn migrating_twice_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (first, secrets, _) = old_store(dir.path());
+        let ids: Vec<_> = first.ssh_profiles().iter().map(|p| p.id.clone()).collect();
+        let (again, w) = ConnectionStore::load(Some(dir.path().join("connections.json")), secrets);
+        assert!(w.is_none());
+        assert_eq!(again.ssh_profiles().iter().map(|p| p.id.clone()).collect::<Vec<_>>(), ids);
+        assert_eq!(again.config("c-prod").unwrap().ssh_profile, first.config("c-prod").unwrap().ssh_profile);
+    }
+
+    #[test]
+    fn an_interrupted_migration_reuses_the_configurations_already_written() {
+        // The configurations were written, the connections file still has the inline tunnels.
+        let dir = tempfile::tempdir().unwrap();
+        let (first, secrets, _) = old_store(dir.path());
+        let ids: Vec<_> = first.ssh_profiles().iter().map(|p| p.id.clone()).collect();
+        std::fs::write(dir.path().join("connections.json"), OLD_FORMAT).unwrap();
+        // The connection entries carry their secrets again, as they did before the first run.
+        seed_old_secrets(&secrets);
+        let (again, _) = ConnectionStore::load(Some(dir.path().join("connections.json")), secrets);
+        assert_eq!(again.ssh_profiles().iter().map(|p| p.id.clone()).collect::<Vec<_>>(), ids, "no duplicates");
+    }
+
+    fn profile(name: &str, secret: &str) -> SshProfile {
+        SshProfile::new(
+            name,
+            "jump.example",
+            "me",
+            SshAuth::KeyFile { path: "/k".into(), passphrase: Some(secret.into()) },
+        )
+    }
+
+    #[gpui_kit::test]
+    fn configurations_persist_without_secrets_and_come_back(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("connections.json");
+        let secrets = Arc::new(SecretStore::memory_only());
+        let id = {
+            let (s, _) = ConnectionStore::load(Some(path.clone()), secrets.clone());
+            let store = cx.new(|_| s);
+            store.update(cx, |s, cx| s.add_ssh(profile("Bastion", "p4ss"), cx))
+        };
+        let text = std::fs::read_to_string(dir.path().join("ssh_configs.json")).unwrap();
+        assert!(text.contains("Bastion") && !text.contains("p4ss"), "{text}");
+        let (again, w) = ConnectionStore::load(Some(path), secrets);
+        assert!(w.is_none());
+        assert_eq!(again.ssh_profile(&id).unwrap().name, "Bastion");
+        assert_eq!(
+            again.ssh_profile_with_secrets(&id).unwrap().auth,
+            SshAuth::KeyFile { path: "/k".into(), passphrase: Some("p4ss".into()) }
+        );
+    }
+
+    #[gpui_kit::test]
+    fn deleting_a_configuration_detaches_its_connections_and_removes_its_secret(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("connections.json");
+        let secrets = Arc::new(SecretStore::memory_only());
+        let (s, _) = ConnectionStore::load(Some(path.clone()), secrets.clone());
+        let store = cx.new(|_| s);
+        store.update(cx, |s, cx| {
+            let outer = s.add_ssh(profile("Outer", "o"), cx);
+            let mut inner = profile("Inner", "i");
+            inner.via = Some(outer.clone());
+            let inner = s.add_ssh(inner, cx);
+            for (id, ssh) in [("a", &outer), ("b", &outer), ("c", &inner)] {
+                let mut c = ConnectionConfig::new(id, id, DatabaseKind::Postgres);
+                c.ssh_profile = Some(ssh.clone());
+                s.add(c, cx);
+            }
+            s.add(ConnectionConfig::new("d", "d", DatabaseKind::Postgres), cx);
+            let users: Vec<_> = s.ssh_users(&outer).iter().map(|c| c.id.clone()).collect();
+            assert_eq!(users, ["a", "b", "c"], "c reaches the outer one through Inner");
+            assert_eq!(s.ssh_users(&inner).len(), 1);
+
+            s.remove_ssh(&outer, cx);
+            assert!(s.ssh_profile(&outer).is_none());
+            assert!(secrets.load(&ssh::secret_key(&outer)).is_empty());
+            assert_eq!(s.config("a").unwrap().ssh_profile, None);
+            assert_eq!(s.config("b").unwrap().ssh_profile, None);
+            assert_eq!(s.config("c").unwrap().ssh_profile.as_deref(), Some(inner.as_str()));
+            assert_eq!(s.ssh_profile(&inner).unwrap().via, None, "the jump host was detached");
+            assert_eq!(s.resolver().runnable(s.config("a").unwrap()).unwrap().ssh, None);
+        });
+        let (again, _) = ConnectionStore::load(Some(path), secrets);
+        assert_eq!(again.config("a").unwrap().ssh_profile, None);
+        assert_eq!(again.ssh_profiles().len(), 1);
+    }
+
+    #[gpui_kit::test]
+    fn duplicate_copies_the_secret_and_picks_a_free_name(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let secrets = Arc::new(SecretStore::memory_only());
+        let (s, _) = ConnectionStore::load(Some(dir.path().join("connections.json")), secrets.clone());
+        let store = cx.new(|_| s);
+        store.update(cx, |s, cx| {
+            let id = s.add_ssh(profile("Bastion", "p4ss"), cx);
+            let copy = s.duplicate_ssh(&id, cx).unwrap();
+            let again = s.duplicate_ssh(&id, cx).unwrap();
+            assert_eq!(s.ssh_profile(&copy).unwrap().name, "Bastion copy");
+            assert_eq!(s.ssh_profile(&again).unwrap().name, "Bastion copy (2)");
+            assert_eq!(secrets.load(&ssh::secret_key(&copy)).ssh_passphrase.as_deref(), Some("p4ss"));
+            // Editing the original leaves the copy alone.
+            let mut edited = s.ssh_profile_with_secrets(&id).unwrap();
+            edited.host = "elsewhere".into();
+            s.update_ssh(edited, cx);
+            assert_eq!(s.ssh_profile(&copy).unwrap().host, "jump.example");
+        });
+    }
+
+    #[test]
+    fn an_unresolved_reference_is_an_error_not_a_direct_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let (s, _) = ConnectionStore::load(
+            Some(dir.path().join("connections.json")),
+            Arc::new(SecretStore::memory_only()),
+        );
+        let mut c = ConnectionConfig::new("a", "a", DatabaseKind::Postgres);
+        c.ssh_profile = Some("gone".into());
+        assert!(s.resolver().runnable(&c).is_err());
+        // A file database never tunnels, so a stale reference on one does not matter.
+        let mut f = ConnectionConfig::new("f", "f", DatabaseKind::Sqlite);
+        f.ssh_profile = Some("gone".into());
+        assert!(s.resolver().runnable(&f).unwrap().ssh.is_none());
+    }
+
+    /// A connection that uses a shared SSH configuration reaches MariaDB through the tunnel. Needs the
+    /// local sshd and MariaDB (see crates/theta-drivers/tests/ssh/setup.sh): `THETA_TEST_SSH=1`.
+    #[test]
+    fn a_shared_configuration_reaches_mariadb_through_the_tunnel() {
+        if std::env::var("THETA_TEST_SSH").as_deref() != Ok("1") {
+            eprintln!("skipped: set THETA_TEST_SSH=1");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let keys = std::env::var("THETA_TEST_SSH_DIR").unwrap_or_else(|_| "/tmp/theta-ssh-test".into());
+        let port = std::env::var("THETA_TEST_SSH_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(2222);
+        let secrets = Arc::new(SecretStore::memory_only());
+        let (mut store, _) = ConnectionStore::load(Some(dir.path().join("connections.json")), secrets);
+        let mut p = SshProfile::new(
+            "local sshd",
+            "127.0.0.1",
+            "thetatest",
+            SshAuth::KeyFile { path: format!("{keys}/client_ed25519"), passphrase: None },
+        );
+        p.port = port;
+        let id = p.id.clone();
+        store.ssh.push(p);
+        let make = |cid: &str| {
+            let mut c = ConnectionConfig::new(cid, cid, DatabaseKind::MySql);
+            c.host = "127.0.0.1".into();
+            c.user = "quarry".into();
+            c.password = Some("quarry".into());
+            c.database = "quarry_demo".into();
+            c.ssh_profile = Some(id.clone());
+            c
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        for cid in ["first", "second"] {
+            let config = store.resolver().runnable(&make(cid)).unwrap();
+            assert!(config.ssh.is_some());
+            rt.block_on(async {
+                let (conn, _) = open_connection(&config).await.expect("connect through the shared tunnel");
+                assert!(!conn.server_info().await.unwrap().version.is_empty());
+                conn.close().await.unwrap();
+            });
+        }
     }
 }
 

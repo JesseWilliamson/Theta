@@ -763,7 +763,7 @@ impl Workspace {
                         let name = this.conn_name(&conn_id, cx);
                         let reason = crate::connections::connect_failure_reason(
                             &e,
-                            this.store.read(cx).config_with_secrets(&conn_id).as_ref(),
+                            this.store.read(cx).config_for_messages(&conn_id).as_ref(),
                         );
                         this.log(
                             &conn_id,

@@ -1421,7 +1421,7 @@ enum Generate {
 
 /// The error text of a failed connection (see `connect_failure_reason`).
 fn failure_text(e: &theta_core::Error, id: &str, store: &ConnectionStore) -> String {
-    crate::connections::connect_failure_reason(e, store.config_with_secrets(id).as_ref())
+    crate::connections::connect_failure_reason(e, store.config_for_messages(id).as_ref())
 }
 
 fn parse_hex_color(hex: &str) -> Option<gpui_kit::Hsla> {
