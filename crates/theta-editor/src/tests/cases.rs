@@ -28,7 +28,7 @@ hx_cases! {
     gl_on_empty_line_stays: "a\n#[\n|]#b\n", "gl" => "a\n#[\n|]#b\n";
     gl_extends_in_select_mode: "#[a|]#bc\n", "vgl" => "#[abc|]#\n";
     f_newline_key: "#[a|]#bc\ndef", "f<ret>" => "#[abc\n|]#def";
-    t_with_count: "#[a|]#xbxcx\n", "2tx" => "#[axb|]#xcx\n";
+    t_with_count: "#[a|]#xbxcx\n", "2tx" => "#[axbxc|]#x\n";
     capital_t_stops_after_char: "axbxc#[x|]#\n", "Tx" => "axbx#[|cx]#\n";
     semicolon_collapses_selection: "#[abc|]#d\n", ";" => "ab#[c|]#d\n";
     semicolon_collapses_backward_selection_to_cursor: "#[|abc]#d\n", ";" => "#[a|]#bcd\n";
@@ -47,7 +47,7 @@ hx_cases! {
     percent_on_empty_text: "#[|]#", "%" => "#[|]#";
     comma_keeps_primary_only: "#[a|]# #(b|)#\n", "," => "#[a|]# b\n";
     rotate_selections_wraps: "#(a|)# #(b|)# #[c|]#\n", ")" => "#[a|]# #(b|)# #(c|)#\n";
-    star_then_n_finds_next_word: "#[a|]#b ab\n", "*n" => "ab #[ab|]#\n";
+    star_then_n_finds_next_word: "#[a|]#b ab\n", "*n" => "ab #[a|]#b\n";
     n_without_pattern_reports: "#[a|]#b\n", "n" => "#[a|]#b\n";
     search_wraps_around: "ab #[a|]#b\n", "/ab<ret>" => "#[ab|]# ab\n";
     reverse_search_wraps_around: "#[a|]#b ab\n", "?ab<ret>" => "ab #[ab|]#\n";

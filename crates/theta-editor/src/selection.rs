@@ -115,6 +115,16 @@ impl Selection {
         }
     }
 
+    /// The union of two overlapping selections. Like Helix, the result points backwards only when
+    /// both inputs do; otherwise it is forward.
+    pub fn merge(&self, other: Selection) -> Selection {
+        if self.anchor > self.head && other.anchor > other.head {
+            Selection::new(self.anchor.max(other.anchor), self.head.min(other.head))
+        } else {
+            Selection::new(self.from().min(other.from()), self.to().max(other.to()))
+        }
+    }
+
     /// First and last line touched by the selection (the end is exclusive-aware).
     pub fn line_range(&self, t: Text) -> (usize, usize) {
         let from = self.from();
@@ -167,9 +177,7 @@ impl Selections {
                 let overlap = cur.from() < last.to()
                     || (cur.from() == last.to() && (cur.is_empty() || last.is_empty()));
                 if overlap {
-                    let (from, to) = (last.from(), last.to().max(cur.to()));
-                    *last =
-                        if cur.is_forward() { Selection::new(from, to) } else { Selection::new(to, from) };
+                    *last = cur.merge(*last);
                     if i == self.primary {
                         primary = out.len() - 1;
                     }

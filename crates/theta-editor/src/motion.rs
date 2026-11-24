@@ -153,6 +153,68 @@ pub fn find_char(t: Text, from: usize, ch: char, count: usize, forward: bool) ->
     }
 }
 
+/// Where Helix's `f`/`t`/`F`/`T` put the head, from the block cursor at `cursor`. `ch == None` is
+/// `<ret>`: the line ending, handled per line because a buffer may mix `\n` and `\r\n`.
+///
+/// Two details are easy to get wrong. A *till* search starts one character further than a *find*
+/// ("exclusive search skips the next char after the cursor to enable repeated application"), so `tl`
+/// next to an `l` jumps to the following one instead of standing still. And a backward till stops one
+/// character after the match, on the side of the cursor.
+pub fn find_target(
+    t: Text,
+    cursor: usize,
+    ch: Option<char>,
+    forward: bool,
+    till: bool,
+    count: usize,
+) -> Option<usize> {
+    let count = count.max(1);
+    let inclusive = !till;
+    let head = text::next_grapheme(t, cursor);
+    let Some(ch) = ch else {
+        let line = t.char_to_line(cursor);
+        return if forward {
+            let end = text::line_end(t, line);
+            let on_edge = if inclusive { end == cursor } else { end == head || end == cursor };
+            let target = line + count - 1 + usize::from(on_edge);
+            if target >= t.len_lines() - 1 {
+                return None;
+            }
+            Some(text::line_end(t, target) - usize::from(!inclusive))
+        } else if inclusive {
+            let target = line.checked_sub(count)?;
+            Some(text::line_end(t, target))
+        } else {
+            let on_edge = t.line_to_char(line) == cursor;
+            let target = (line + 1).checked_sub(count + usize::from(on_edge))?;
+            (target > 0).then(|| t.line_to_char(target))
+        };
+    };
+    let start = match (inclusive, forward) {
+        (true, true) => head,
+        (true, false) => cursor,
+        (false, true) => head + 1,
+        (false, false) => cursor.saturating_sub(1),
+    };
+    let found = if forward {
+        // The scan includes `start` itself.
+        (start < t.len_chars())
+            .then(|| chars_fwd(t, start).filter(|&(_, c)| c == ch).nth(count - 1).map(|(i, _)| i))
+            .flatten()?
+    } else {
+        // The scan stops before `start`.
+        if start == 0 {
+            return None;
+        }
+        chars_back(t, start - 1).filter(|&(_, c)| c == ch).nth(count - 1).map(|(i, _)| i)?
+    };
+    Some(match (inclusive, forward) {
+        (false, true) => found - 1,
+        (false, false) => found + 1,
+        _ => found,
+    })
+}
+
 pub fn is_blank(t: Text, line: usize) -> bool {
     text::is_blank_line(t, line)
 }

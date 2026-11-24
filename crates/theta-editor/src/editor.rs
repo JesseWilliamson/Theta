@@ -449,6 +449,9 @@ impl Editor {
         if let Some(s) = &mut self.snippet {
             s.map(&tx);
         }
+        if let Some(last) = tx.changes.last() {
+            self.hx.last_edit = Some(tx.map_pos(last.to, Assoc::After));
+        }
         let inverse = tx.apply(&mut self.rope);
         self.revision += 1;
         // A prompt's "restore on Esc" selections must follow the text they point into.

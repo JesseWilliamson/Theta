@@ -18,6 +18,7 @@ mod standard;
 mod syntax;
 mod text;
 mod transaction;
+mod tree;
 mod vim;
 
 #[cfg(test)]

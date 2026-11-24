@@ -34,7 +34,8 @@ pub(crate) struct HelixState {
     pub count: Option<usize>,
     pub reg: Option<char>,
     pub await_: Option<Await>,
-    pub last_find: Option<(char, bool, bool)>,
+    /// (char, or `None` for `<ret>`; forward; till)
+    pub last_find: Option<(Option<char>, bool, bool)>,
     pub jumps: Vec<Selections>,
     pub jump_idx: usize,
     pub macro_rec: Option<(char, Vec<KeyInput>)>,
@@ -45,6 +46,10 @@ pub(crate) struct HelixState {
     pub replaying: u32,
     pub no_record: bool,
     pub restore_cursor: bool,
+    /// Selections `alt-o` expanded from, so `alt-i` can give them back (valid for one revision).
+    pub object_sels: Vec<(u64, Selections)>,
+    /// Where the last edit happened, for `g.`.
+    pub last_edit: Option<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -96,6 +101,15 @@ pub(crate) enum Cmd {
     RotateFwd,
     RotateContentsBack,
     RotateContentsFwd,
+    ExpandSel,
+    GotoLastEdit,
+    ShrinkSel,
+    SelectAllChildren,
+    SelectAllSiblings,
+    PrevSibling,
+    NextSibling,
+    ParentEnd,
+    ParentStart,
     CopySelNext,
     CopySelPrev,
     SelectRegex,
@@ -273,7 +287,14 @@ fn build_trie() -> Sub {
     r.bind("W", NextLongWordStart, "next WORD start");
     r.bind("B", PrevLongWordStart, "previous WORD start");
     r.bind("E", NextLongWordEnd, "next WORD end");
-    r.bind("alt-e", PrevWordEnd, "previous word end");
+    r.bind("alt-o alt-up", ExpandSel, "expand selection to the parent syntax node");
+    r.bind("alt-i alt-down", ShrinkSel, "shrink selection to the first child");
+    r.bind("alt-I alt-shift-down", SelectAllChildren, "select all children");
+    r.bind("alt-p alt-left", PrevSibling, "select the previous sibling");
+    r.bind("alt-n alt-right", NextSibling, "select the next sibling");
+    r.bind("alt-a", SelectAllSiblings, "select all siblings");
+    r.bind("alt-e", ParentEnd, "move to the end of the parent node");
+    r.bind("alt-b", ParentStart, "move to the start of the parent node");
     r.bind("f", FindNext, "find next char");
     r.bind("t", FindTill, "till next char");
     r.bind("F", FindPrev, "find previous char");
@@ -369,6 +390,7 @@ fn build_trie() -> Sub {
         g.bind("j", LineDown, "move down");
         g.bind("k", LineUp, "move up");
         g.bind("|", GotoColumn, "goto column");
+        g.bind(".", GotoLastEdit, "goto last modification");
         g.bind("d", Cmd::Fx(FxKind::GoToDefinition), "go to definition");
         g.bind("r", Cmd::Fx(FxKind::FindUsages), "find usages");
     }
@@ -628,6 +650,7 @@ impl Editor {
             _ => None,
         };
         let extend = self.mode == Mode::Select;
+        let find_ch = if k.key == Key::Enter { None } else { ch };
         match aw {
             Await::Register => {
                 if let Some(c) = ch {
@@ -636,9 +659,9 @@ impl Editor {
                 }
             }
             Await::Find { forward, till } => {
-                if let Some(c) = ch {
-                    self.hx.last_find = Some((c, forward, till));
-                    self.find_char(c, forward, till, cnt, extend);
+                if ch.is_some() {
+                    self.hx.last_find = Some((find_ch, forward, till));
+                    self.find_char(find_ch, forward, till, cnt, extend);
                 }
             }
             Await::Replace => {
@@ -874,6 +897,12 @@ impl Editor {
                 self.push_jump();
                 self.transform_sels(|t, s| s.put_cursor(t, t.line_to_char(line), extend));
             }
+            GotoLastEdit => {
+                if let Some(p) = self.hx.last_edit {
+                    self.push_jump();
+                    self.transform_sels(|t, s| s.put_cursor(t, p.min(t.len_chars()), extend));
+                }
+            }
             GotoColumn => self.transform_sels(|t, s| {
                 let line = t.char_to_line(s.block_cursor(t));
                 let pos = (t.line_to_char(line) + cnt.saturating_sub(1)).min(text::line_end(t, line));
@@ -968,6 +997,8 @@ impl Editor {
                 self.sels.primary = p;
             }
             RotateContentsBack | RotateContentsFwd => self.rotate_contents(cmd == RotateContentsFwd, cnt),
+            ExpandSel | ShrinkSel | SelectAllChildren | SelectAllSiblings | PrevSibling | NextSibling
+            | ParentEnd | ParentStart => self.tree_command(cmd, extend),
             CopySelNext => self.copy_selection(true, cnt),
             CopySelPrev => self.copy_selection(false, cnt),
             SelectRegex => self.open_prompt(PromptKind::SelectRegex, "select:", "", cnt),
@@ -978,19 +1009,23 @@ impl Editor {
             Trim => self.trim_selections(),
             Align => self.align_selections(),
             MergeSelections => {
-                let (a, b) =
-                    (self.sels.v.first().map_or(0, |s| s.from()), self.sels.v.last().map_or(0, |s| s.to()));
-                self.set_primary_only(Selection::new(a, b));
+                if let (Some(first), Some(last)) = (self.sels.v.first().copied(), self.sels.v.last().copied()) {
+                    self.set_primary_only(first.merge(last));
+                }
             }
             MergeConsecutive => {
                 let mut out: Vec<Selection> = Vec::new();
-                for s in &self.sels.v {
+                let mut primary = 0;
+                for (i, s) in self.sels.v.iter().enumerate() {
                     match out.last_mut() {
-                        Some(l) if l.to() == s.from() => *l = Selection::new(l.from(), s.to()),
+                        Some(l) if l.to() == s.from() => *l = s.merge(*l),
                         _ => out.push(*s),
                     }
+                    if i == self.sels.primary {
+                        primary = out.len() - 1;
+                    }
                 }
-                self.set_sels(Selections::new(out, 0));
+                self.set_sels(Selections::new(out, primary));
             }
             SelectMode => {
                 if self.mode == Mode::Select {
@@ -1315,17 +1350,14 @@ impl Editor {
         });
     }
 
-    fn find_char(&mut self, ch: char, forward: bool, till: bool, cnt: usize, extend: bool) {
+    fn find_char(&mut self, ch: Option<char>, forward: bool, till: bool, cnt: usize, extend: bool) {
         self.transform_sels(|t, s| {
-            let start = if s.anchor < s.head { s.head - 1 } else { s.head };
-            let Some(mut pos) = motion::find_char(t, start, ch, cnt, forward) else { return *s };
-            if till {
-                pos = if forward { pos.saturating_sub(1) } else { pos + 1 };
-            }
+            let cursor = s.block_cursor(t);
+            let Some(pos) = motion::find_target(t, cursor, ch, forward, till, cnt) else { return *s };
             if extend {
                 s.put_cursor(t, pos, true)
             } else {
-                Selection::point(s.block_cursor(t)).min_width_1(t).put_cursor(t, pos, true)
+                Selection::point(cursor).put_cursor(t, pos, true)
             }
         });
     }
@@ -1388,6 +1420,87 @@ impl Editor {
         self.set_sels(sel);
         let n = self.sels.len();
         self.status(format!("{n} selections"));
+    }
+
+    /// The syntax-node commands (`alt-o` and friends); see `tree.rs` for what a node is.
+    fn tree_command(&mut self, cmd: Cmd, extend: bool) {
+        use crate::tree::Tree;
+        let tree = Tree::build(self.rope.slice(..));
+        let t = self.rope.slice(..);
+        let current = self.sels.clone();
+        let dir = |s: &Selection| s.is_forward();
+        let mut out: Vec<Selection> = Vec::new();
+        // Like Helix's `transform_iter`, the primary keeps its numeric index when a selection splits.
+        let primary = current.primary;
+        match cmd {
+            Cmd::ExpandSel => {
+                for s in &current.v {
+                    let (a, b) = tree.expand(s.from(), s.to());
+                    out.push(Selection::new(a, b).with_direction(dir(s)));
+                }
+                let next = Selections::new(out, primary);
+                if next != current {
+                    self.hx.object_sels.push((self.revision, current));
+                    self.set_sels(next);
+                }
+                return;
+            }
+            Cmd::ShrinkSel => {
+                if let Some((rev, prev)) = self.hx.object_sels.pop() {
+                    let inside = prev.v.len() == current.v.len()
+                        && prev.v.iter().zip(&current.v).all(|(p, c)| c.from() <= p.from() && p.to() <= c.to());
+                    if rev == self.revision && inside {
+                        self.set_sels(prev);
+                        return;
+                    }
+                    self.hx.object_sels.clear();
+                }
+                for s in &current.v {
+                    let (a, b) = tree.shrink(s.from(), s.to());
+                    out.push(Selection::new(a, b).with_direction(dir(s)));
+                }
+            }
+            Cmd::PrevSibling | Cmd::NextSibling => {
+                let next = cmd == Cmd::NextSibling;
+                for s in &current.v {
+                    let (a, b) = tree.sibling(s.from(), s.to(), next);
+                    out.push(Selection::new(a, b).with_direction(next));
+                }
+            }
+            Cmd::SelectAllSiblings | Cmd::SelectAllChildren => {
+                for s in &current.v {
+                    let spans = if cmd == Cmd::SelectAllSiblings {
+                        tree.all_siblings(s.from(), s.to())
+                    } else {
+                        tree.all_children(s.from(), s.to())
+                    };
+                    out.extend(spans.into_iter().map(|(a, b)| Selection::new(a, b).with_direction(dir(s))));
+                }
+            }
+            Cmd::ParentEnd | Cmd::ParentStart => {
+                let forward = cmd == Cmd::ParentEnd;
+                for s in &current.v {
+                    let (a, b) = tree.around(s.from(), s.to());
+                    let mut head = if forward {
+                        b
+                    } else if a == s.block_cursor(t) {
+                        tree.parent_start(s.from(), s.to()).0
+                    } else {
+                        a
+                    };
+                    out.push(if !extend {
+                        if s.is_forward() { Selection::new(head, head + 1) } else { Selection::new(head + 1, head) }
+                    } else {
+                        if head >= s.anchor {
+                            head += 1;
+                        }
+                        Selection::new(s.anchor, head)
+                    });
+                }
+            }
+            _ => return,
+        }
+        self.set_sels(Selections::new(out, primary));
     }
 
     fn rotate_contents(&mut self, fwd: bool, cnt: usize) {
@@ -1928,47 +2041,30 @@ impl Editor {
 
     // ---- search from selection ------------------------------------------------------------------------------------------
 
+    /// `*` / `A-*`: the selections, escaped, become the search pattern; nothing moves and Select
+    /// mode stays on, so `v*n` can add the next match. Like Helix, `\b` goes in front when the
+    /// selection starts at a word start and behind when it ends at a word end, whatever it holds;
+    /// a lone cursor searches for its single character (there is no "word under the cursor").
     fn search_from_selection(&mut self, word_boundaries: bool) {
         let t = self.rope.slice(..);
-        let mut parts = Vec::new();
+        let word = |c: char| text::is_word_char(c);
+        let at_word_start = |i: usize| i < t.len_chars() && word(t.char(i)) && (i == 0 || !word(t.char(i - 1)));
+        let at_word_end = |i: usize| i > 0 && i < t.len_chars() && word(t.char(i - 1)) && !word(t.char(i));
+        let mut parts: Vec<String> = Vec::new();
         for s in &self.sels.v {
-            let mut frag = self.rope.slice(s.from()..s.to()).to_string();
-            let mut is_word = word_boundaries;
-            if text::next_grapheme(t, s.from()) >= s.to() && word_boundaries {
-                // a bare cursor: use the word under it
-                let c = s.block_cursor(t);
-                if c < t.len_chars() && text::is_word_char(t.char(c)) {
-                    let (mut a, mut b) = (c, c + 1);
-                    while a > 0 && text::is_word_char(t.char(a - 1)) {
-                        a -= 1;
-                    }
-                    while b < t.len_chars() && text::is_word_char(t.char(b)) {
-                        b += 1;
-                    }
-                    frag = t.slice(a..b).to_string();
-                } else {
-                    is_word = false;
-                }
+            let prefix = if word_boundaries && at_word_start(s.from()) { "\\b" } else { "" };
+            let suffix = if word_boundaries && at_word_end(s.to()) { "\\b" } else { "" };
+            let part = format!("{prefix}{}{suffix}", regex::escape(&self.rope.slice(s.from()..s.to()).to_string()));
+            if !parts.contains(&part) {
+                parts.push(part);
             }
-            if frag.is_empty() {
-                continue;
-            }
-            let esc = regex::escape(&frag);
-            let all_word = frag.chars().all(text::is_word_char);
-            parts.push(if is_word && all_word { format!("\\b{esc}\\b") } else { esc });
         }
-        if parts.is_empty() {
-            self.status("nothing to search for");
-            return;
-        }
-        parts.dedup();
         let pat = parts.join("|");
         self.search.pattern = Some(pat.clone());
         if self.search.history.last() != Some(&pat) {
             self.search.history.push(pat.clone());
         }
-        self.status(format!("search pattern: {pat}"));
-        self.exit_select();
+        self.status(format!("register '/' set to '{pat}'"));
     }
 
     // ---- text objects & surround --------------------------------------------------------------------------------------------

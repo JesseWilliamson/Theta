@@ -12,6 +12,7 @@ mod helix_insert;
 mod helix_motion;
 mod helix_objects;
 mod helix_prompt;
+mod helix_reference;
 mod perf;
 mod snippets;
 mod standard;

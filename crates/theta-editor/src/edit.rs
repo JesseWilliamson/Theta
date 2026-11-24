@@ -261,9 +261,25 @@ impl Editor {
                 if from >= t.len_chars() {
                     return None;
                 }
-                Some(EditSpec { from, to: text::next_grapheme(t, from), text: String::new(), back: 0 })
+                let to = text::next_grapheme(t, from);
+                // Helix appends a line ending when the last character of the buffer goes, so a selection
+                // that ended there keeps its width.
+                let at_end = self.keymap == Keymap::Helix && s.head > s.anchor && to == t.len_chars();
+                let text = if at_end { self.line_ending.to_string() } else { String::new() };
+                Some(EditSpec { from, to, text, back: 0 })
             })
             .collect();
+        if self.keymap == Keymap::Helix {
+            // Deleting forward from the last character of a selection must not make it shrink: the text
+            // moves left under the selection (Helix `delete_by_selection_insert_mode`, Forward). The
+            // deletions above were computed from the cursors as they were.
+            let len = self.rope.len_chars();
+            for s in &mut self.sels.v {
+                if s.head > s.anchor && s.head < len {
+                    s.head += 1;
+                }
+            }
+        }
         self.apply_specs(specs);
     }
 

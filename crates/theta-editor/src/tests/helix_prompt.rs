@@ -85,7 +85,8 @@ fn search_history_with_up_down() {
 
 #[test]
 fn star_sets_search_register() {
-    hx("#[f|]#oo bar foo", "*n", "foo bar #[foo|]#");
+    // Helix: `*` searches the selection as it is, a lone cursor means its one character
+    hx("#[f|]#oo bar foo", "*n", "foo bar #[f|]#oo");
     hx("#[foo|]# foobar foo", "*n", "foo foobar #[foo|]#");
     hx("#[foo bar|]# x foo bar", "*n", "foo bar x #[foo bar|]#");
 }

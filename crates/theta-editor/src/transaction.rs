@@ -24,13 +24,19 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    /// Build from unsorted changes. Overlapping changes are dropped (first wins) so a buggy
-    /// command can never corrupt the buffer.
+    /// Build from unsorted changes. Two deletions that overlap become one deletion of the union (two
+    /// cursors whose `ctrl-w` reaches the same word, as in Helix); any other overlap drops the later
+    /// change (first wins), so a buggy command can never corrupt the buffer.
     pub fn new(mut changes: Vec<Change>) -> Self {
         changes.sort_by_key(|c| (c.from, c.to));
         let mut out: Vec<Change> = Vec::with_capacity(changes.len());
         for c in changes {
-            if out.last().is_some_and(|last| c.from < last.to) {
+            if let Some(last) = out.last_mut()
+                && c.from < last.to
+            {
+                if last.text.is_empty() && c.text.is_empty() {
+                    last.to = last.to.max(c.to);
+                }
                 continue;
             }
             out.push(c);
