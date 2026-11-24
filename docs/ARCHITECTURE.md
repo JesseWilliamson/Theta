@@ -356,6 +356,22 @@ one handler per action in `Workspace::render` (`crates/theta/src/workspace/mod.r
 - **Connection folders**: `connections/folders.rs` is the pure model (one level, order within a group is the
   list order); the store persists it in `connections.json` next to each connection (`folder` key), and
   `explorer/tree.rs::flatten_grouped` turns it into rows.
+- **SSH configurations**: a tunnel is a named, separately stored configuration that connections refer to by id,
+  as in DataGrip. `connections/ssh.rs` is the pure model (`SshProfile`, resolution, the one-time migration, the
+  `~/.ssh/config` import plan); the store keeps the list next to the connections in `ssh_configs.json`
+  (`ConnectionStore::{add,update,remove,duplicate}_ssh`). Secrets use the connection secret store under the key
+  `ssh:<id>` (`secrets.rs`), so neither file holds a password or passphrase. A connection carries only
+  `ConnectionConfig::ssh_profile`; `Resolver::runnable` fills in its secrets and turns the reference into the
+  plain `theta_core::SshConfig` (jump hosts nested in `via`) in one place, just before connecting
+  (`connect`, `open_side_connection`, and `attach_ssh` for the dialog's test), so `theta-drivers` still takes
+  an `SshConfig` and knows nothing of saved configurations. An unresolved reference is an error in
+  `connect_with_notices`, never a direct connection. Files written before this kept the tunnel inline in each
+  connection: `ConnectionStore::load` converts them (identical tunnels share one configuration, secrets move to
+  the new keys, `connections.json.bak` keeps the old file). A jump host is `SshConfig::via`;
+  `theta_drivers::ssh::open_chain` runs each further SSH session over a `direct-tcpip` channel of the one before
+  (`russh::client::connect_stream`), and `ssh::check` logs in without forwarding for the Test button.
+  `theta_drivers::ssh_config` is the pure OpenSSH config reader (`Include`, `Host` patterns, tokens) behind the
+  import. The dialogs are `dialogs/ssh_configs.rs` (manager), `ssh_edit.rs` and `ssh_import.rs`.
 - **Transactions**: `theta_core::txn` holds `TransactionConfig` (saved per connection) and builds the
   statements that start a transaction; `workspace/txn.rs` keeps the session override and `run.rs` issues them
   lazily in `execute_picks`, then asks `Connection::in_transaction` after every statement. No driver change.

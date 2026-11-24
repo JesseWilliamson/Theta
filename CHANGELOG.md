@@ -19,6 +19,19 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
   tile, simplified to a pixel tolerance (Douglas-Peucker or Visvalingam-Whyatt), sub-pixel polygons reduced, dense
   points thinned to a budget, deepest zoom reused. Options for detail, simplification, point budget and a tile-boundary
   overlay are in the Layers panel.
+- SSH configurations, managed apart from connections like DataGrip's. A tunnel is now a named configuration
+  (server, port, user, key file with optional passphrase, password or ssh-agent, keep-alive, and an optional jump
+  host to reach it through) stored in `ssh_configs.json`, with its secret in the keychain. Several connections can
+  use one: the connection dialog has *Use SSH tunnel* with a picker of the saved configurations and *New…*,
+  *Edit…* and *Manage…* buttons, and Test Connection uses the selected one. *SSH Configurations…* (Connection
+  menu and command palette) lists them with how many connections use each, and offers New, Edit, Duplicate,
+  Delete and a Test that logs in to the SSH server alone. Deleting a configuration that connections use names
+  them and then detaches them, so they connect directly.
+- *Import from ~/.ssh/config…* turns `Host` entries (with `Include`, `HostName`, `User`, `Port`, `IdentityFile`,
+  `ProxyJump` and the `%h %r %p %u` tokens) into configurations.
+- `--ssh NAME` tunnels a `--connect` connection through the saved SSH configuration called NAME. A `--ssh`
+  value that names no configuration, or a malformed `user@host`, now stops that connection from opening instead
+  of opening it without the tunnel.
 
 ### Fixed
 
@@ -48,6 +61,9 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
   `.` repeats only the last insert; `*` searches the selection as it is, keeps Select mode, and `\b` goes
   where the selection touches a word edge; `alt-e` / `alt-b` are the parent-node edges (previous word end
   was never a Helix key); merging overlapping selections keeps Helix's direction rule.
+- Connections saved with an inline SSH tunnel are converted to SSH configurations on first start: identical
+  tunnels become one shared configuration named `user@host:port`, their secrets move to the configuration's own
+  keychain entry, and the previous file is kept as `connections.json.bak`.
 - In Vim and Helix Insert one Escape closes the completion popup and returns to Normal mode.
   It took two before (Helix's own behaviour), so Escape's effect depended on whether a popup
   had appeared. The Standard keymap keeps Escape for the popup.

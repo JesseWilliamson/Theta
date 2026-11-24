@@ -2,6 +2,7 @@
 //! tunnel, options, URL paste, inline test and validation.
 
 use crate::connections::url::parse_connection_url;
+use super::ssh_edit::SshChoice;
 use crate::connections::{ConnectionStore, TestOutcome, new_connection_id, test_connection};
 use crate::explorer::db_icon;
 use crate::workspace::Workspace;
@@ -22,7 +23,7 @@ use gpui_kit::{
 use std::path::PathBuf;
 use theta_core::Family;
 use theta_core::txn::{SqliteBegin, TransactionConfig, isolation_levels};
-use theta_core::{ConnectionConfig, DatabaseKind, SshAuth, SshConfig, SslMode};
+use theta_core::{ConnectionConfig, DatabaseKind, SslMode};
 use theta_ui::DbKindIcon;
 
 const COLORS: [(&str, &str); 5] = [
@@ -81,7 +82,14 @@ fn path_hint(kind: DatabaseKind) -> String {
     if p.is_empty() { String::new() } else { format!("e.g. {p}") }
 }
 
-const SSH_AUTH_LABELS: [&str; 3] = ["Key file", "Password", "SSH agent"];
+/// The picker's rows: "None", then every saved SSH configuration.
+fn ssh_choices(profiles: &[crate::connections::ssh::SshProfile]) -> Vec<SshChoice> {
+    std::iter::once(SshChoice::none("None")).chain(profiles.iter().map(SshChoice::of)).collect()
+}
+
+fn ssh_signature(choices: &[SshChoice]) -> Vec<(Option<String>, String, String)> {
+    choices.iter().map(|c| (c.id.clone(), c.name.clone(), c.address.clone())).collect()
+}
 
 pub fn open(
     store: Entity<ConnectionStore>,
@@ -200,13 +208,12 @@ pub struct ConnectionForm {
     database: Entity<InputState>,
     path: Entity<InputState>,
     ssl: Entity<SelectState<Vec<&'static str>>>,
-    ssh_enabled: bool,
-    ssh_host: Entity<InputState>,
-    ssh_port: Entity<InputState>,
-    ssh_user: Entity<InputState>,
-    ssh_auth: Entity<SelectState<Vec<&'static str>>>,
-    ssh_key_path: Entity<InputState>,
-    ssh_secret: Entity<InputState>,
+    /// The saved SSH configurations, with "None" first: the value is the id of the one the connection
+    /// tunnels through, or `None` for a direct connection.
+    ssh: Entity<SelectState<SearchableVec<SshChoice>>>,
+    /// What the picker lists now, to tell a change in the saved configurations from the store's many
+    /// other notifications (a connection finishing, a catalog loading), which must not reset the test.
+    ssh_rows: Vec<(Option<String>, String, String)>,
     create_if_missing: bool,
     read_only: bool,
     /// Manual transactions by default for this connection (the title bar can still change it per session).
@@ -276,15 +283,6 @@ impl ConnectionForm {
         let c = existing
             .clone()
             .unwrap_or_else(|| ConnectionConfig::new(new_connection_id(), "", DatabaseKind::Postgres));
-        let ssh = c.ssh.clone();
-        let (ssh_key, ssh_secret, ssh_auth_ix) = match ssh.as_ref().map(|s| &s.auth) {
-            Some(SshAuth::KeyFile { path, passphrase }) => {
-                (path.clone(), passphrase.clone().unwrap_or_default(), 0)
-            }
-            Some(SshAuth::Password { password }) => (String::new(), password.clone(), 1),
-            Some(SshAuth::Agent) => (String::new(), String::new(), 2),
-            None => (String::new(), String::new(), 0),
-        };
         let info = c.kind.info();
         let port = if c.port == 0 { String::new() } else { c.port.to_string() };
         let ssl_ix = ssl_index(c.kind, c.ssl_mode);
@@ -298,13 +296,18 @@ impl ConnectionForm {
         let password = secret_input(window, cx, "Password", c.password.as_deref().unwrap_or(""));
         let database = input(window, cx, info.database_placeholder, &c.database);
         let path = input(window, cx, &path_hint(c.kind), &c.path);
-        let ssh_host =
-            input(window, cx, "bastion.example.com", ssh.as_ref().map(|s| s.host.as_str()).unwrap_or(""));
-        let ssh_port =
-            input(window, cx, "22", &ssh.as_ref().map(|s| s.port.to_string()).unwrap_or_else(|| "22".into()));
-        let ssh_user = input(window, cx, "ssh user", ssh.as_ref().map(|s| s.user.as_str()).unwrap_or(""));
-        let ssh_key_path = input(window, cx, "~/.ssh/id_ed25519", &ssh_key);
-        let ssh_secret = secret_input(window, cx, "Passphrase", &ssh_secret);
+        let ssh_choices = ssh_choices(store.read(cx).ssh_profiles());
+        // A reference to a configuration that is gone reads as "None".
+        let ssh_ix = c
+            .ssh_profile
+            .as_ref()
+            .and_then(|id| ssh_choices.iter().position(|ch| ch.id.as_ref() == Some(id)))
+            .unwrap_or(0);
+        let ssh_rows = ssh_signature(&ssh_choices);
+        let ssh = cx.new(|cx| {
+            SelectState::new(SearchableVec::new(ssh_choices), Some(IndexPath::new(ssh_ix)), window, cx)
+                .searchable(true)
+        });
         let kind_ix = DatabaseKind::ALL.iter().position(|k| *k == c.kind).unwrap_or(0);
         let kind_select = cx.new(|cx| {
             SelectState::new(
@@ -323,9 +326,6 @@ impl ConnectionForm {
                 window,
                 cx,
             )
-        });
-        let ssh_auth = cx.new(|cx| {
-            SelectState::new(SSH_AUTH_LABELS.to_vec(), Some(IndexPath::new(ssh_auth_ix)), window, cx)
         });
 
         let mut subscriptions = Vec::new();
@@ -350,11 +350,6 @@ impl ConnectionForm {
             &password,
             &database,
             &path,
-            &ssh_host,
-            &ssh_port,
-            &ssh_user,
-            &ssh_key_path,
-            &ssh_secret,
         ] {
             subscriptions.push(cx.subscribe_in(
                 input,
@@ -403,10 +398,15 @@ impl ConnectionForm {
             },
         ));
         subscriptions.push(cx.subscribe_in(
-            &ssh_auth,
+            &ssh,
             window,
-            |_, _, _: &gpui_kit::component::select::SelectEvent<Vec<&'static str>>, _, cx| cx.notify(),
+            |this, _, _: &gpui_kit::component::select::SelectEvent<SearchableVec<SshChoice>>, _, cx| {
+                this.forget_test(cx);
+                cx.notify();
+            },
         ));
+        // A configuration saved or deleted in the manager on top of this dialog shows up in the picker.
+        subscriptions.push(cx.observe_in(&store, window, |this, _, window, cx| this.refresh_ssh(None, window, cx)));
 
         // Probing the keychain can block on D-Bus, so do it off the UI thread.
         let secrets = store.read(cx).secrets();
@@ -435,13 +435,8 @@ impl ConnectionForm {
             database,
             path,
             ssl,
-            ssh_enabled: ssh.is_some(),
-            ssh_host,
-            ssh_port,
-            ssh_user,
-            ssh_auth,
-            ssh_key_path,
-            ssh_secret,
+            ssh,
+            ssh_rows,
             create_if_missing: false,
             read_only: c.read_only,
             manual_txn: c.transaction.manual,
@@ -470,11 +465,6 @@ impl ConnectionForm {
             "port" => Some(&self.port),
             "user" => Some(&self.user),
             "path" => Some(&self.path),
-            "ssh_host" => Some(&self.ssh_host),
-            "ssh_port" => Some(&self.ssh_port),
-            "ssh_user" => Some(&self.ssh_user),
-            "ssh_key" => Some(&self.ssh_key_path),
-            "ssh_secret" => Some(&self.ssh_secret),
             _ => None,
         };
         if let Some(input) = self.errors.iter().find_map(|(f, _)| field(f)) {
@@ -582,7 +572,6 @@ impl ConnectionForm {
             this.update_in(cx, |this, window, cx| {
                 let state = match target {
                     BrowseTarget::Database => &this.path,
-                    BrowseTarget::SshKey => &this.ssh_key_path,
                 };
                 Self::set_text(state, &path.to_string_lossy(), window, cx);
             })
@@ -655,47 +644,71 @@ impl ConnectionForm {
                     .unwrap_or_else(|| self.kind.default_ssl_mode());
             }
         }
-        if self.ssh_enabled && sections.ssh {
-            let host = self.text(&self.ssh_host, cx);
-            let user = self.text(&self.ssh_user, cx);
-            if host.is_empty() {
-                errors.push(("ssh_host", "Enter the SSH host.".into()));
-            }
-            if user.is_empty() {
-                errors.push(("ssh_user", "Enter the SSH user.".into()));
-            }
-            let port = match self.text(&self.ssh_port, cx).parse::<u16>() {
-                Ok(p) if p > 0 => p,
-                _ => {
-                    errors.push(("ssh_port", "SSH port must be between 1 and 65535.".into()));
-                    22
-                }
-            };
-            let secret = state_raw(&self.ssh_secret, cx);
-            let auth_ix = self.ssh_auth.read(cx).selected_index(cx).map(|i| i.row).unwrap_or(0);
-            let auth = match auth_ix {
-                1 => {
-                    if secret.is_empty() {
-                        errors.push(("ssh_secret", "Enter the SSH password.".into()));
-                    }
-                    SshAuth::Password { password: secret }
-                }
-                2 => SshAuth::Agent,
-                _ => {
-                    let key = self.text(&self.ssh_key_path, cx);
-                    if key.is_empty() {
-                        errors.push(("ssh_key", "Choose a private key file.".into()));
-                    }
-                    SshAuth::KeyFile { path: key, passphrase: (!secret.is_empty()).then_some(secret) }
-                }
-            };
-            config.ssh = Some(SshConfig { host, port, user, auth });
+        if sections.ssh {
+            config.ssh_profile = self.selected_ssh(cx);
         }
         if errors.is_empty() {
             Some(config)
         } else {
             self.errors = errors;
             None
+        }
+    }
+
+    /// The id of the SSH configuration picked in the dropdown, `None` for a direct connection.
+    fn selected_ssh(&self, cx: &gpui_kit::App) -> Option<String> {
+        self.ssh.read(cx).selected_value().cloned().flatten()
+    }
+
+    /// Rebuild the picker's rows from the store, keeping the choice (or selecting `pick`). A choice that
+    /// no longer exists falls back to "None".
+    fn refresh_ssh(&mut self, pick: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let explicit = pick.is_some();
+        let keep = pick.or_else(|| self.selected_ssh(cx));
+        let choices = ssh_choices(self.store.read(cx).ssh_profiles());
+        let signature = ssh_signature(&choices);
+        // Nothing to redraw when only the store's unrelated state changed.
+        if signature == self.ssh_rows && !explicit {
+            return;
+        }
+        self.ssh_rows = signature;
+        let ix = keep.and_then(|id| choices.iter().position(|c| c.id.as_ref() == Some(&id))).unwrap_or(0);
+        self.ssh.update(cx, |s, cx| {
+            s.set_items(SearchableVec::new(choices), window, cx);
+            s.set_selected_index(Some(IndexPath::new(ix)), window, cx);
+        });
+        self.forget_test(cx);
+        cx.notify();
+    }
+
+    /// New…: create a configuration and use it for this connection.
+    fn new_ssh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let view = cx.entity();
+        let done: super::ssh_edit::Saved = std::rc::Rc::new(move |id, window, cx| {
+            view.update(cx, |this, cx| this.refresh_ssh(Some(id), window, cx));
+        });
+        super::ssh_edit::open(self.store.clone(), None, None, Some(done), window, cx);
+    }
+
+    /// Edit…: the selected configuration; the note in the editor counts the connections other than this one.
+    fn edit_ssh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.selected_ssh(cx) else { return };
+        let this_connection = self.config_id.clone();
+        super::ssh_edit::open(self.store.clone(), Some(id), Some(this_connection), None, window, cx);
+    }
+
+    /// The switch: off means "None"; on picks the first configuration, or starts a new one when there is none.
+    fn set_ssh_on(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !on {
+            self.ssh.update(cx, |s, cx| s.set_selected_index(Some(IndexPath::new(0)), window, cx));
+            self.forget_test(cx);
+            cx.notify();
+        } else if self.store.read(cx).ssh_profiles().is_empty() {
+            self.new_ssh(window, cx);
+        } else {
+            self.ssh.update(cx, |s, cx| s.set_selected_index(Some(IndexPath::new(1)), window, cx));
+            self.forget_test(cx);
+            cx.notify();
         }
     }
 
@@ -773,6 +786,15 @@ impl ConnectionForm {
         self.test = TestState::Testing;
         cx.notify();
         let _ = window;
+        // The saved SSH configuration becomes the tunnel the driver takes, here as when connecting.
+        let config = match self.store.read(cx).resolver().attach_ssh(config) {
+            Ok(c) => c,
+            Err(e) => {
+                self.test = TestState::Failed(e.to_string(), None);
+                cx.notify();
+                return;
+            }
+        };
         let shown_config = config.clone();
         cx.spawn(async move |this, cx| {
             let result = test_connection(config).await;
@@ -806,10 +828,9 @@ fn state_raw(state: &Entity<InputState>, cx: &gpui_kit::App) -> String {
 #[derive(Clone, Copy)]
 enum BrowseTarget {
     Database,
-    SshKey,
 }
 
-fn field(
+pub(super) fn field(
     label: &'static str,
     control: impl IntoElement,
     error: Option<&String>,
@@ -992,8 +1013,11 @@ impl Render for ConnectionForm {
                     )
                 })
             })
-            // SSH tunnel (kinds that connect over a network)
+            // SSH tunnel (kinds that connect over a network): one of the saved configurations
             .when(sections.ssh, |d| {
+                let selected = self.selected_ssh(cx);
+                let on = selected.is_some();
+                let detail = selected.as_ref().and_then(|id| self.store.read(cx).ssh_profile(id).cloned());
                 d.child(div().h(px(1.)).bg(theme.border))
                     .child(
                         h_flex()
@@ -1008,72 +1032,41 @@ impl Render for ConnectionForm {
                                             .size(px(14.))
                                             .text_color(theme.muted_foreground),
                                     )
-                                    .child(div().font_weight(FontWeight::MEDIUM).child("SSH tunnel")),
+                                    .child(div().font_weight(FontWeight::MEDIUM).child("Use SSH tunnel")),
                             )
-                            .child(Switch::new("ssh-enabled").checked(self.ssh_enabled).on_change(
-                                cx.listener(|this, v, _, cx| {
-                                    this.ssh_enabled = *v;
-                                    cx.notify();
-                                }),
-                            )),
+                            .child(Switch::new("ssh-enabled").checked(on).on_change(cx.listener(
+                                |this, v, window, cx| this.set_ssh_on(*v, window, cx),
+                            ))),
                     )
-                    .when(self.ssh_enabled, |d| {
-                        let auth_ix = self.ssh_auth.read(cx).selected_index(cx).map(|i| i.row).unwrap_or(0);
-                        d.child(
+                    .when(on, |d| {
+                        d.child(field(
+                            "SSH configuration",
                             h_flex()
-                                .gap_3()
-                                .items_start()
-                                .child(field(
-                                    "SSH host",
-                                    Input::new(&self.ssh_host),
-                                    self.error_for("ssh_host"),
-                                    cx,
+                                .gap_2()
+                                .items_center()
+                                .child(div().flex_1().min_w_0().child(Select::new(&self.ssh).placeholder("None")))
+                                .child(Button::new("ssh-new").label("New…").on_click(
+                                    cx.listener(|this, _, window, cx| this.new_ssh(window, cx)),
                                 ))
-                                .child(div().w(px(110.)).child(field(
-                                    "Port",
-                                    Input::new(&self.ssh_port),
-                                    self.error_for("ssh_port"),
-                                    cx,
-                                ))),
-                        )
-                        .child(
-                            h_flex()
-                                .gap_3()
-                                .items_start()
-                                .child(field(
-                                    "User",
-                                    Input::new(&self.ssh_user),
-                                    self.error_for("ssh_user"),
-                                    cx,
+                                .child(Button::new("ssh-edit").label("Edit…").on_click(
+                                    cx.listener(|this, _, window, cx| this.edit_ssh(window, cx)),
                                 ))
-                                .child(field("Authentication", Select::new(&self.ssh_auth), None, cx)),
-                        )
-                        .when(auth_ix == 0, |d| {
-                            d.child(field(
-                                "Private key",
-                                h_flex()
-                                    .gap_2()
-                                    .child(div().flex_1().child(Input::new(&self.ssh_key_path)))
-                                    .child(Button::new("browse-key").label("Browse…").on_click(cx.listener(
-                                        |this, _, window, cx| this.browse(BrowseTarget::SshKey, window, cx),
-                                    ))),
-                                self.error_for("ssh_key"),
-                                cx,
-                            ))
-                            .child(field(
-                                "Passphrase",
-                                Input::new(&self.ssh_secret).mask_toggle(),
-                                None,
-                                cx,
-                            ))
-                        })
-                        .when(auth_ix == 1, |d| {
-                            d.child(field(
-                                "SSH password",
-                                Input::new(&self.ssh_secret).mask_toggle(),
-                                self.error_for("ssh_secret"),
-                                cx,
-                            ))
+                                .child(Button::new("ssh-manage").label("Manage…").on_click(
+                                    cx.listener(|this, _, window, cx| {
+                                        super::ssh_configs::open(this.store.clone(), window, cx)
+                                    }),
+                                )),
+                            None,
+                            cx,
+                        ))
+                        .when_some(detail, |d, p| {
+                            d.child(
+                                div().text_size(px(12.)).text_color(theme.muted_foreground).child(format!(
+                                    "{} · {}",
+                                    p.address(),
+                                    p.auth_label()
+                                )),
+                            )
                         })
                     })
             })

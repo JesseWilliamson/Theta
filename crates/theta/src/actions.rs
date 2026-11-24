@@ -79,6 +79,7 @@ actions!(
         // Server administration
         OpenSessions,
         OpenRoles,
+        OpenSshConfigurations,
         ExportDatabase,
         SearchTables,
         ShowDiagram,

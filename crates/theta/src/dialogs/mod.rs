@@ -12,6 +12,9 @@ pub mod params;
 pub mod script;
 pub mod search;
 pub mod settings;
+pub mod ssh_configs;
+pub mod ssh_edit;
+pub mod ssh_import;
 
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::v_flex;

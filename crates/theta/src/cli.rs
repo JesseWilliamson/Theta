@@ -17,7 +17,10 @@ Options:
   --ssh USER@HOST[:PORT] Tunnel the --connect connections through this SSH server (port 22
                          by default). Without --ssh-key the running ssh-agent
                          (SSH_AUTH_SOCK) authenticates.
-  --ssh-key PATH         Authenticate the --ssh tunnel with this private key file.
+  --ssh NAME             Tunnel them through the saved SSH configuration called NAME
+                         (SSH Configurations in the Connection menu). It brings its own
+                         user and key.
+  --ssh-key PATH         Authenticate a --ssh USER@HOST tunnel with this private key file.
   --run SQL              Run SQL once the first start-up connection is ready.
   --script FILE          Run the SQL in FILE once the first start-up connection is ready.
   --import FILE          Open the Import Data dialog on FILE once the first start-up
@@ -78,7 +81,7 @@ pub struct Args {
     pub modify: Option<String>,
     /// `--new-table [schema]`: open the editor on a new table once connected (inner `None`: default schema).
     pub new_table: Option<Option<String>>,
-    /// SSH tunnel for `--connect`: `user@host:port`.
+    /// SSH tunnel for `--connect`: `user@host:port`, or the name of a saved SSH configuration.
     pub ssh: Option<String>,
     /// Private key for the tunnel; without it the ssh-agent authenticates.
     pub ssh_key: Option<String>,
@@ -104,7 +107,7 @@ pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<A
             "--modify" => out.modify = Some(it.next().ok_or("--modify needs a table name")?),
             // The schema is optional: it is taken only when the next word is not another flag.
             "--new-table" => out.new_table = Some(it.next_if(|a| !a.starts_with('-'))),
-            "--ssh" => out.ssh = Some(it.next().ok_or("--ssh needs user@host:port")?),
+            "--ssh" => out.ssh = Some(it.next().ok_or("--ssh needs user@host:port or the name of an SSH configuration")?),
             "--ssh-key" => out.ssh_key = Some(it.next().ok_or("--ssh-key needs a path")?),
             "--theme" => out.theme = Some(it.next().ok_or("--theme needs a theme name")?),
             "--stress-catalog" => out.stress_catalog = Some(5000),
@@ -135,6 +138,9 @@ pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<A
     if out.ssh_key.is_some() && out.ssh.is_none() {
         return Err("--ssh-key needs --ssh user@host[:port]".into());
     }
+    if out.ssh_key.is_some() && out.ssh.as_deref().is_some_and(is_saved_ssh_name) {
+        return Err("--ssh-key goes with --ssh user@host[:port]; a saved SSH configuration has its own key".into());
+    }
     if out.into.is_some() && out.import.is_none() {
         return Err("--into needs --import FILE".into());
     }
@@ -155,9 +161,17 @@ pub fn parse(args: impl IntoIterator<Item = String>, env_demo: bool) -> Result<A
     Ok(out)
 }
 
+/// A `--ssh` value without an `@` names a saved SSH configuration; with one it is `user@host[:port]`.
+pub fn is_saved_ssh_name(spec: &str) -> bool {
+    !spec.contains('@')
+}
+
 /// The one line that says how the `--ssh` tunnel authenticates.
 pub fn ssh_auth_note(args: &Args) -> Option<String> {
     let ssh = args.ssh.as_ref()?;
+    if is_saved_ssh_name(ssh) {
+        return Some(format!("theta: SSH tunnel via the saved SSH configuration “{ssh}”"));
+    }
     Some(match &args.ssh_key {
         Some(key) => format!("theta: SSH tunnel via {ssh}, key file {key}"),
         None => format!("theta: SSH tunnel via {ssh}, no --ssh-key given: authenticating with ssh-agent"),
@@ -255,6 +269,16 @@ mod tests {
         let a = p(&["--connect", "postgres://h/d", "--ssh=bob@box", "--ssh-key", "/k"], false).unwrap();
         assert!(ssh_auth_note(&a).unwrap().contains("/k"));
         assert!(ssh_auth_note(&p(&[], false).unwrap()).is_none());
+    }
+
+    #[test]
+    fn ssh_can_name_a_saved_configuration() {
+        let a = p(&["--connect", "postgres://h/d", "--ssh", "Bastion"], false).unwrap();
+        assert_eq!(a.ssh.as_deref(), Some("Bastion"));
+        assert!(is_saved_ssh_name("Bastion") && !is_saved_ssh_name("bob@box"));
+        assert!(ssh_auth_note(&a).unwrap().contains("saved SSH configuration “Bastion”"));
+        let e = p(&["--connect", "x", "--ssh", "Bastion", "--ssh-key", "/k"], false).unwrap_err();
+        assert!(e.contains("own key"), "{e}");
     }
 
     #[test]

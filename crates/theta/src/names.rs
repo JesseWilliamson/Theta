@@ -13,6 +13,7 @@ pub const MODIFY_TABLE: &str = "Modify Table";
 pub const COPY_TABLE: &str = "Copy Table";
 pub const ROLES: &str = "Roles and Users";
 pub const SESSIONS: &str = "Sessions";
+pub const SSH_CONFIGURATIONS: &str = "SSH Configurations";
 pub const RUN_SQL_SCRIPT: &str = "Run SQL Script";
 pub const SEARCH_TABLES: &str = "Search Across Tables";
 pub const ER_DIAGRAM: &str = "ER Diagram";
@@ -38,6 +39,7 @@ const ALL: &[&str] = &[
     COPY_TABLE,
     ROLES,
     SESSIONS,
+    SSH_CONFIGURATIONS,
     RUN_SQL_SCRIPT,
     SEARCH_TABLES,
     ER_DIAGRAM,

@@ -169,8 +169,26 @@ fn startup_connections(
         match parse_connection_url(url) {
             Ok(parsed) => {
                 let mut config = parsed.into_config(new_connection_id(), None);
-                if let Some(ssh) = &args.ssh {
-                    config.ssh = parse_ssh(ssh, args.ssh_key.as_deref());
+                if let Some(spec) = &args.ssh {
+                    // A tunnel that was asked for and cannot be built must not turn into a direct
+                    // connection to a server that was meant to be reached through it.
+                    match ssh_for(spec, args.ssh_key.as_deref(), store.read(cx).ssh_profiles()) {
+                        Ok(Tunnel::Saved(id)) => config.ssh_profile = Some(id),
+                        Ok(Tunnel::Inline(ssh)) => config.ssh = Some(ssh),
+                        Err(e) => {
+                            eprintln!("theta: --ssh {spec}: {e}");
+                            let message = format!("--ssh: {e}");
+                            handle
+                                .update(cx, |_, window, cx| {
+                                    workspace.update(cx, |ws, cx| {
+                                        ws.record_notice(crate::panels::messages::MessageKind::Warning, "Start-up", &message, cx);
+                                        ws.notify(crate::connections::NoticeKind::Warning, message.clone(), window, cx);
+                                    })
+                                })
+                                .ok();
+                            continue;
+                        }
+                    }
                 }
                 store.update(cx, |s, cx| {
                     let id = s.add_temporary(config, cx);
@@ -262,6 +280,36 @@ pub fn synthetic_catalog(tables: usize) -> Catalog {
     }
 }
 
+/// The tunnel `--ssh` asked for.
+#[derive(Debug, PartialEq)]
+pub enum Tunnel {
+    /// A saved SSH configuration, by id.
+    Saved(String),
+    /// `user@host[:port]` given on the command line.
+    Inline(theta_core::SshConfig),
+}
+
+/// Resolve the `--ssh` value: the name of a saved SSH configuration (case does not matter), or
+/// `user@host[:port]` with the optional `--ssh-key`.
+pub fn ssh_for(
+    spec: &str,
+    key: Option<&str>,
+    saved: &[crate::connections::ssh::SshProfile],
+) -> Result<Tunnel, String> {
+    if crate::cli::is_saved_ssh_name(spec) {
+        return saved
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(spec))
+            .map(|p| Tunnel::Saved(p.id.clone()))
+            .ok_or_else(|| {
+                format!("there is no SSH configuration called “{spec}” (see SSH Configurations in the Connection menu).")
+            });
+    }
+    parse_ssh(spec, key)
+        .map(Tunnel::Inline)
+        .ok_or_else(|| "expected user@host or user@host:port, with a number as the port.".to_string())
+}
+
 /// `user@host[:port]` plus an optional key file.
 pub fn parse_ssh(spec: &str, key: Option<&str>) -> Option<theta_core::SshConfig> {
     let (user, rest) = spec.split_once('@')?;
@@ -274,7 +322,7 @@ pub fn parse_ssh(spec: &str, key: Option<&str>) -> Option<theta_core::SshConfig>
         Some(path) => theta_core::SshAuth::KeyFile { path: path.to_string(), passphrase: None },
         None => theta_core::SshAuth::Agent,
     };
-    Some(theta_core::SshConfig { host: host.to_string(), port, user: user.to_string(), auth })
+    Some(theta_core::SshConfig::new(host, port, user, auth))
 }
 
 #[cfg(test)]
@@ -288,5 +336,16 @@ mod tests {
         assert_eq!(parse_ssh("bob@box", Some("/k")).unwrap().port, 22);
         assert!(parse_ssh("nohost", Some("/k")).is_none());
         assert_eq!(parse_ssh("bob@box", None).unwrap().auth, theta_core::SshAuth::Agent);
+    }
+
+    #[test]
+    fn ssh_flag_picks_a_saved_configuration_by_name_or_builds_an_inline_one() {
+        use crate::connections::ssh::SshProfile;
+        let saved = vec![SshProfile::new("Bastion", "b.example", "me", theta_core::SshAuth::Agent)];
+        let id = saved[0].id.clone();
+        assert_eq!(ssh_for("bastion", None, &saved), Ok(Tunnel::Saved(id)));
+        assert!(ssh_for("nope", None, &saved).unwrap_err().contains("no SSH configuration called “nope”"));
+        assert!(matches!(ssh_for("bob@box:22", Some("/k"), &saved), Ok(Tunnel::Inline(_))));
+        assert!(ssh_for("bob@box:notaport", None, &saved).is_err(), "never a silent direct connection");
     }
 }

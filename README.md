@@ -76,9 +76,10 @@ Per-product behaviour (what is disabled and why) is in the [user guide](docs/USE
   Verify full (SQL Server and ClickHouse word them as Encryption and Protocol). A feature a product cannot do
   (EXPLAIN ANALYZE on Redshift, row editing on ClickHouse...) says so instead of sending SQL that fails, and a
   connection set up as the wrong product is warned about on connect.
-- SSH tunnels with a private key file (optionally with a passphrase), a password, or ssh-agent. Host keys
-  are checked against `~/.ssh/known_hosts`: an unknown host is recorded on first use, a changed key is
-  refused.
+- SSH tunnels with a private key file (optionally with a passphrase), a password, or ssh-agent, kept as named
+  **SSH configurations** apart from the connections: several connections share one, a configuration can reach
+  its server through a jump host, and `~/.ssh/config` can be imported. Host keys are checked against
+  `~/.ssh/known_hosts`: an unknown host is recorded on first use, a changed key is refused.
 - Passwords go to the operating-system keychain and never to `connections.json`. Without a keychain (for
   example a bare Linux session) they are kept in memory for the running session only, and the connection
   dialog says so.
@@ -340,7 +341,8 @@ Command-line flags:
 | `--run SQL` | run this SQL (every statement) once the first start-up connection is ready |
 | `--script FILE` | the same, from a file |
 | `--ssh user@host[:port]` | tunnel the `--connect` connections through SSH; without `--ssh-key` the running ssh-agent authenticates (Theta prints which) |
-| `--ssh-key PATH` | authenticate the `--ssh` tunnel with this private key file |
+| `--ssh NAME` | tunnel them through the saved SSH configuration called NAME (an `--ssh` value without `@`); the connection is not opened if there is no such configuration |
+| `--ssh-key PATH` | authenticate a `--ssh user@host` tunnel with this private key file |
 | `--import FILE` | once the first start-up connection is ready, open the Import Data dialog on a `.csv` / `.tsv` file |
 | `--into [SCHEMA.]TABLE` | with `--import`: import into this existing table instead of a new one |
 | `--modify [SCHEMA.]TABLE` | once connected, open the Modify Table editor on this table |
@@ -364,6 +366,7 @@ Theta keeps its files in one directory (override it with `THETA_CONFIG_DIR`):
 | --- | --- |
 | `settings.json` | theme, key map (Helix, Vim or Standard) and `vim.clipboard_unnamed`, fonts, row limit, map tile URL, formatter options (hand-editable; a bad key is ignored with a warning) |
 | `connections.json` | saved connections, without passwords |
+| `ssh_configs.json` | saved SSH configurations, without passwords or passphrases |
 | `themes/*.json` | imported or hand-written themes |
 | `history.jsonl` | statement history |
 | `consoles/` | one JSON file per open console |

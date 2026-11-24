@@ -76,6 +76,7 @@ pub fn groups() -> Vec<Group> {
                 item!(names::command("Connect"), ConnectTo),
                 item!("Disconnect", Disconnect),
                 item!("Refresh Schema", RefreshSchema),
+                item!(names::command(names::SSH_CONFIGURATIONS), OpenSshConfigurations),
                 Sep,
                 item!(names::command(names::SESSIONS), OpenSessions),
                 item!(names::command(names::ROLES), OpenRoles),

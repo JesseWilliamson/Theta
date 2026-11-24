@@ -65,7 +65,7 @@ where a focused view owns the keystroke (see [Who wins a key](#who-wins-a-key)).
 | `mod-shift-f` | format document |
 | `mod-q` | quit |
 
-These actions have no key: *Surround Selection with…*, *Edit Live Templates…*, *Transactions: Auto-commit*, *Transactions: Manual*, *Transaction Isolation Level…*, *New Connection Folder…*, *Move Connection to Folder…*, *Toggle Query Parameters*, *Connect…*, *Disconnect*, *Save Console As…*, *Begin Transaction*, *Commit
+These actions have no key: *Surround Selection with…*, *Edit Live Templates…*, *Transactions: Auto-commit*, *Transactions: Manual*, *Transaction Isolation Level…*, *New Connection Folder…*, *Move Connection to Folder…*, *Toggle Query Parameters*, *Connect…*, *Disconnect*, *SSH Configurations…*, *Save Console As…*, *Begin Transaction*, *Commit
 Transaction*, *Roll Back Transaction*, *Import Zed Theme…*, *Select Keymap…* and *Use Helix / Vim / Standard
 Keymap*, *Open Settings File*. Use the
 command palette. *Refresh Schema* and *Reopen Closed Tab* are also in the palette and menus; `:reopen` does the

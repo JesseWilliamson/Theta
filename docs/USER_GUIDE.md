@@ -5,7 +5,7 @@ listed in full in [KEYBINDINGS.md](KEYBINDINGS.md). `mod` means `cmd` on macOS a
 Names of menu items, buttons and dialog fields are written the way the application shows them. The
 examples use the demo database (`theta --demo`).
 
-Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH tunnel](#connect-through-an-ssh-tunnel) ·
+Contents: [The window](#the-window) · [Connect](#connect-to-a-database) · [SSH tunnel and configurations](#connect-through-an-ssh-tunnel) ·
 [Explorer](#the-explorer) · [Write and run SQL](#write-and-run-sql) · [Transactions](#transactions) ·
 [Editor keys](#editor-keys) · [Vim keymap](#vim-keymap) · [Results grid](#the-results-grid) · [Charts](#charts) · [Search across tables](#search-across-tables) ·
 [ER diagrams](#entity-relationship-diagrams) · [Compare schemas](#compare-two-schemas) · [Compare table rows](#compare-the-rows-of-two-tables) ·
@@ -70,7 +70,7 @@ round-trip time ("Connection successful · PostgreSQL 16.15 · 53 ms").
 | Database | database name; empty means the server default |
 | SSL mode | *Disable*; *Prefer* (try TLS, fall back to plain); *Require* (TLS, certificate not verified); *Verify full* (TLS, certificate chain and host name verified). SQL Server calls it *Encryption* (*Encrypt off*, *Encrypt on, trust server certificate*, *Encrypt on, verify certificate*) and ClickHouse *Protocol* (*HTTP*, *HTTPS*) |
 | Database file (SQLite, DuckDB) | *Browse…*, or turn on *Create if missing*; DuckDB also accepts `:memory:` |
-| SSH tunnel | see the next section |
+| Use SSH tunnel | pick a saved SSH configuration; see the next section |
 | Read-only | Theta refuses statements that change data or schema on this connection (see [Read-only connections](#read-only-connections)) |
 | Colour | none, red, orange, green, blue or purple; a coloured bar marks the connection in the title bar and explorer, handy for production |
 
@@ -136,18 +136,77 @@ database account when that matters.
 
 ## Connect through an SSH tunnel
 
-Turn on **SSH tunnel** in the connection dialog and fill in *SSH host*, *Port* (22), *User* and
-*Authentication*:
+An SSH tunnel is a saved **SSH configuration** that connections pick, the way DataGrip keeps SSH
+configurations apart from data sources. One configuration can serve many connections: edit it once and they
+all follow.
 
-- **Key file**: choose the private key under *Private key* (*Browse…*); *Passphrase* is optional and is
-  kept in the keychain.
+In the connection dialog turn on **Use SSH tunnel** and choose the configuration under *SSH configuration*;
+the picker lists each by name and `user@host:port`, and *None* (or switching the tunnel off) connects
+directly. Three buttons sit next to it:
+
+- **New…** creates a configuration and selects it for this connection.
+- **Edit…** edits the selected one. When other connections use it the editor says so ("2 other connections
+  use this configuration: stage and legacy. Changes apply the next time they connect.").
+- **Manage…** opens the list of all configurations (below).
+
+*Test Connection* uses the selected configuration, so it proves the tunnel and the database together. The
+main *Host* and *Port* are read **from the SSH server's point of view**: for a database on the SSH machine
+itself use `localhost`. Theta opens one SSH session and one local listener per connection and closes them
+when the connection closes. Host keys are checked against `~/.ssh/known_hosts`: an unknown host is accepted
+and recorded (Theta tells you), a *changed* key is refused. SQLite and DuckDB connections have no tunnel.
+
+### SSH Configurations
+
+*SSH Configurations…* is in the **Connection** menu, the command palette and the connection dialog (*Manage…*).
+It lists each configuration with its name, `user@host:port`, how it authenticates and how many connections use
+it. `up` / `down` (or `j` / `k`) move, `enter` or a double click edits.
+
+| Button | What it does |
+| --- | --- |
+| New… / Edit… | the editor: *Name* (empty means `user@host:port`), *SSH host*, *Port*, *User*, *Authentication*, *Jump host* and *Keep-alive* |
+| Duplicate | a copy named "… copy", with the same secret |
+| Delete… | removes the configuration and its stored secret. When connections use it, Theta first names them and says they will connect directly; after you confirm they are detached (they keep everything else) |
+| Test | logs in to the selected SSH server (and its jump host) without opening a database, and reports the time it took or why it failed |
+| Import from ~/.ssh/config… | see below |
+
+*Authentication* is one of:
+
+- **Key file**: the private key under *Private key* (*Browse…*); *Passphrase* is optional and is kept in the
+  keychain.
 - **Password**: *SSH password*, kept in the keychain.
 - **SSH agent**: uses the agent named by `SSH_AUTH_SOCK` (on Windows, the OpenSSH agent).
 
-The main *Host* and *Port* are then read **from the SSH server's point of view**: for a database on the SSH
-machine itself use `localhost`. Theta opens one SSH session and one local listener for the connection and
-closes them when the connection closes. Host keys are checked against `~/.ssh/known_hosts`: an unknown host
-is accepted and recorded (Theta tells you), a *changed* key is refused. SQLite connections have no tunnel.
+*Jump host* (OpenSSH's `ProxyJump`) reaches this server through another saved configuration: Theta logs in to the
+jump host first and runs the second SSH session inside a channel of the first. Chains work (a jump host can have its
+own jump host); *None* connects directly. *Keep-alive* is the number of seconds between keep-alive packets on the SSH
+session (30 by default, 0 for none). Changing a configuration does not touch sessions that are open; it applies the
+next time a connection connects.
+
+Secrets (passwords and key passphrases) go to the operating-system keychain under the configuration's own key,
+never to `ssh_configs.json`. Without a keychain the editor says "The secret will not be saved (no system keychain)".
+
+### Import from ~/.ssh/config
+
+*Import from ~/.ssh/config…* lists the `Host` entries of your OpenSSH client configuration (names with wildcards
+are skipped). Each shows `user@host:port` and either `key <path>` (its `IdentityFile`) or `ssh-agent`. Tick the
+entries you want (`space`, or click; `a` ticks all) and press *Import*: an entry with an `IdentityFile` becomes a key
+file configuration, any other one uses the ssh-agent, and the name is the `Host` alias. Theta follows `Include`,
+reads `HostName`, `User`, `Port`, `IdentityFile` and `ProxyJump`, expands `~` and the `%h`, `%r`, `%p`, `%u` tokens, and
+ignores every other directive (`ForwardAgent`, `Match` blocks and so on) without dropping the entry. A `ProxyJump` that
+names another `Host` you ticked (or a configuration that already has that name) becomes the jump host; a
+`user@host` jump or several hops are not imported as jumps. Entries whose server, user and port are already
+configured are marked "Already imported".
+
+### From older versions and from the command line
+
+Connections saved with an inline tunnel by an older Theta are converted when it starts: each becomes a reference to
+an SSH configuration named `user@host:port`, and connections with the identical tunnel share one. Their passwords
+and passphrases move to the new configuration's keychain entry, and the old file is kept as `connections.json.bak`.
+
+`theta --connect URL --ssh user@host[:port] [--ssh-key PATH]` still tunnels a temporary connection, and
+`theta --connect URL --ssh NAME` uses the saved configuration called NAME (without an `@`; case does not matter).
+If NAME does not exist, or the `user@host` form is malformed, that connection is not opened at all rather than
+opened without its tunnel.
 
 ## The explorer
 
@@ -1353,6 +1412,6 @@ usable.
 the explorer and pickers each own some keys, and the application's chords apply where they do not. See
 [KEYBINDINGS.md](KEYBINDINGS.md#who-wins-a-key).
 
-**Settings or connections seem lost.** A corrupt `connections.json` is renamed to `connections.json.broken` and
-a fresh file started. A settings file that is not valid JSON falls back to the defaults with a warning.
+**Settings or connections seem lost.** A corrupt `connections.json` (or `ssh_configs.json`) is renamed to
+`connections.json.broken` (`ssh_configs.json.broken`) and a fresh file started. A settings file that is not valid JSON falls back to the defaults with a warning.
 Keep a backup of the configuration directory if you need to restore either.

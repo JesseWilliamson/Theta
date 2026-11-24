@@ -1232,6 +1232,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &DropTable, window, cx| {
                 this.pick_table_for(palette::TablePurpose::Drop, window, cx)
             }))
+            .on_action(cx.listener(|this, _: &OpenSshConfigurations, window, cx| {
+                crate::dialogs::ssh_configs::open(this.store.clone(), window, cx)
+            }))
             .on_action(cx.listener(|this, _: &OpenSessions, window, cx| {
                 this.admin_from_palette("sessions", window, cx)
             }))
