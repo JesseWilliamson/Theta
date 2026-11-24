@@ -172,7 +172,7 @@ Counts work wherever Helix takes one. In Select mode (`v`) every motion extends.
 | --- | --- |
 | `h j k l`, arrows | char left / line down / line up / char right (vertical moves keep the goal column) |
 | `w b e` | next word start / previous word start / next word end |
-| `W B E` | same for WORDs (whitespace separated); `alt-e` previous word end |
+| `W B E` | same for WORDs (whitespace separated) |
 | `f t F T` + char | find / till char forward / backward (count = n-th); `alt-.` repeats |
 | `home` `end`, `gh` `gl` `gs` | line start / line end / first non-blank |
 | `gg` `ge` `G`, `<n>G` `<n>gg` | file start / last line / goto line |
@@ -221,7 +221,7 @@ Counts work wherever Helix takes one. In Select mode (`v`) every motion extends.
 | `=` | `Effect::FormatSelection` |
 | `J` `alt-J` | join lines / join and select the inserted spaces |
 | `u` `U` | undo / redo (counts repeat) |
-| `.` | repeat the last change (insert sessions, `r d c > <` ...) |
+| `.` | repeat the last insert (the command that entered Insert and the typed keys), as Helix |
 | `ctrl-a` `ctrl-x` | increment / decrement the number at or after the cursor (decimal with sign and zero padding, `0x` hex) |
 | `ctrl-c` | toggle `--` line comments |
 | `"<reg>` | choose a register for the next command |
@@ -242,7 +242,7 @@ Counts work wherever Helix takes one. In Select mode (`v`) every motion extends.
 | --- | --- |
 | `/` `?` | search forward / backward (prompt with live preview; `Esc` restores selections; `up`/`down` = history) |
 | `n` `N` | next / previous match (in Select mode the match is *added*) |
-| `*` `alt-*` | use the selection (or the word under a bare cursor) as the search pattern, with / without `\b` |
+| `*` `alt-*` | use the selections as the search pattern, with `\b` at word edges / without; a lone cursor searches its one character |
 
 Patterns are `regex`-crate syntax with smart-case (no uppercase letter in the pattern =
 case-insensitive) and multi-line anchors.
@@ -589,10 +589,10 @@ From Helix:
 * **Vertical motion** counts chars, not tab-expanded visual columns, and does not soft
   wrap (the view owns wrapping).
 * `ma`/`mi` text objects exist for words, paragraphs, brackets, quotes and `m`;
-  the tree-sitter objects (`f t a c e g x`) and tree-sitter motions (`alt-o/i/p/n`) do not.
-* `*` uses the word under a bare cursor (Helix needs an explicit selection).
+  the tree-sitter objects (`f t a c e g x`) do not. `alt-o/i/I/p/n/a/e/b` work on `tree.rs`, a structural scanner
+  of SQL (statements, clauses, item lists, calls, groups), not on tree-sitter.
 * Window, buffer, picker, LSP, DAP, shell-pipe (`| ! $`), `:`-commands for files and
-  `Z` sticky mode are out of scope.
+  are out of scope.
 * Counts are capped at 10 000.
 * `:sort` also sorts the lines of a multi-line selection.
 

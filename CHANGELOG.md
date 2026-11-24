@@ -8,6 +8,14 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Fixed
 
+- Helix `alt-o` did nothing. It, `alt-i`, `alt-I`, `alt-p`, `alt-n`, `alt-a`, `alt-e` and `alt-b` now expand,
+  shrink and walk a structural tree of the SQL (statements, clauses, item lists, calls, groups), also in
+  unfinished statements.
+- Helix `t` / `T` next to their target stood still (`tl` could not be repeated); `f<ret>` / `t<ret>` now find
+  line endings as Helix does; a forward delete in Insert mode no longer shrinks the selection, and several
+  cursors deleting overlapping words no longer lose one of the deletions.
+- Added Helix `g.`, `gn` / `gp` (next / previous console), `alt-u` / `alt-U`, the sticky `Z` view mode, and in Insert
+  mode `ctrl-j`, `ctrl-s` and `ctrl-r`; `_` collapses to the cursor when no selection is left.
 - Connecting to a MySQL or MariaDB server that offers TLS (MySQL 8 does by default), directly or
   through SSH, no longer fails with "Could not automatically determine the process-level
   CryptoProvider". Two rustls crypto back ends were compiled in and nothing chose between them;
@@ -20,6 +28,10 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Changed
 
+- Helix keymap, brought to Helix's own behaviour (tested against the cases of Helix's integration tests):
+  `.` repeats only the last insert; `*` searches the selection as it is, keeps Select mode, and `\b` goes
+  where the selection touches a word edge; `alt-e` / `alt-b` are the parent-node edges (previous word end
+  was never a Helix key); merging overlapping selections keeps Helix's direction rule.
 - In Vim and Helix Insert one Escape closes the completion popup and returns to Normal mode.
   It took two before (Helix's own behaviour), so Escape's effect depended on whether a popup
   had appeared. The Standard keymap keeps Escape for the popup.

@@ -453,19 +453,27 @@ Counts work wherever Helix takes one. In Select mode (`v`) every motion extends.
 | --- | --- |
 | `h j k l`, arrows | char left / line down / line up / char right (vertical moves keep the goal column) |
 | `w b e` | next word start / previous word start / next word end |
-| `W B E` | same for WORDs (whitespace separated); `alt-e` previous word end |
-| `f t F T` + char | find / till char forward / backward (count = n-th); `alt-.` repeats |
+| `W B E` | same for WORDs (whitespace separated) |
+| `f t F T` + char | find / till char forward / backward (count = n-th; `<ret>` finds line ends; a till next to its target jumps to the following one, so it repeats); `alt-.` repeats |
 | `home` `end`, `gh` `gl` `gs` | line start / line end / first non-blank |
 | `gg` `ge` `G`, `<n>G` `<n>gg`, `ctrl-home` `ctrl-end` | file start / last line / goto line (the ctrl keys are `gg` / `ge`; in Insert mode they put the caret at the very start / end of the document) |
 | `gt` `gc` `gb` | top / middle / bottom line of the viewport |
 | `g\|` | goto column |
 | `gj` `gk` | line down / up |
+| `g.` | go to the last edit |
+| `gn` `gp` | next / previous console |
 | `]p` `[p` | next / previous paragraph |
 | `[<space>` `]<space>` | add newline above / below |
 | `ctrl-d` `ctrl-u`, `ctrl-f` `ctrl-b`, `pagedown` `pageup` | half page / page |
 | `zz zc zm` `zt` `zb` `zj` `zk` (and `Z`) | scroll the view (centre, top, bottom, line down / up) |
 | `ctrl-o` `ctrl-i`/`tab` `ctrl-s` | jumplist back / forward / save (Normal and Select mode; in Insert mode `ctrl-o` is the application's *Open SQL File* on Linux and Windows) |
 | `mm` | jump to the matching bracket |
+| `alt-o` `alt-i` | expand the selection to the parent syntax node / shrink back (to what `alt-o` started from, else the first child) |
+| `alt-I` `alt-a` | select all children / all siblings |
+| `alt-p` `alt-n` (`alt-left` `alt-right`) | select the previous / next sibling |
+| `alt-e` `alt-b` | move to the end / start of the parent node (extends in Select mode) |
+
+Syntax nodes come from a forgiving scanner, not tree-sitter: statements, clauses (`select`, `from`, `where` ...), comma separated item lists, calls, bracket groups and dotted names. It works on unfinished SQL: an unclosed `(` runs to the end of its statement. Punctuation is not a node.
 
 #### Selections
 
@@ -482,7 +490,7 @@ Counts work wherever Helix takes one. In Select mode (`v`) every motion extends.
 | `s` `S` | select regex matches inside / split on regex (prompt, live preview) |
 | `alt-s` | split on newlines |
 | `K` `alt-K` | keep / remove selections matching a regex |
-| `_` | trim whitespace from selections |
+| `_` | trim whitespace from selections (selections that are only whitespace go; if none is left, collapse to the cursor) |
 | `&` | align selections into columns |
 | `alt--` `alt-_` | merge all / merge consecutive selections |
 | `v` | toggle Select mode |
@@ -501,8 +509,8 @@ Counts work wherever Helix takes one. In Select mode (`v`) every motion extends.
 | `>` `<` | indent / unindent by 4 spaces (count = levels, never indents empty lines) |
 | `=` | format the selection |
 | `J` `alt-J` | join lines / join and select the inserted spaces |
-| `u` `U` | undo / redo (counts repeat) |
-| `.` | repeat the last change (insert sessions, `r d c > <` ...) |
+| `u` `U` `alt-u` `alt-U` | undo / redo (counts repeat); the history is linear, so `alt-u` / `alt-U` are the same |
+| `.` | repeat the last insert: the command that entered Insert mode (`i a c o ...`) and what was typed. Like Helix, not `d`, `x`, `r` or `>` |
 | `ctrl-a` `ctrl-x` | increment / decrement the number at or after the cursor (decimal with sign and zero padding, `0x` hex) |
 | `ctrl-c` | toggle `--` line comments |
 | `"<reg>` | choose a register for the next command |
@@ -523,7 +531,7 @@ Counts work wherever Helix takes one. In Select mode (`v`) every motion extends.
 | --- | --- |
 | `/` `?` | search forward / backward (prompt with live preview; `Esc` restores selections; `up`/`down` = history) |
 | `n` `N` | next / previous match (in Select mode the match is *added*) |
-| `*` `alt-*` | use the selection (or the word under a bare cursor) as the search pattern, with / without `\b` |
+| `*` `alt-*` | use the selections as the search pattern, with `\b` at word edges / without (a lone cursor searches its one character, as in Helix; Select mode stays on, so `v*n` adds the next match) |
 
 Patterns are `regex`-crate syntax with smart-case (no uppercase letter in the pattern =
 case-insensitive) and multi-line anchors.
@@ -541,6 +549,9 @@ case-insensitive) and multi-line anchors.
 | `ctrl-u` `ctrl-k` | delete to line start / end |
 | arrows, `home`, `end`, `pageup`, `pagedown`, `alt-left/right` | move |
 | `ctrl-x` | open completion |
+| `ctrl-j` | newline |
+| `ctrl-s` | end the undo step (what you type next is a new step) |
+| `ctrl-r` `<reg>` | insert a register |
 | `esc` | back to Normal (see deviations for the cursor rule) |
 
 #### Space menu
