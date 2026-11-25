@@ -621,12 +621,17 @@ impl Drop for AggWorker {
     }
 }
 
+/// Data set, layer, weight column, zoom level.
+type FineKey = (u64, usize, Option<usize>, i32);
+/// Data set, layer, half-octave level, radius bits.
+type ClusterKey = (u64, usize, i32, u32);
+
 #[derive(Default)]
 struct Caches {
     sets: HashMap<(u64, usize), Arc<PointSet>>,
     weights: HashMap<(u64, usize, usize), Arc<Vec<f32>>>,
-    fine: Vec<((u64, usize, Option<usize>, i32), Arc<FineGrid>)>,
-    clusters: Vec<((u64, usize, i32, u32), Arc<Vec<Cluster>>)>,
+    fine: Vec<(FineKey, Arc<FineGrid>)>,
+    clusters: Vec<(ClusterKey, Arc<Vec<Cluster>>)>,
 }
 
 fn worker_loop(shared: Arc<AggShared>) {

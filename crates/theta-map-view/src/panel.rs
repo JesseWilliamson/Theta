@@ -135,6 +135,32 @@ impl MapPanel {
                 }
             }
         });
+        let mut tasks = vec![task, vtask, atask];
+        if std::env::var_os("THETA_MAP_STATS").is_some() {
+            // Benchmark aid: paint timing and worker counters once a second on stderr.
+            tasks.push(cx.spawn(async move |this, cx: &mut AsyncApp| {
+                loop {
+                    cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+                    let alive = this.update(cx, |this, _| {
+                        let (frames, avg, max) = this.take_paint_stats();
+                        let lp = this.take_layer_perf();
+                        if frames > 0 || lp.tiles_built > 0 {
+                            eprintln!(
+                                "map: {frames} frames, avg {avg:.2} ms, max {max:.2} ms; tiles built {} cached {} ({} KB) missing {}; aggregation {:.0} ms",
+                                lp.tiles_built,
+                                lp.tiles_cached,
+                                lp.tile_cache_bytes / 1024,
+                                lp.tiles_missing,
+                                lp.last_agg_ms
+                            );
+                        }
+                    });
+                    if alive.is_err() {
+                        break;
+                    }
+                }
+            }));
+        }
         MapPanel {
             core,
             focus: cx.focus_handle(),
@@ -143,7 +169,7 @@ impl MapPanel {
             menu: None,
             preparing: None,
             build_gen: 0,
-            _tasks: vec![task, vtask, atask],
+            _tasks: tasks,
         }
     }
 

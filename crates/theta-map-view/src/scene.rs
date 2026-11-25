@@ -451,6 +451,7 @@ impl Meshes {
 pub(crate) struct CellGrid {
     w: usize,
     h: usize,
+    cell: f64,
     layers: Vec<Vec<u8>>,
 }
 
@@ -458,13 +459,23 @@ const CELL: f64 = 2.0;
 
 impl CellGrid {
     pub(crate) fn new(sz: [f64; 2], layers: usize) -> Self {
-        let (w, h) = ((sz[0] / CELL).ceil() as usize + 1, (sz[1] / CELL).ceil() as usize + 1);
-        CellGrid { w, h, layers: (0..layers.max(1)).map(|_| vec![0u8; w * h]).collect() }
+        Self::with_cell(sz, layers, CELL)
+    }
+
+    /// A grid of `cell` px cells (coarser when there are very many points to draw).
+    pub(crate) fn with_cell(sz: [f64; 2], layers: usize, cell: f64) -> Self {
+        let (w, h) = ((sz[0] / cell).ceil() as usize + 1, (sz[1] / cell).ceil() as usize + 1);
+        CellGrid { w, h, cell, layers: (0..layers.max(1)).map(|_| vec![0u8; w * h]).collect() }
+    }
+
+    /// Cell side in px.
+    pub(crate) fn cell(&self) -> f64 {
+        self.cell
     }
 
     /// True the first time a cell is claimed.
     pub(crate) fn claim(&mut self, layer: usize, s: P) -> bool {
-        let (cx, cy) = ((s[0] / CELL).floor(), (s[1] / CELL).floor());
+        let (cx, cy) = ((s[0] / self.cell).floor(), (s[1] / self.cell).floor());
         if cx < 0.0 || cy < 0.0 || cx as usize >= self.w || cy as usize >= self.h {
             return false;
         }
@@ -485,6 +496,11 @@ fn paint_features(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window) {
     let legacy: Vec<bool> =
         (0..core.layers.len()).map(|l| !core.is_tiled(l) && !core.kind(l).is_aggregate()).collect();
     let is_legacy = |l: usize| legacy.get(l).copied().unwrap_or(true);
+    // Nothing to do (and no 500,000-id index walk to throw away) when every visible layer is
+    // drawn by the tiler or as an aggregate.
+    if !core.layers.iter().enumerate().any(|(l, ly)| ly.visible && is_legacy(l)) {
+        return;
+    }
     let mut buf: Vec<P> = Vec::new();
     let mut ids: Vec<u32> = Vec::new();
     let scale = cx.t.scale[0].abs();
@@ -650,6 +666,7 @@ fn paint_features(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window) {
             let op = core.style(f.layer).opacity;
             let color = slot_col(slot).opacity(op);
             let r = core.ls.radius_of[id];
+            let sized = core.style(f.layer).points.radius_by.is_some();
             let mut draw = |c: Coord| {
                 let s = cx.t.apply([c[0] + k, c[1]]);
                 if !inside(s) {
@@ -658,7 +675,7 @@ fn paint_features(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window) {
                 match cells.as_mut() {
                     Some(cells) => {
                         if cells.claim(f.layer, s) {
-                            squares_mesh.slot(slot).square(cx.pt(s), (r * 0.8).clamp(1.5, 6.0), color, window);
+                            squares_mesh.slot(slot).square(cx.pt(s), square_half(r, sized, cells.cell()), color, window);
                         }
                     }
                     None => circle(cx, s, r, color, 1.5, outline, window),
@@ -741,8 +758,7 @@ impl SlotInfo {
 
     pub(crate) fn color(&self, slot: usize) -> Hsla {
         let [r, g, b] = self.rgb[slot.min(self.rgb.len() - 1)];
-        let c = Hsla::from(gpui_kit::Rgba { r: f32::from(r) / 255.0, g: f32::from(g) / 255.0, b: f32::from(b) / 255.0, a: 1.0 });
-        c
+        Hsla::from(gpui_kit::Rgba { r: f32::from(r) / 255.0, g: f32::from(g) / 255.0, b: f32::from(b) / 255.0, a: 1.0 })
     }
 
     pub(crate) fn layer_of(&self, slot: usize) -> usize {
@@ -825,6 +841,13 @@ pub(crate) fn paint_tiled_highlights(core: &mut Core, cx: &Cx, sz: [f64; 2], win
             paint_single(cx, k, &geom, &style, sz, &mut buf, window);
         }
     }
+}
+
+/// Half-side of the square a dense point is drawn as. Squares are claimed one per 2 px cell, so
+/// sizing them to the cell keeps neighbours from covering each other (which would let the
+/// colour class painted last win everywhere); only an explicit size-by column makes them larger.
+pub(crate) fn square_half(r: f32, sized: bool, cell: f64) -> f32 {
+    if sized { (r * 0.6).clamp(1.25, 6.0) } else { (cell / 2.0) as f32 + 0.25 }
 }
 
 pub(crate) fn stroke_path(cx: &Cx, pts: &[P], closed: bool, width: f32, color: Hsla, window: &mut Window) {

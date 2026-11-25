@@ -390,7 +390,14 @@ pub fn tiling_enabled(t: &TilingOptions, features: usize, vertices: usize) -> bo
     }
 }
 
+/// A viewport-sized world rectangle used by the timing tests.
 #[cfg(test)]
+pub fn tests_rect() -> theta_geo::BBox {
+    theta_geo::BBox { min: [0.4, 0.3], max: [0.62, 0.42] }
+}
+
+#[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
@@ -463,10 +470,4 @@ mod tests {
         let on = TilingOptions { mode: TilingMode::On, ..t };
         assert!(tiling_enabled(&on, 1, 1));
     }
-}
-
-/// A viewport-sized world rectangle used by the timing tests.
-#[cfg(test)]
-pub fn tests_rect() -> theta_geo::BBox {
-    theta_geo::BBox { min: [0.4, 0.3], max: [0.62, 0.42] }
 }

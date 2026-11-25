@@ -6,7 +6,7 @@ use crate::core::Core;
 use crate::layerstate::AggState;
 use crate::scene::{
     CIRCLE_LIMIT, CellGrid, Cx, MARGIN, MIN_POLY_HALF, Meshes, SlotInfo, Strokes, circle, fill_path, line_pieces,
-    paint_text, polygon_rings,
+    paint_text, polygon_rings, square_half,
 };
 use crate::style::LayerKind;
 use crate::tiler::{Shape, Tile, TileId, TileJob, TileKey, TileOpts};
@@ -112,6 +112,15 @@ fn snapped(cx: &Cx, a: [f64; 2], b: [f64; 2]) -> [f64; 4] {
     [(ox + x0).round() - ox, (oy + y0).round() - oy, (ox + x1).round() - ox, (oy + y1).round() - oy]
 }
 
+/// The nearest cached ancestor of tile `id` (up to six levels up), drawn while the tile itself
+/// is being built.
+fn stand_in(core: &Core, layer: usize, opts: u64, id: TileId) -> Option<Arc<Tile>> {
+    (1..=6u8).find_map(|up| {
+        let (anc, _) = id.ancestor(up)?;
+        core.ls.tiles.peek(&TileKey { layer, opts, id: anc }).cloned()
+    })
+}
+
 /// Draw the layers that use the tile pyramid and request the tiles the view needs.
 pub fn paint_tiled(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window, app: &mut App) {
     core.ls.drawn.clear();
@@ -124,10 +133,10 @@ pub fn paint_tiled(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window, 
     let mut plan: Vec<TileKey> = Vec::new();
     let mut queued: HashSet<TileKey> = HashSet::new();
     let mut missing = 0;
-    let mut cells = CellGrid::new(sz, core.ls.n_slots.max(1));
     let mut many_points = 0usize;
     // First pass: decide tiles, queue missing ones and count points for the marker style.
-    let mut layer_tiles: Vec<(usize, TileOpts, Vec<(f64, TileId)>)> = Vec::new();
+    type LayerTiles = (usize, TileOpts, Vec<(f64, TileId)>);
+    let mut layer_tiles: Vec<LayerTiles> = Vec::new();
     for layer in 0..core.layers.len() {
         if !core.layers[layer].visible || !core.is_tiled(layer) {
             continue;
@@ -150,6 +159,17 @@ pub fn paint_tiled(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window, 
                 Some(t) => many_points += t.points.len(),
                 None => {
                     missing += 1;
+                    // The stand-in ancestor will be drawn for this tile: its points in the tile's
+                    // box count towards the marker style (otherwise a zoom step would paint
+                    // thousands of circles from a stand-in).
+                    if let Some(t) = stand_in(core, layer, opts_key, *id) {
+                        let b = src.space.bounds(*id);
+                        many_points += t
+                            .points
+                            .iter()
+                            .filter(|(_, c)| c[0] >= b.min[0] && c[0] <= b.max[0] && c[1] >= b.min[1] && c[1] <= b.max[1])
+                            .count();
+                    }
                     for up in [3u8, 2] {
                         if let Some((a, _)) = id.ancestor(up) {
                             let ak = TileKey { layer, opts: opts_key, id: a };
@@ -175,6 +195,10 @@ pub fn paint_tiled(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window, 
         core.ls.pool.set_wanted(coarse);
     }
     let squares = many_points > CIRCLE_LIMIT;
+    // Above ~30,000 markers the grid coarsens so a world-wide view of half a million points
+    // stays at a bounded number of squares (and frame time).
+    let cell = if many_points > 30_000 { ((sz[0] * sz[1]) / 30_000.0).sqrt().clamp(2.0, 8.0) } else { 2.0 };
+    let mut cells = CellGrid::with_cell(sz, core.ls.n_slots.max(1), cell);
     let mut buf: Vec<[f64; 2]> = Vec::new();
     for (layer, opts, vis) in layer_tiles {
         let st = core.style(layer).clone();
@@ -185,19 +209,10 @@ pub fn paint_tiled(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window, 
             let c = cx.t.apply([b.max[0] + k, b.max[1]]);
             let rect = snapped(cx, a, c);
             let key = TileKey { layer, opts: opts_key, id };
+            let cull_box = BBox { min: [b.min[0] - 0.0, b.min[1]], max: b.max };
             let (tile, exact) = match core.ls.tiles.peek(&key) {
                 Some(t) => (Some(t.clone()), true),
-                None => {
-                    let mut found = None;
-                    for up in 1..=6u8 {
-                        let Some((anc, _)) = id.ancestor(up) else { break };
-                        if let Some(t) = core.ls.tiles.peek(&TileKey { layer, opts: opts_key, id: anc }) {
-                            found = Some(t.clone());
-                            break;
-                        }
-                    }
-                    (found, false)
-                }
+                None => (stand_in(core, layer, opts_key, id), false),
             };
             let Some(tile) = tile else { continue };
             core.ls.drawn.push((layer, tile.clone()));
@@ -215,7 +230,14 @@ pub fn paint_tiled(core: &mut Core, cx: &Cx, sz: [f64; 2], window: &mut Window, 
                 size: size(px((rect[2] - rect[0]) as f32), px((rect[3] - rect[1]) as f32)),
             };
             window.with_content_mask(Some(ContentMask { bounds: mask }), |window| {
-                draw_tile(core, cx, &info, layer, &tile, k, src.space.bounds(id), squares, &mut cells, &mut buf, window);
+                // A stand-in ancestor is drawn once per missing child: only its points inside the
+                // child's box (plus the buffer) are worth painting each time.
+                let buffer = crate::tiler::BUFFER_PX * src.space.px_world(id.z);
+                let cull = (!exact).then_some(BBox {
+                    min: [cull_box.min[0] - buffer, cull_box.min[1] - buffer],
+                    max: [cull_box.max[0] + buffer, cull_box.max[1] + buffer],
+                });
+                draw_tile(core, cx, &info, layer, &tile, k, src.space.bounds(id), cull, squares, &mut cells, &mut buf, window);
             });
         }
     }
@@ -232,6 +254,7 @@ fn draw_tile(
     tile: &Arc<Tile>,
     k: f64,
     own: BBox,
+    cull: Option<BBox>,
     squares: bool,
     cells: &mut CellGrid,
     buf: &mut Vec<[f64; 2]>,
@@ -240,6 +263,7 @@ fn draw_tile(
     let n = core.ls.n_slots.max(1);
     let st = core.style(layer);
     let scatter = st.kind == LayerKind::Points;
+    let sized = st.points.radius_by.is_some();
     let (fill_a, op) = info.fill_alpha(core, layer);
     let mut fills = Meshes::new(n);
     let mut boxes = Meshes::new(n);
@@ -293,7 +317,7 @@ fn draw_tile(
                 let s = cx.t.apply([c[0] + k, c[1]]);
                 let slot = core.slot(*fid as usize);
                 let r = core.ls.radius_of[*fid as usize];
-                marker(cx, cells, &mut marks, layer, slot, s, r, info.color(slot).opacity(op), squares, white, &inside, window);
+                marker(cx, cells, &mut marks, layer, slot, s, r, info.color(slot).opacity(op), squares, sized, white, &inside, window);
             }
         }
     }
@@ -302,10 +326,15 @@ fn draw_tile(
     outlines.flush(|s| info.color(s).opacity(op.max(0.3)), window);
     lines.flush(|s| info.color(s).opacity(op), window);
     for (fid, c) in &tile.points {
+        if let Some(b) = &cull
+            && (c[0] < b.min[0] || c[0] > b.max[0] || c[1] < b.min[1] || c[1] > b.max[1])
+        {
+            continue;
+        }
         let s = cx.t.apply([c[0] + k, c[1]]);
         let slot = core.slot(*fid as usize);
         let r = core.ls.radius_of[*fid as usize];
-        marker(cx, cells, &mut marks, layer, slot, s, r, info.color(slot).opacity(op), squares, white, &inside, window);
+        marker(cx, cells, &mut marks, layer, slot, s, r, info.color(slot).opacity(op), squares, sized, white, &inside, window);
     }
     marks.flush(|s| info.color(s).opacity(op), window);
 }
@@ -321,6 +350,7 @@ fn marker(
     r: f32,
     color: Hsla,
     squares: bool,
+    sized: bool,
     rim: Hsla,
     inside: &dyn Fn([f64; 2]) -> bool,
     window: &mut Window,
@@ -332,7 +362,7 @@ fn marker(
         // One marker per screen cell and layer, whatever its colour class, so dense areas are not
         // painted class by class on top of each other.
         if cells.claim(layer, s) {
-            marks.slot(slot).square(cx.pt(s), (r * 0.8).clamp(1.5, 6.0), color, window);
+            marks.slot(slot).square(cx.pt(s), square_half(r, sized, cells.cell()), color, window);
         }
     } else {
         circle(cx, s, r, color, 1.5, rim, window);

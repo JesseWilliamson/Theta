@@ -3,16 +3,17 @@
 //!     cargo run -p theta-map-view --example map_demo -- [--theme "Theta Light"]
 //!         [--cities | --planar | --utm | --mixed | --stress N | --points N | --polys N] [--select ROW]
 //!         [--kind auto|points|heatmap|hexagons|grid|clusters] [--color-by COLUMN] [--tiles on|off]
-//!         [--boundaries] [--bin-value sum|mean|count] [--pan] [--zoom]
+//!         [--boundaries] [--bin-value sum|mean|count] [--simplify off|vw]
 //!
 //! `THETA_WINDOW_SIZE=WxH` sets the window size, like the app. `THETA_TILE_URL_OVERRIDE`
 //! replaces the tile URL template (point it at an unreachable host to see offline behaviour).
+
+#![allow(clippy::field_reassign_with_default)]
 
 use gpui_kit::{
     AppContext as _, Bounds, Context, Entity, IntoElement, ParentElement as _, Render, Styled as _,
     Subscription, Window, WindowBounds, WindowOptions, div, px, size,
 };
-use std::time::Duration;
 use theta_geo::{Feature, Geometry, lon_lat_to_utm};
 use std::sync::Arc;
 use theta_map_view::{
@@ -482,6 +483,7 @@ fn main() {
     let mut select: Option<usize> = None;
     let (mut kind, mut color_by, mut tiles, mut boundaries) = (None::<String>, None::<String>, None::<String>, false);
     let mut bin_value: Option<String> = None;
+    let mut simplify: Option<String> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -511,6 +513,7 @@ fn main() {
             "--color-by" => color_by = args.next(),
             "--tiles" => tiles = args.next(),
             "--bin-value" => bin_value = args.next(),
+            "--simplify" => simplify = args.next(),
             "--boundaries" => boundaries = true,
             "--select" => select = args.next().and_then(|v| v.parse().ok()),
             _ => {}
@@ -542,7 +545,13 @@ fn main() {
                 };
                 let mut layers = layers;
                 for l in &mut layers {
-                    if kind.is_none() && color_by.is_none() && tiles.is_none() && !boundaries && bin_value.is_none() {
+                    if kind.is_none()
+                        && color_by.is_none()
+                        && tiles.is_none()
+                        && !boundaries
+                        && bin_value.is_none()
+                        && simplify.is_none()
+                    {
                         break;
                     }
                     let mut st = LayerStyle::default();
@@ -582,6 +591,11 @@ fn main() {
                         _ => TilingMode::Auto,
                     };
                     st.tiling.show_boundaries = boundaries;
+                    st.tiling.simplify = match simplify.as_deref() {
+                        Some("off") => theta_map_view::Simplify::Off,
+                        Some("vw") => theta_map_view::Simplify::Visvalingam,
+                        _ => theta_map_view::Simplify::DouglasPeucker,
+                    };
                     l.style = Some(st);
                 }
                 map.update(cx, |m, cx| m.set_features(layers, Arc::new(features), window, cx));
@@ -599,27 +613,7 @@ fn main() {
             },
         )
         .expect("open window");
-        if std::env::var_os("THETA_MAP_STATS").is_some() {
-            let entity = view.read(cx).map.clone();
-            // Frame timing for the stress runs: print paint statistics once a second.
-            cx.spawn(async move |cx| {
-                loop {
-                    cx.background_executor().timer(Duration::from_secs(1)).await;
-                    let (frames, avg, max) = entity.read_with(cx, |m, _| m.take_paint_stats());
-                    let lp = entity.read_with(cx, |m, _| m.take_layer_perf());
-                    if frames > 0 || lp.tiles_built > 0 {
-                        eprintln!(
-                            "paint: {frames} frames, avg {avg:.2} ms, max {max:.2} ms; tiles built {} cached {} ({} KB) missing {}; agg {:.0} ms",
-                            lp.tiles_built,
-                            lp.tiles_cached,
-                            lp.tile_cache_bytes / 1024,
-                            lp.tiles_missing,
-                            lp.last_agg_ms
-                        );
-                    }
-                }
-            })
-            .detach();
-        }
+        // `THETA_MAP_STATS=1` makes the panel itself print paint and worker statistics.
+        let _ = &view;
     });
 }

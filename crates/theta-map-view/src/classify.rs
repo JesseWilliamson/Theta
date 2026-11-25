@@ -185,6 +185,6 @@ mod tests {
         assert_eq!(short_number(1234.0), "1234");
         assert_eq!(short_number(25_000.0), "25k");
         assert_eq!(short_number(1_500_000.0), "1.5M");
-        assert_eq!(short_number(-3.14159), "-3.14");
+        assert_eq!(short_number(-3.25), "-3.25");
     }
 }
