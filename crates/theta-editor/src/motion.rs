@@ -11,7 +11,6 @@ pub enum WordKind {
     NextStart,
     NextEnd,
     PrevStart,
-    PrevEnd,
 }
 
 fn boundary(a: char, b: char, long: bool) -> bool {
@@ -28,7 +27,7 @@ fn boundary(a: char, b: char, long: bool) -> bool {
 
 fn reached(kind: WordKind, prev: char, next: char, long: bool) -> bool {
     match kind {
-        WordKind::NextStart | WordKind::PrevEnd => {
+        WordKind::NextStart => {
             boundary(prev, next, long) && (is_eol(next) || !next.is_whitespace())
         }
         WordKind::NextEnd | WordKind::PrevStart => {
@@ -40,7 +39,7 @@ fn reached(kind: WordKind, prev: char, next: char, long: bool) -> bool {
 /// One application of a word motion from `(anchor, head)`.
 fn word_step(t: Text, anchor: usize, head: usize, kind: WordKind, long: bool) -> (usize, usize) {
     let len = t.len_chars();
-    let back = matches!(kind, WordKind::PrevStart | WordKind::PrevEnd);
+    let back = matches!(kind, WordKind::PrevStart);
     // next char to consume in motion direction
     let peek = |pos: usize| -> Option<char> {
         if back {
@@ -90,7 +89,7 @@ fn word_step(t: Text, anchor: usize, head: usize, kind: WordKind, long: bool) ->
 /// Helix-style word motion: returns the selection that covers the word moved over.
 pub fn word_move(t: Text, sel: Selection, count: usize, kind: WordKind, long: bool) -> Selection {
     let len = t.len_chars();
-    let back = matches!(kind, WordKind::PrevStart | WordKind::PrevEnd);
+    let back = matches!(kind, WordKind::PrevStart);
     if (back && sel.head == 0) || (!back && sel.head >= len) {
         return sel;
     }
