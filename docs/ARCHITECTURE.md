@@ -59,7 +59,7 @@ crates/
   theta-editor-view  GPUI widget that paints theta-editor and runs the completion popup
   theta-grid         results grid: selection, sorting, filtering, staged edits, inspector, export requests
   theta-plan-view    EXPLAIN tree, flame graph, raw view, insights panel
-  theta-map-view     slippy and planar map, tile loader and cache, layers, measure tool
+  theta-map-view     slippy and planar map, basemap tiles, layer model, vector tiler, heatmap / hexagon / cluster aggregation, measure tool
   theta              the application: workspace, explorer, connections, dialogs, command palette
 ```
 
@@ -285,6 +285,46 @@ The *reason* for this arrangement: the three panels are views of data, and the d
 is defined once in `theta-core`. The panels have no idea what produced it. That is what lets the grid be
 demoed with generated rows and the plan view be tested with captured server output
 (`crates/theta-drivers/src/lib.rs:23` exposes the parsers for exactly that).
+
+### The map pipeline: layers, tiles and aggregation
+
+`theta-map-view` draws every geometry column of a result as a *layer* with a style (`style.rs`,
+`LayerStyle`: plain serde data). The app hands over typed rows; the panel does the rest. In order:
+
+1. **Typed values.** `exec::geo::extract` gives each `MapFeature` its row's non-geometry columns as `MapValue`s (number,
+   text, NULL) aligned with `MapLayer::columns`, next to the display strings the hover card shows. The result is
+   shared as `Arc<Vec<MapFeature>>`; nothing is copied on the UI thread.
+2. **Build on a worker.** `MapPanel::set_features` runs `core::build` on the background executor (reprojection to
+   Web-Mercator world fractions, the grid index, column statistics: about 0.25 s for a million points) and installs
+   the result with `Core::install`. The old content stays up, with a "Preparing" chip, until then.
+3. **Styles resolve.** `Core::apply_styles` (`layerstate.rs`) sanitises each layer's style, picks the automatic
+   kind (a point layer of more than 50,000 features starts as a Heatmap), assigns every feature a colour class
+   (`layers.rs`: numeric classification by quantile, equal interval or logarithmic with `classify.rs`, or top-N
+   categories; palettes in `ramp.rs`) and a marker radius, and numbers the colour *slots* the painter batches by.
+4. **Tiles (Auto and Points kinds, large layers).** `tiler.rs` builds a tippecanoe-style pyramid lazily on three
+   worker threads (`TilePool`: the queue is replaced every frame, which is how stale work is cancelled). A tile
+   `(z, x, y)` holds the features touching it plus an 8 px buffer, clipped with `clip.rs` and simplified
+   (Douglas-Peucker from `theta-geo` or Visvalingam-Whyatt) with a tolerance of `detail` px of the tile; polygons under
+   1 px² are dropped but their area accumulates so a representative survives; points above the budget are thinned
+   on a coarsening grid, keeping the first feature of each cell, so a tile depends only on the data and its
+   address. The deepest zoom (`max_zoom`, 14) is kept at full detail and deeper views reuse it. Geographic layers
+   use the Web-Mercator quadtree, planar layers a square quadtree over their own bounding box; features that
+   reach past the antimeridian simply land in tiles outside `0..2^z` and the existing world-copy logic
+   (`Core::copy_queries`) places each copy. Tiles are cached by bytes (`TileCache`, 256 MB, LRU). The painter
+   (`scene_layers.rs`) draws the visible tiles each under a content mask of its own bounds (so buffers never
+   double a translucent fill) and, while a tile is still being built, the nearest cached ancestor. Hit testing
+   still runs on the real features but only accepts ids that the drawn tiles kept (`Core::kept_in_tiles`).
+5. **Aggregations (Heatmap, Hexagons, Grid, Clusters).** `agg.rs` runs on one worker (`AggWorker`): a request is
+   debounced by 60 ms, a newer request for the layer cancels a running one at its next check, and results come
+   back as `AggDone`. Heatmaps bin the points once per integer zoom into about 1 px cells (`FineGrid`, O(n)),
+   splat the bins into a half-resolution raster, blur with a separable Gaussian, normalise and colour it into a
+   `RenderImage`; a pan reuses the bins, and the painter maps the last image onto the current camera until the next
+   arrives. Hexagons and squares use a lattice anchored at the world origin (stable under pan); clusters are a
+   greedy grid-based merge per half-octave of zoom. Lines and polygons take part as their box centre.
+
+The Layers panel (`layers_ui.rs`) edits the styles through `Core::update_style`; legends (`layers.rs`, drawn by
+`panel.rs`) come from the same classification. `perf_tests.rs` has the ignored timing tests quoted in the
+changelog (`cargo test -p theta-map-view --lib perf_ -- --ignored --nocapture`).
 
 ### Consoles, files and layout
 

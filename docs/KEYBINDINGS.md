@@ -420,7 +420,8 @@ are ignored).
 | `+` / `=`, `-` | zoom in / out |
 | `0` | fit to data |
 | `m` | toggle the measure tool |
-| `esc` | close menus, leave the measure tool, or clear the selected feature |
+| `shift-l` | open or close the Layers panel (its buttons and menus are reachable with the mouse; `esc` closes it) |
+| `esc` | close menus, the Layers panel, leave the measure tool, or clear the selected feature |
 
 Mouse: drag pans, wheel zooms, double-click zooms in (closes a measurement in the measure tool), click
 picks a feature, right-click opens a menu (*Copy coordinates*, *Copy as WKT point*, *Copy feature WKT*).

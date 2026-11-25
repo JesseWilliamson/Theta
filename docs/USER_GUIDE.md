@@ -1168,7 +1168,7 @@ grid.
   Data with an unknown coordinate system is drawn on a plain planar grid, without tiles.
 - Click a feature to see the other columns of its row; this also selects the row in the grid. In the grid,
   *Show on Map* selects the feature and zooms to it. Each geometry column is a layer (the **Layers**
-  button).
+  button, see *Layers, colours and big data* below).
 - The toolbar has *Fit to data*, *Zoom in*, *Zoom out*, the **Basemap** menu, *Dim tiles in dark themes*
   (not offered for dark basemaps), *Measure distance and area*, *Layers* and *Export GeoJSON*.
 - `m` starts the **measure tool**: click points for a distance, double-click to close a polygon and get the
@@ -1195,6 +1195,38 @@ grid.
   this use (Google, Mapbox, Esri imagery) are not offered.
 - A small **scale bar** (a 1px rule with end ticks) sits above the attribution in the bottom-right corner; it
   is hidden on planar data.
+
+### Layers, colours and big data
+
+Each geometry column is a *layer*. The **Layers** button (or `shift-l`) lists the layers: the square shows or hides
+a layer, clicking its name selects it for editing. The panel below the list shows the options that matter for
+the selected layer's **Kind**:
+
+| Kind | What it draws | Main options |
+| --- | --- | --- |
+| *Auto* | points, lines and polygons as they are | *Colour by*, *Outline*, *Radius*, *Opacity* |
+| *Points* | a scatterplot: every feature a circle (lines and polygons at their centre) | *Radius*, *Size by* a numeric column, *Colour by* |
+| *Heatmap* | a smooth density surface | *Radius*, *Intensity*, *Threshold*, *Weight* column, *Palette* |
+| *Hexagons* / *Grid* | bins of N px at the current zoom | *Cell size*, *Value* (Count, Sum, Mean, Min, Max) of a *Column*, *Classes*, *Palette* |
+| *Clusters* | nearby points merged into circles with a count; click one to zoom in | *Radius* |
+
+A point layer of more than 50,000 features starts as a *Heatmap*; everything else starts as *Auto*.
+**Colour by** takes any column: a numeric one is cut into 5 to 9 classes (*Quantile*, *Equal interval* or
+*Logarithmic*), anything else shows its most frequent values (*Top values*, default 8) and groups the rest as
+*Other*. Choose a *Palette* (Viridis, Magma, Cividis, Blues, Red-Blue, Tableau 10) and *Reverse* it. A **legend**
+at the bottom-left explains every colour-by-column and aggregation layer, in light and dark themes. Hover a
+hexagon or square to see its value and feature count. The same options are stored as plain, serialisable data
+(`LayerStyle` in `crates/theta-map-view/src/style.rs`).
+
+The map uses the rows that are loaded in the grid (1,000 by default, up to 500,000 with *Load all*,
+`ctrl-shift-l`). For large layers Theta builds **vector tiles** on the fly, as tippecanoe would, only for what you
+are looking at: features are clipped to the tile, lines and polygons are simplified to *Detail* px (default 0.6),
+polygons smaller than a pixel are dropped while keeping a representative share of them, and a tile that holds more
+than the *Point budget* (default 20,000) is thinned evenly, always keeping the same points. Past zoom 14 the
+deepest tiles are reused at full detail. **Tiles** is *Auto* (on above 20,000 features or 200,000 vertices),
+*On* or *Off*; *Simplify* picks Douglas-Peucker, Visvalingam-Whyatt or none; *Drop tiny polygons* and *Keep
+every feature* switch the reductions off; *Show tile boundaries* draws every tile's edges with how many features it
+kept and dropped. Hover and click still find the real rows, but only among the features you can see.
 
 Try it: `select name, city, location_wkt from stores`, then open the Map tab.
 

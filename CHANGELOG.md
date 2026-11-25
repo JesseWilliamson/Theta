@@ -6,6 +6,20 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ## [Unreleased]
 
+### Added
+
+- Map layers have a kind, as in deck.gl: *Auto*, *Points* (radius, size by column), *Heatmap* (Gaussian density with
+  radius, intensity, threshold and an optional weight column), *Hexagons* and *Grid* (cells of N px, count, sum, mean,
+  min or max of a column) and *Clusters* (counted circles, click to zoom in). The Layers panel edits them; a layer of
+  more than 50,000 points starts as a heatmap. Features now carry typed values, so any layer can be coloured by a column
+  (numeric classes by quantile, equal interval or logarithmic, or top values plus Other; Viridis, Magma, Cividis, Blues,
+  Red-Blue and Tableau 10, reversible) and points sized by one. A legend explains the colours; `shift-l` opens the
+  Layers panel.
+- Large map layers are drawn from vector tiles built on the fly on worker threads, as tippecanoe would: clipped to the
+  tile, simplified to a pixel tolerance (Douglas-Peucker or Visvalingam-Whyatt), sub-pixel polygons reduced, dense
+  points thinned to a budget, deepest zoom reused. Options for detail, simplification, point budget and a tile-boundary
+  overlay are in the Layers panel.
+
 ### Fixed
 
 - Helix `alt-o` did nothing. It, `alt-i`, `alt-I`, `alt-p`, `alt-n`, `alt-a`, `alt-e` and `alt-b` now expand,
@@ -28,6 +42,8 @@ All notable changes to Theta (called Quarry before 0.1.0-alpha.4) are documented
 
 ### Changed
 
+- The map projects and indexes a result on a background thread, so a 500,000-row result no longer freezes the window, and the
+  result is shared with the map instead of copied.
 - Helix keymap, brought to Helix's own behaviour (tested against the cases of Helix's integration tests):
   `.` repeats only the last insert; `*` searches the selection as it is, keeps Select mode, and `\b` goes
   where the selection touches a word edge; `alt-e` / `alt-b` are the parent-node edges (previous word end
