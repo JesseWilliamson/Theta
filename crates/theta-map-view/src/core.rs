@@ -195,14 +195,41 @@ impl TileStore {
     }
 }
 
+/// A data set projected, indexed and summarised, ready to install. Building it is the
+/// expensive part of showing a result (reprojection, the grid index, column statistics),
+/// so the panel does it on a worker thread.
+pub struct Built {
+    pub(crate) prepared: Arc<Prepared>,
+    pub(crate) index: Arc<GridIndex>,
+    layers: Vec<MapLayer>,
+    layer_counts: Vec<usize>,
+    pub(crate) source: Arc<Vec<MapFeature>>,
+    stats: Vec<Vec<crate::layers::ColStat>>,
+}
+
+/// Project `features` and index them.
+pub fn build(layers: Vec<MapLayer>, features: Arc<Vec<MapFeature>>) -> Built {
+    let prepared = prepare(&features);
+    let boxes: Vec<BBox> = prepared.features.iter().map(|f| f.bbox).collect();
+    let index = Arc::new(GridIndex::new(&boxes));
+    let mut layer_counts = vec![0; layers.len()];
+    for f in &prepared.features {
+        if let Some(c) = layer_counts.get_mut(f.layer) {
+            *c += 1;
+        }
+    }
+    let stats = layers.iter().enumerate().map(|(i, l)| crate::layers::column_stats(l, i, &prepared, &features)).collect();
+    Built { prepared: Arc::new(prepared), index, layers, layer_counts, source: features, stats }
+}
+
 /// Everything the panel and its paint code share.
 pub struct Core {
     /// The data in world space.
-    pub prepared: Prepared,
+    pub prepared: Arc<Prepared>,
     /// Grid index over feature boxes.
-    pub index: GridIndex,
+    pub index: Arc<GridIndex>,
     /// The original features (properties, source CRS).
-    pub source: Vec<MapFeature>,
+    pub source: Arc<Vec<MapFeature>>,
     /// Layers as given.
     pub layers: Vec<MapLayer>,
     /// Features per layer.
@@ -243,6 +270,8 @@ pub struct Core {
     pub grid_shown: bool,
     /// Paint timing since the last `take_paint_stats`: frames, total ms, max ms.
     pub paint_stats: (u32, f64, f64),
+    /// Layer model runtime: colours, tiles, aggregation results (see `layerstate.rs`).
+    pub ls: crate::layerstate::LayerState,
 }
 
 impl Core {
@@ -262,9 +291,9 @@ impl Core {
     /// An empty core.
     pub fn new(template: String) -> Self {
         Core {
-            prepared: prepare(&[]),
-            index: GridIndex::new(&[]),
-            source: Vec::new(),
+            prepared: Arc::new(prepare(&[])),
+            index: Arc::new(GridIndex::new(&[])),
+            source: Arc::new(Vec::new()),
             layers: Vec::new(),
             layer_counts: Vec::new(),
             camera: Camera::fit(Mode::Geographic, None, [800.0, 400.0]),
@@ -285,23 +314,27 @@ impl Core {
             tiles: TileStore::new(template),
             grid_shown: false,
             paint_stats: (0, 0.0, 0.0),
+            ls: crate::layerstate::LayerState::default(),
         }
     }
 
-    /// Replace the content; the camera fits on the next paint.
+    /// Replace the content; the camera fits on the next paint. Builds on the calling thread:
+    /// the panel uses [`build`] on a worker and [`Core::install`] instead.
     pub fn set_features(&mut self, layers: Vec<MapLayer>, features: Vec<MapFeature>) {
-        self.prepared = prepare(&features);
-        let boxes: Vec<BBox> = self.prepared.features.iter().map(|f| f.bbox).collect();
-        self.index = GridIndex::new(&boxes);
-        self.layer_counts = vec![0; layers.len()];
-        for f in &self.prepared.features {
-            if let Some(c) = self.layer_counts.get_mut(f.layer) {
-                *c += 1;
-            }
-        }
-        self.layers = layers;
-        self.source = features;
+        let built = build(layers, Arc::new(features));
+        self.install(built);
+    }
+
+    /// Take over a prepared data set (cheap; the heavy work was done in [`build`]).
+    pub fn install(&mut self, b: Built) {
+        self.prepared = b.prepared;
+        self.index = b.index;
+        self.layer_counts = b.layer_counts;
+        self.layers = b.layers;
+        self.source = b.source;
         self.lod.clear();
+        self.ls.stats = b.stats;
+        self.reset_layer_state();
         self.anim.cancel();
         self.hover = None;
         self.pinned = None;
@@ -459,6 +492,9 @@ impl Core {
 
     /// The top-most feature under `p` (viewport px), if any.
     pub fn hit_at(&mut self, p: [f64; 2]) -> Option<usize> {
+        if let Some((_, c)) = self.cluster_under(p) {
+            return (c.count == 1).then_some(c.feature as usize);
+        }
         let t = self.camera.transform();
         let level = t.lod_level();
         let w = t.invert(p);
@@ -482,7 +518,7 @@ impl Core {
             for &id in &ids {
                 let id = id as usize;
                 let f = &self.prepared.features[id];
-                if !self.layer_visible(f) {
+                if !self.layer_visible(f) || self.kind(f.layer).is_aggregate() || !self.kept_in_tiles(id) {
                     continue;
                 }
                 if self.prepared.mode == Mode::Geographic && !drawn_at(&f.bbox, k, window) {
@@ -660,6 +696,7 @@ mod tests {
             row,
             label: None,
             properties: vec![],
+            values: vec![],
             layer: 0,
         }
     }
@@ -670,7 +707,7 @@ mod tests {
 
     fn core_with_size(features: Vec<MapFeature>, size: [f64; 2]) -> Core {
         let mut c = Core::new("http://127.0.0.1:9/{z}/{x}/{y}.png".into());
-        c.set_features(vec![MapLayer { name: "geom".into(), visible: true }], features);
+        c.set_features(vec![MapLayer::new("geom", vec![])], features);
         c.camera.set_size(size);
         c.camera = Camera::fit(c.prepared.mode, c.prepared.bbox, size);
         c
@@ -708,6 +745,7 @@ mod tests {
             row: 0,
             label: None,
             properties: vec![],
+            values: vec![],
             layer: 0,
         };
         let mut c = core_with(vec![poly, pt(10.0, 50.0, 1)]);
@@ -726,6 +764,7 @@ mod tests {
             row: 0,
             label: None,
             properties: vec![],
+            values: vec![],
             layer: 0,
         };
         let mut c = core_with(vec![f]);
@@ -933,12 +972,13 @@ mod tests {
     fn planar_data_is_never_repeated() {
         let mut c = Core::new("http://127.0.0.1:9/{z}/{x}/{y}.png".into());
         c.set_features(
-            vec![MapLayer { name: "geom".into(), visible: true }],
+            vec![MapLayer::new("geom", vec![])],
             vec![MapFeature {
                 feature: Feature::new(Geometry::Point(Some([5000.0, 4000.0])), None),
                 row: 0,
                 label: None,
                 properties: vec![],
+                values: vec![],
                 layer: 0,
             }],
         );

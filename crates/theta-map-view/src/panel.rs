@@ -4,6 +4,7 @@ use crate::core::{Core, grid_spec};
 use crate::layout::card_origin;
 use crate::measure_tool::format_units;
 use crate::model::{MapEvent, MapFeature, MapLayer};
+use crate::layers::{Legend, LegendBody};
 use crate::palette::layer_color;
 use crate::props::card_rows;
 use crate::scene::{Colors, paint_map};
@@ -25,6 +26,7 @@ use gpui_kit::{
 };
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 use theta_geo::{Coord, Feature, Geometry, describe, to_wkt};
 use theta_ui::{CHROME_TEXT_SIZE, EmptyState, PANEL_HEADER_HEIGHT, Settings, data_surface, tool_button};
@@ -46,13 +48,34 @@ struct ContextMenu {
     feature: Option<usize>,
 }
 
+/// Counters of the tile and aggregation workers (see `MapPanel::take_layer_perf`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LayerPerf {
+    /// Tiles finished since the last call.
+    pub tiles_built: u32,
+    /// Tiles in the cache.
+    pub tiles_cached: usize,
+    /// Memory the cached tiles use.
+    pub tile_cache_bytes: usize,
+    /// Milliseconds the latest aggregation took on its worker thread.
+    pub last_agg_ms: f64,
+    /// Tiles the current view still waits for.
+    pub tiles_missing: usize,
+}
+
 /// The map viewer entity.
 pub struct MapPanel {
-    core: Rc<RefCell<Core>>,
+    pub(crate) core: Rc<RefCell<Core>>,
     focus: FocusHandle,
-    layers_open: bool,
+    pub(crate) layers_open: bool,
+    /// Layer shown in the Layers panel.
+    pub(crate) sel_layer: usize,
     menu: Option<ContextMenu>,
-    _tile_task: Task<()>,
+    /// A data set is being projected and indexed on a worker.
+    preparing: Option<usize>,
+    /// Counts builds so a slow one never replaces a newer data set.
+    build_gen: u64,
+    _tasks: Vec<Task<()>>,
 }
 
 impl EventEmitter<MapEvent> for MapPanel {}
@@ -84,25 +107,85 @@ impl MapPanel {
                 }
             }
         });
-        MapPanel { core, focus: cx.focus_handle(), layers_open: false, menu: None, _tile_task: task }
+        let (vrx, arx) = {
+            let c = core.borrow();
+            (c.ls.pool.results.clone(), c.ls.agg_worker.results.clone())
+        };
+        let vtask = cx.spawn(async move |this, cx: &mut AsyncApp| {
+            while let Ok(done) = vrx.recv().await {
+                let alive = this.update(cx, |this, cx| {
+                    if this.core.borrow_mut().accept_tile(done) {
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        });
+        let atask = cx.spawn(async move |this, cx: &mut AsyncApp| {
+            while let Ok(done) = arx.recv().await {
+                let alive = this.update(cx, |this, cx| {
+                    if this.core.borrow_mut().accept_agg(done) {
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        });
+        MapPanel {
+            core,
+            focus: cx.focus_handle(),
+            layers_open: false,
+            sel_layer: 0,
+            menu: None,
+            preparing: None,
+            build_gen: 0,
+            _tasks: vec![task, vtask, atask],
+        }
     }
 
     /// Replace the content and fit the camera to it.
+    ///
+    /// Projecting, indexing and summarising the features is the slow part (seconds for a
+    /// few hundred thousand rows), so it runs on a background thread and the window stays
+    /// responsive; the previous content stays up, with a "Preparing" chip, until it is done.
     pub fn set_features(
         &mut self,
         layers: Vec<MapLayer>,
-        features: Vec<MapFeature>,
+        features: Arc<Vec<MapFeature>>,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.core.borrow_mut().set_features(layers, features);
+        self.build_gen += 1;
+        let gen_ = self.build_gen;
+        self.preparing = Some(features.len());
         self.layers_open = false;
         self.menu = None;
+        let task = cx.background_executor().spawn(async move { crate::core::build(layers, features) });
+        cx.spawn(async move |this, cx: &mut AsyncApp| {
+            let built = task.await;
+            this.update(cx, |this, cx| {
+                if this.build_gen != gen_ {
+                    return;
+                }
+                this.preparing = None;
+                this.sel_layer = 0;
+                this.core.borrow_mut().install(built);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
         cx.notify();
     }
 
     /// Remove all content.
     pub fn clear(&mut self, cx: &mut Context<Self>) {
+        self.build_gen += 1;
+        self.preparing = None;
         self.core.borrow_mut().clear();
         self.layers_open = false;
         self.menu = None;
@@ -121,6 +204,19 @@ impl MapPanel {
         let mut core = self.core.borrow_mut();
         let (n, total, max) = std::mem::take(&mut core.paint_stats);
         (n, if n > 0 { total / f64::from(n) } else { 0.0 }, max)
+    }
+
+    /// Background work counters since the last call, for benchmarks and the demo's stats line.
+    pub fn take_layer_perf(&self) -> LayerPerf {
+        let mut core = self.core.borrow_mut();
+        let built = std::mem::take(&mut core.ls.perf.tiles_built);
+        LayerPerf {
+            tiles_built: built,
+            tiles_cached: core.ls.tiles.len(),
+            tile_cache_bytes: core.ls.tiles.bytes(),
+            last_agg_ms: core.ls.perf.last_agg_ms,
+            tiles_missing: core.ls.tiles_missing,
+        }
     }
 
     /// The focus handle of the map surface (keyboard shortcuts work while it is focused).
@@ -169,6 +265,16 @@ impl MapPanel {
     fn key_down(&mut self, ev: &KeyDownEvent, cx: &mut Context<Self>) {
         let k = &ev.keystroke;
         if k.modifiers.control || k.modifiers.alt || k.modifiers.platform {
+            return;
+        }
+        if k.modifiers.shift && k.key == "l" {
+            // Shift-L opens the Layers panel (plain L pans right in the Helix keymap).
+            if !self.core.borrow().is_empty() {
+                self.layers_open = !self.layers_open;
+                self.menu = None;
+                cx.stop_propagation();
+                cx.notify();
+            }
             return;
         }
         let modal = Settings::get(cx).keymap.is_modal();
@@ -316,6 +422,14 @@ impl MapPanel {
             cx.notify();
             return;
         }
+        if let Some((_, c)) = core.cluster_under(p)
+            && c.count > 1
+        {
+            core.zoom_to_cluster(&c);
+            drop(core);
+            cx.notify();
+            return;
+        }
         match core.hit_at(p) {
             Some(i) => {
                 let row = core.prepared.features[i].row;
@@ -356,18 +470,18 @@ impl MapPanel {
 
 // ---- rendering ------------------------------------------------------------------------
 
-struct Theme {
-    bg: Hsla,
-    fg: Hsla,
-    muted_fg: Hsla,
-    border: Hsla,
-    popover: Hsla,
-    hover: Hsla,
-    accent: Hsla,
-    warning: Hsla,
+pub(crate) struct Theme {
+    pub(crate) bg: Hsla,
+    pub(crate) fg: Hsla,
+    pub(crate) muted_fg: Hsla,
+    pub(crate) border: Hsla,
+    pub(crate) popover: Hsla,
+    pub(crate) hover: Hsla,
+    pub(crate) accent: Hsla,
+    pub(crate) warning: Hsla,
 }
 
-fn chip(t: &Theme) -> gpui_kit::Div {
+pub(crate) fn chip(t: &Theme) -> gpui_kit::Div {
     h_flex()
         .gap_1p5()
         .items_center()
@@ -381,7 +495,7 @@ fn chip(t: &Theme) -> gpui_kit::Div {
         .text_color(t.fg)
 }
 
-fn muted_text(t: &Theme, s: impl Into<SharedString>) -> gpui_kit::Div {
+pub(crate) fn muted_text(t: &Theme, s: impl Into<SharedString>) -> gpui_kit::Div {
     div().text_size(px(11.)).text_color(t.muted_fg).child(s.into())
 }
 
@@ -461,17 +575,27 @@ fn scale_bar(t: &Theme, bar_px: f32, label: String, above: f32) -> AnyElement {
 /// Show `el` at `at` (px from the map's top-left) on the window-level overlay layer, clamped
 /// to stay inside the window: a hover card, menu or popover is then never clipped by the
 /// bottom panel's bounds, however short the panel is dragged.
-fn floating(at: [f64; 2], el: impl IntoElement) -> AnyElement {
-    deferred(
-        anchored()
-            .position_mode(AnchoredPositionMode::Local)
-            .position(point(px(at[0] as f32), px(at[1] as f32)))
-            .anchor(Anchor::TopLeft)
-            .snap_to_window_with_margin(px(8.))
-            .child(el),
-    )
-    .with_priority(2)
-    .into_any_element()
+pub(crate) fn floating(at: [f64; 2], el: impl IntoElement) -> AnyElement {
+    // `Local` positions are relative to where the anchored element sits in the layout, so it is
+    // pinned to the top-left corner of the map area by a zero-size absolute wrapper: otherwise it
+    // sits after the map canvas and every card and menu lands a canvas-height too low.
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_0()
+        .child(
+            deferred(
+                anchored()
+                    .position_mode(AnchoredPositionMode::Local)
+                    .position(point(px(at[0] as f32), px(at[1] as f32)))
+                    .anchor(Anchor::TopLeft)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(el),
+            )
+            .with_priority(2),
+        )
+        .into_any_element()
 }
 
 impl MapPanel {
@@ -655,6 +779,11 @@ impl MapPanel {
                     .child(format!("{n} feature{} skipped: unknown SRID", if n == 1 { "" } else { "s" })),
             );
         }
+        if let Some(n) = self.preparing {
+            chips = chips.child(chip(t).child(format!("Preparing {n} feature{}\u{2026}", if n == 1 { "" } else { "s" })));
+        } else if core.ls.tiles_missing > 0 || core.agg_pending() {
+            chips = chips.child(chip(t).child("Updating layers\u{2026}"));
+        }
         if core.prepared.mode == Mode::Geographic && core.basemap && core.tiles.offline() {
             chips = chips.child(
                 chip(t)
@@ -790,68 +919,42 @@ impl MapPanel {
 
         // Layers popover.
         if self.layers_open {
-            let rows = core.layers.iter().enumerate().map(|(i, l)| {
-                let c = layer_color(i, true);
-                let swatch = hsla(c.h, c.s, c.l, 1.0);
-                let visible = l.visible;
-                h_flex()
-                    .id(("map-layer", i))
-                    .gap_2()
-                    .items_center()
-                    .px_2()
-                    .h(px(26.))
-                    .rounded(px(4.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(t.hover))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(l) = this.core.borrow_mut().layers.get_mut(i) {
-                            l.visible = !l.visible;
-                        }
-                        cx.notify();
-                    }))
-                    .child(
-                        div()
-                            .size(px(14.))
-                            .rounded(px(3.))
-                            .border_1()
-                            .border_color(if visible { t.accent } else { t.border })
-                            .bg(if visible { t.accent } else { t.bg })
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .when(visible, |d| {
-                                d.child(Icon::new(IconName::Check).size(px(10.)).text_color(t.bg))
-                            }),
-                    )
-                    .child(div().size(px(9.)).rounded_full().flex_shrink_0().bg(swatch))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(12.))
-                            .text_color(t.fg)
-                            .child(l.name.clone()),
-                    )
-                    .child(muted_text(t, core.layer_counts.get(i).copied().unwrap_or(0).to_string()))
-            });
-            out.push(floating(
-                [(size[0] - 228.0).max(0.0), 6.0],
-                v_flex()
-                    .w(px(220.))
-                    .p_1()
-                    .gap_0p5()
-                    .rounded(px(6.))
-                    .border_1()
-                    .border_color(t.border)
-                    .bg(t.popover)
-                    .shadow_md()
-                    .occlude()
-                    .child(div().px_2().py_0p5().child(muted_text(t, "Layers")))
-                    .children(rows),
-            ));
+            drop(core);
+            out.push(self.layers_popover(t, size, cx));
+            return self.overlays_tail(t, size, out, cx);
         }
 
+        self.overlays_tail_with(t, size, out, cx, core)
+    }
+
+    fn overlays_tail(&self, t: &Theme, size: [f64; 2], out: Vec<AnyElement>, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let core = self.core.borrow();
+        self.overlays_tail_with(t, size, out, cx, core)
+    }
+
+    fn overlays_tail_with(
+        &self,
+        t: &Theme,
+        size: [f64; 2],
+        mut out: Vec<AnyElement>,
+        cx: &mut Context<Self>,
+        core: std::cell::Ref<'_, Core>,
+    ) -> Vec<AnyElement> {
+        // Legends, bottom-left.
+        let legends = core.legends();
+        if !legends.is_empty() {
+            out.push(legend_overlay(t, &legends));
+        }
+        // Hover value of a hexagon or grid cell.
+        if let Some(p) = core.pointer
+            && core.drag.is_none()
+            && self.menu.is_none()
+            && core.hover.is_none()
+            && let Some(text) = core.bin_hover(p)
+        {
+            let o = card_origin(p, [180.0, 24.0], size, 14.0);
+            out.push(floating(o, chip(t).child(text)));
+        }
         // Context menu.
         if let Some(m) = &self.menu {
             let coord = m.coord;
@@ -951,6 +1054,69 @@ impl MapPanel {
     }
 }
 
+fn rgb_hsla(c: [u8; 3]) -> Hsla {
+    Hsla::from(gpui_kit::Rgba { r: f32::from(c[0]) / 255.0, g: f32::from(c[1]) / 255.0, b: f32::from(c[2]) / 255.0, a: 1.0 })
+}
+
+/// Legends of colour-by-column and aggregation layers, bottom-left.
+fn legend_overlay(t: &Theme, legends: &[Legend]) -> AnyElement {
+    v_flex()
+        .absolute()
+        .left(px(8.))
+        .bottom(px(8.))
+        .gap_1()
+        .children(legends.iter().map(|l| {
+            let body = match &l.body {
+                LegendBody::Classes(entries) => v_flex()
+                    .gap(px(3.))
+                    .children(entries.iter().map(|(c, label)| {
+                        h_flex()
+                            .gap_1p5()
+                            .items_center()
+                            .child(div().size(px(10.)).rounded(px(2.)).flex_shrink_0().bg(rgb_hsla(*c)))
+                            .child(
+                                div().text_size(px(11.)).text_color(t.fg).whitespace_nowrap().truncate().child(label.clone()),
+                            )
+                    }))
+                    .into_any_element(),
+                LegendBody::Gradient { colors, low, high } => {
+                    let n = colors.len().max(1);
+                    v_flex()
+                        .gap(px(2.))
+                        .child(h_flex().w(px(150.)).h(px(8.)).rounded(px(2.)).overflow_hidden().children(
+                            colors.iter().map(|c| div().h_full().flex_1().bg(rgb_hsla(*c))).take(n),
+                        ))
+                        .child(
+                            h_flex()
+                                .w(px(150.))
+                                .justify_between()
+                                .child(muted_text(t, low.clone()))
+                                .child(muted_text(t, high.clone())),
+                        )
+                        .into_any_element()
+                }
+            };
+            v_flex()
+                .gap_1()
+                .p_2()
+                .max_w(px(220.))
+                .rounded(px(6.))
+                .border_1()
+                .border_color(t.border)
+                .bg(t.popover.opacity(0.94))
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(t.fg)
+                        .truncate()
+                        .child(l.title.clone()),
+                )
+                .child(body)
+        }))
+        .into_any_element()
+}
+
 const CARD_W: f64 = 260.0;
 
 /// Estimated rendered card height, for placing it before it has been measured.
@@ -1029,19 +1195,23 @@ impl Render for MapPanel {
                     }
                     let more = c.step_anim(Instant::now());
                     let grid_before = c.grid_shown;
+                    let updating_before = c.ls.tiles_missing > 0 || c.agg_pending();
                     let started = Instant::now();
                     paint_map(&mut c, bounds, &colors, window, cx);
                     let ms = started.elapsed().as_secs_f64() * 1000.0;
                     c.paint_stats = (c.paint_stats.0 + 1, c.paint_stats.1 + ms, c.paint_stats.2.max(ms));
                     // Labels are rendered before paint from `grid_shown`; one more frame fixes them.
-                    if more || c.grid_shown != grid_before {
+                    // The "Updating layers" chip is rendered from the previous paint's state: one more
+                    // frame when that changed keeps it from lingering after the work is done.
+                    let updating = c.ls.tiles_missing > 0 || c.agg_pending();
+                    if more || c.grid_shown != grid_before || updating != updating_before {
                         window.request_animation_frame();
                     }
                     let cursor = if c.measuring {
                         CursorStyle::Crosshair
                     } else if c.drag.as_ref().is_some_and(|d| d.travel > CLICK_SLOP) {
                         CursorStyle::ClosedHand
-                    } else if c.hover.is_some() {
+                    } else if c.hover.is_some() || c.pointer.is_some_and(|p| c.cluster_under(p).is_some()) {
                         CursorStyle::PointingHand
                     } else {
                         CursorStyle::OpenHand

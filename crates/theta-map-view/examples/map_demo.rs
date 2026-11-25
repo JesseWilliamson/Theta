@@ -1,7 +1,9 @@
 //! Interactive demo of the map viewer.
 //!
 //!     cargo run -p theta-map-view --example map_demo -- [--theme "Theta Light"]
-//!         [--cities | --planar | --utm | --mixed | --stress N] [--select ROW]
+//!         [--cities | --planar | --utm | --mixed | --stress N | --points N | --polys N] [--select ROW]
+//!         [--kind auto|points|heatmap|hexagons|grid|clusters] [--color-by COLUMN] [--tiles on|off]
+//!         [--boundaries] [--bin-value sum|mean|count] [--pan] [--zoom]
 //!
 //! `THETA_WINDOW_SIZE=WxH` sets the window size, like the app. `THETA_TILE_URL_OVERRIDE`
 //! replaces the tile URL template (point it at an unreachable host to see offline behaviour).
@@ -12,7 +14,11 @@ use gpui_kit::{
 };
 use std::time::Duration;
 use theta_geo::{Feature, Geometry, lon_lat_to_utm};
-use theta_map_view::{MapEvent, MapFeature, MapLayer, MapPanel};
+use std::sync::Arc;
+use theta_map_view::{
+    ClassMethod, ColorBy, ColorScheme, ColorSpec, LayerKind, LayerStyle, MapEvent, MapFeature, MapLayer, MapPanel,
+    MapValue, PaletteId, TilingMode,
+};
 
 struct Demo {
     map: Entity<MapPanel>,
@@ -38,6 +44,7 @@ fn feat(
         row,
         label: (!label.is_empty()).then(|| label.to_string()),
         properties: props.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+        values: vec![],
         layer,
     }
 }
@@ -45,7 +52,7 @@ fn feat(
 type Dataset = (Vec<MapLayer>, Vec<MapFeature>);
 
 fn layer(name: &str) -> MapLayer {
-    MapLayer { name: name.into(), visible: true }
+    MapLayer::new(name, vec![])
 }
 
 const CITIES: &[(&str, &str, f64, f64, f64)] = &[
@@ -388,6 +395,77 @@ fn bigpoly(n: usize) -> Dataset {
     (vec![layer("polygons")], f)
 }
 
+fn val_feat(g: Geometry, row: usize, layer: usize, label: &str, values: Vec<MapValue>, cols: &[&str]) -> MapFeature {
+    let props: Vec<(&str, String)> =
+        cols.iter().zip(&values).map(|(c, v)| (*c, v.text().unwrap_or_default())).collect();
+    let mut f = feat(g, Some(4326), row, layer, label, &props);
+    f.values = values;
+    f
+}
+
+/// `n` points in Gaussian blobs around the cities, with a numeric weight (log-normal) and a
+/// category, so layers can colour, size and weight by columns.
+fn points(n: usize) -> Dataset {
+    let mut rng = Rng(11);
+    let centres: Vec<(f64, f64)> = CITIES.iter().map(|c| (c.3, c.4)).collect();
+    let cats = ["retail", "office", "depot", "kiosk", "locker"];
+    let cols = ["weight", "category"];
+    let f = (0..n)
+        .map(|i| {
+            let (cx, cy) = centres[i % centres.len()];
+            let (x, y) = (cx + rng.normal() * 2.5, (cy + rng.normal() * 1.8).clamp(-80.0, 80.0));
+            let w = (rng.normal() * 0.9 + 2.0).exp();
+            val_feat(
+                Geometry::Point(Some([x, y])),
+                i,
+                0,
+                &format!("pt {i}"),
+                vec![MapValue::Num(w.round()), MapValue::Text(cats[(rng.next() * 5.0) as usize % 5].into())],
+                &cols,
+            )
+        })
+        .collect();
+    let mut l = MapLayer::new("points", cols.iter().map(|c| c.to_string()).collect());
+    l.visible = true;
+    (vec![l], f)
+}
+
+/// `n` wobbly polygons (about 200 vertices each) laid out on a jittered world grid, each with a
+/// numeric `density` that varies smoothly with position and a `region`.
+fn polys(n: usize) -> Dataset {
+    let mut rng = Rng(23);
+    let cols = ["density", "region"];
+    let side = (n as f64).sqrt().ceil() as usize;
+    let (dx, dy) = (340.0 / side as f64, 140.0 / side as f64);
+    let regions = ["north", "south", "east", "west"];
+    let f = (0..n)
+        .map(|j| {
+            let (gx, gy) = ((j % side) as f64, (j / side) as f64);
+            let (x, y) = (-170.0 + (gx + 0.5) * dx, -70.0 + (gy + 0.5) * dy);
+            let r = dx.min(dy) * (0.35 + 0.15 * rng.next());
+            let ph = rng.next() * 6.0;
+            let mut ring: Vec<[f64; 2]> = (0..200)
+                .map(|k| {
+                    let a = std::f64::consts::TAU * k as f64 / 200.0;
+                    let rr = r * (1.0 + 0.18 * (a * 5.0 + ph).sin() + 0.04 * (a * 31.0).sin() + 0.01 * (a * 97.0).sin());
+                    [x + rr * a.cos(), y + rr * a.sin() * 0.8]
+                })
+                .collect();
+            ring.push(ring[0]);
+            let density = 50.0 + 40.0 * (x / 40.0).sin() * (y / 25.0).cos() + rng.normal() * 6.0;
+            val_feat(
+                Geometry::Polygon(vec![ring]),
+                j,
+                0,
+                &format!("zone {j}"),
+                vec![MapValue::Num(density.round()), MapValue::Text(regions[(j % side) * 4 / side].into())],
+                &cols,
+            )
+        })
+        .collect();
+    (vec![MapLayer::new("zones", cols.iter().map(|c| c.to_string()).collect())], f)
+}
+
 fn mixed() -> Dataset {
     let (layers, mut f) = cities();
     let base = f.len();
@@ -402,6 +480,8 @@ fn main() {
     let mut which = "cities".to_string();
     let mut stress_n = 50_000usize;
     let mut select: Option<usize> = None;
+    let (mut kind, mut color_by, mut tiles, mut boundaries) = (None::<String>, None::<String>, None::<String>, false);
+    let mut bin_value: Option<String> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -421,6 +501,17 @@ fn main() {
                     stress_n = n;
                 }
             }
+            "--points" | "--polys" => {
+                which = a.trim_start_matches("--").to_string();
+                if let Some(n) = args.next().and_then(|v| v.parse().ok()) {
+                    stress_n = n;
+                }
+            }
+            "--kind" => kind = args.next(),
+            "--color-by" => color_by = args.next(),
+            "--tiles" => tiles = args.next(),
+            "--bin-value" => bin_value = args.next(),
+            "--boundaries" => boundaries = true,
             "--select" => select = args.next().and_then(|v| v.parse().ok()),
             _ => {}
         }
@@ -444,10 +535,56 @@ fn main() {
                     "mixed" => mixed(),
                     "stress" => stress(stress_n),
                     "bigpoly" => bigpoly(stress_n),
+                    "points" => points(stress_n),
+                    "polys" => polys(stress_n),
                     "empty" => (vec![], vec![]),
                     _ => cities(),
                 };
-                map.update(cx, |m, cx| m.set_features(layers, features, window, cx));
+                let mut layers = layers;
+                for l in &mut layers {
+                    if kind.is_none() && color_by.is_none() && tiles.is_none() && !boundaries && bin_value.is_none() {
+                        break;
+                    }
+                    let mut st = LayerStyle::default();
+                    st.kind = match kind.as_deref() {
+                        Some("points") => LayerKind::Points,
+                        Some("heatmap") => LayerKind::Heatmap,
+                        Some("hexagons") => LayerKind::Hexagons,
+                        Some("grid") => LayerKind::Grid,
+                        Some("clusters") => LayerKind::Clusters,
+                        _ => LayerKind::Auto,
+                    };
+                    if let Some(c) = &color_by {
+                        let numeric = c != "category" && c != "region";
+                        st.color = ColorSpec::ByColumn(ColorBy {
+                            column: c.clone(),
+                            scheme: if numeric {
+                                ColorScheme::Numeric { method: ClassMethod::Quantile, classes: 7 }
+                            } else {
+                                ColorScheme::Categorical { top_n: 8 }
+                            },
+                            palette: if numeric { PaletteId::Viridis } else { PaletteId::Tableau10 },
+                            reversed: false,
+                        });
+                    }
+                    if let Some(v) = &bin_value {
+                        st.bins.value = match v.as_str() {
+                            "sum" => theta_map_view::BinValue::Sum,
+                            "mean" => theta_map_view::BinValue::Mean,
+                            _ => theta_map_view::BinValue::Count,
+                        };
+                        st.bins.column = l.columns.first().cloned();
+                        st.heatmap.weight = l.columns.first().cloned();
+                    }
+                    st.tiling.mode = match tiles.as_deref() {
+                        Some("on") => TilingMode::On,
+                        Some("off") => TilingMode::Off,
+                        _ => TilingMode::Auto,
+                    };
+                    st.tiling.show_boundaries = boundaries;
+                    l.style = Some(st);
+                }
+                map.update(cx, |m, cx| m.set_features(layers, Arc::new(features), window, cx));
                 let handle = map.read(cx).focus_handle(cx);
                 window.focus(&handle, cx);
                 if let Some(row) = select {
@@ -469,8 +606,16 @@ fn main() {
                 loop {
                     cx.background_executor().timer(Duration::from_secs(1)).await;
                     let (frames, avg, max) = entity.read_with(cx, |m, _| m.take_paint_stats());
-                    if frames > 0 {
-                        eprintln!("paint: {frames} frames, avg {avg:.2} ms, max {max:.2} ms");
+                    let lp = entity.read_with(cx, |m, _| m.take_layer_perf());
+                    if frames > 0 || lp.tiles_built > 0 {
+                        eprintln!(
+                            "paint: {frames} frames, avg {avg:.2} ms, max {max:.2} ms; tiles built {} cached {} ({} KB) missing {}; agg {:.0} ms",
+                            lp.tiles_built,
+                            lp.tiles_cached,
+                            lp.tile_cache_bytes / 1024,
+                            lp.tiles_missing,
+                            lp.last_agg_ms
+                        );
                     }
                 }
             })
