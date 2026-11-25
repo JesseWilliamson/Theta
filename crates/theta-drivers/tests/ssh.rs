@@ -287,14 +287,14 @@ async fn a_bad_inner_credential_or_a_dead_jump_host_is_reported() {
     ssh_test!();
     let mut inner = ssh(SshAuth::Password { password: "wrong".into() });
     inner.via = Some(Box::new(ssh(key("client_ed25519", None))));
-    let e = ssh::check(&inner).await.err().expect("inner password is wrong");
+    let e = ssh::check(&inner).await.expect_err("inner password is wrong");
     assert!(matches!(e, Error::Auth(_)), "{e:?}");
     // The jump host itself is not listening.
     let mut dead = ssh(key("client_ed25519", None));
     let mut hop = ssh(key("client_ed25519", None));
     hop.port = 1;
     dead.via = Some(Box::new(hop));
-    let e = ssh::check(&dead).await.err().expect("jump host is down");
+    let e = ssh::check(&dead).await.expect_err("jump host is down");
     assert!(matches!(e, Error::Tunnel(_)), "{e:?}");
     wait_for(0).await;
 }

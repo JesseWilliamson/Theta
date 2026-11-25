@@ -214,6 +214,8 @@ pub struct ConnectionForm {
     /// What the picker lists now, to tell a change in the saved configurations from the store's many
     /// other notifications (a connection finishing, a catalog loading), which must not reset the test.
     ssh_rows: Vec<(Option<String>, String, String)>,
+    /// The id of the SSH configuration in use, `None` for a direct connection.
+    ssh_id: Option<String>,
     create_if_missing: bool,
     read_only: bool,
     /// Manual transactions by default for this connection (the title bar can still change it per session).
@@ -304,6 +306,7 @@ impl ConnectionForm {
             .and_then(|id| ssh_choices.iter().position(|ch| ch.id.as_ref() == Some(id)))
             .unwrap_or(0);
         let ssh_rows = ssh_signature(&ssh_choices);
+        let ssh_id = ssh_choices[ssh_ix].id.clone();
         let ssh = cx.new(|cx| {
             SelectState::new(SearchableVec::new(ssh_choices), Some(IndexPath::new(ssh_ix)), window, cx)
                 .searchable(true)
@@ -400,7 +403,10 @@ impl ConnectionForm {
         subscriptions.push(cx.subscribe_in(
             &ssh,
             window,
-            |this, _, _: &gpui_kit::component::select::SelectEvent<SearchableVec<SshChoice>>, _, cx| {
+            |this, _, ev: &gpui_kit::component::select::SelectEvent<SearchableVec<SshChoice>>, _, cx| {
+                if let gpui_kit::component::select::SelectEvent::Confirm(Some(value)) = ev {
+                    this.ssh_id = value.clone();
+                }
                 this.forget_test(cx);
                 cx.notify();
             },
@@ -437,6 +443,7 @@ impl ConnectionForm {
             ssl,
             ssh,
             ssh_rows,
+            ssh_id,
             create_if_missing: false,
             read_only: c.read_only,
             manual_txn: c.transaction.manual,
@@ -656,8 +663,9 @@ impl ConnectionForm {
     }
 
     /// The id of the SSH configuration picked in the dropdown, `None` for a direct connection.
-    fn selected_ssh(&self, cx: &gpui_kit::App) -> Option<String> {
-        self.ssh.read(cx).selected_value().cloned().flatten()
+    /// Kept in the form rather than read back from the dropdown, whose selection lags a `set_items`.
+    fn selected_ssh(&self, _cx: &gpui_kit::App) -> Option<String> {
+        self.ssh_id.clone()
     }
 
     /// Rebuild the picker's rows from the store, keeping the choice (or selecting `pick`). A choice that
@@ -673,6 +681,7 @@ impl ConnectionForm {
         }
         self.ssh_rows = signature;
         let ix = keep.and_then(|id| choices.iter().position(|c| c.id.as_ref() == Some(&id))).unwrap_or(0);
+        self.ssh_id = choices[ix].id.clone();
         self.ssh.update(cx, |s, cx| {
             s.set_items(SearchableVec::new(choices), window, cx);
             s.set_selected_index(Some(IndexPath::new(ix)), window, cx);
@@ -700,12 +709,14 @@ impl ConnectionForm {
     /// The switch: off means "None"; on picks the first configuration, or starts a new one when there is none.
     fn set_ssh_on(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
         if !on {
+            self.ssh_id = None;
             self.ssh.update(cx, |s, cx| s.set_selected_index(Some(IndexPath::new(0)), window, cx));
             self.forget_test(cx);
             cx.notify();
         } else if self.store.read(cx).ssh_profiles().is_empty() {
             self.new_ssh(window, cx);
         } else {
+            self.ssh_id = self.store.read(cx).ssh_profiles().first().map(|p| p.id.clone());
             self.ssh.update(cx, |s, cx| s.set_selected_index(Some(IndexPath::new(1)), window, cx));
             self.forget_test(cx);
             cx.notify();

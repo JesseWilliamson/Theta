@@ -132,7 +132,10 @@ impl SshManager {
 
     fn delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(p) = self.current(cx) else { return };
-        let users: Vec<String> = self.store.read(cx).ssh_users(&p.id).iter().map(|c| c.name.clone()).collect();
+        let users: Vec<String> = {
+            let s = self.store.read(cx);
+            s.ssh_users(&p.id).iter().map(|c| s.label(&c.id).unwrap_or_else(|| c.name.clone())).collect()
+        };
         let (title, intro) = if users.is_empty() {
             (format!("Delete “{}”?", p.name), "The SSH configuration and its stored secret are removed. No connection uses it.".to_string())
         } else {

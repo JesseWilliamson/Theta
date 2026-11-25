@@ -203,6 +203,8 @@ pub struct SshForm {
     editing: bool,
     /// How many other saved connections use this configuration, for the note under the title.
     shared_by: Vec<String>,
+    /// Opened from a connection's dialog: the count says "other", as that connection is one of the users.
+    others: bool,
     on_saved: Option<Saved>,
     name: Entity<InputState>,
     host: Entity<InputState>,
@@ -260,13 +262,15 @@ impl SshForm {
             SshAuth::Agent => (String::new(), String::new(), if existing.is_some() { 2 } else { 0 }),
         };
         let shared_by: Vec<String> = match &existing {
-            Some(e) => store
-                .read(cx)
-                .ssh_users(&e.id)
-                .into_iter()
-                .filter(|c| exclude.as_deref() != Some(c.id.as_str()))
-                .map(|c| c.name.clone())
-                .collect(),
+            Some(e) => {
+                let s = store.read(cx);
+                s.ssh_users(&e.id)
+                    .into_iter()
+                    .filter(|c| exclude.as_deref() != Some(c.id.as_str()))
+                    // The label tells namesakes apart (two `quarry_demo @ 127.0.0.1`).
+                    .map(|c| s.label(&c.id).unwrap_or_else(|| c.name.clone()))
+                    .collect()
+            }
             None => Vec::new(),
         };
         let choices = jump_choices(store.read(cx).ssh_profiles(), &p.id);
@@ -327,6 +331,7 @@ impl SshForm {
             id: p.id,
             editing: existing.is_some(),
             shared_by,
+            others: exclude.is_some(),
             on_saved,
             name,
             host,
@@ -532,10 +537,11 @@ impl Render for SshForm {
         let theme = cx.theme().clone();
         let auth_ix = self.auth.read(cx).selected_index(cx).map_or(0, |i| i.row);
         let testing = matches!(self.test, TestState::Testing);
+        let other = if self.others { "other " } else { "" };
         let shared = match self.shared_by.len() {
             0 => None,
-            1 => Some(format!("1 other connection uses this configuration: {}.", self.shared_by[0])),
-            n => Some(format!("{n} other connections use this configuration: {}.", names(&self.shared_by))),
+            1 => Some(format!("1 {other}connection uses this configuration: {}.", self.shared_by[0])),
+            n => Some(format!("{n} {other}connections use this configuration: {}.", names(&self.shared_by))),
         };
 
         let body = v_flex()
@@ -550,7 +556,7 @@ impl Render for SshForm {
                         .items_start()
                         .child(Icon::new(IconName::Info).size(px(12.)).mt(px(2.)).text_color(theme.warning))
                         .child(
-                            div().flex_1().text_size(px(12.)).text_color(theme.muted_foreground).child(format!(
+                            div().flex_1().min_w_0().text_size(px(12.)).text_color(theme.muted_foreground).child(format!(
                                 "{text} Changes apply the next time they connect."
                             )),
                         ),
