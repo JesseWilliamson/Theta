@@ -200,7 +200,7 @@ mod tests {
     use theta_geo::{Feature, MapView};
 
     fn mf(g: Geometry, srid: Option<i32>) -> MapFeature {
-        MapFeature { feature: Feature::new(g, srid), row: 0, label: None, properties: vec![], layer: 0 }
+        MapFeature { feature: Feature::new(g, srid), row: 0, label: None, properties: vec![], values: vec![], layer: 0 }
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! Finding geometry columns in a result and turning rows into map features.
 
 use theta_core::{Column, ResultSet, TypeKind, Value};
-use theta_map_view::{MapFeature, MapLayer};
+use std::sync::Arc;
+use theta_map_view::{MapFeature, MapLayer, MapValue};
 
 pub const MAX_PROPERTIES: usize = 12;
 const MAX_PROP_CHARS: usize = 120;
@@ -10,7 +11,7 @@ const SNIFF: usize = 5;
 
 pub struct GeoData {
     pub layers: Vec<MapLayer>,
-    pub features: Vec<MapFeature>,
+    pub features: Arc<Vec<MapFeature>>,
     /// Result column index of each layer.
     pub columns: Vec<usize>,
 }
@@ -54,6 +55,19 @@ fn label_column(columns: &[Column], geo: &[usize]) -> Option<usize> {
         .or_else(|| (0..columns.len()).find(ok))
 }
 
+/// A cell as a typed map value: numbers stay numbers (so layers can colour and size by
+/// them), NULL stays NULL, everything else is its display text.
+fn typed(v: &Value) -> MapValue {
+    match v {
+        Value::Null => MapValue::Null,
+        Value::Int(i) => MapValue::Num(*i as f64),
+        Value::UInt(u) => MapValue::Num(*u as f64),
+        Value::Float(f) => MapValue::Num(*f),
+        Value::Decimal(d) => d.parse::<f64>().map_or_else(|_| MapValue::Text(cap(d.clone()).into()), MapValue::Num),
+        other => MapValue::Text(cap(other.display()).into()),
+    }
+}
+
 fn cap(s: String) -> String {
     if s.chars().count() > MAX_PROP_CHARS {
         format!("{}…", s.chars().take(MAX_PROP_CHARS).collect::<String>())
@@ -69,25 +83,35 @@ pub fn extract(result: &ResultSet) -> Option<GeoData> {
         return None;
     }
     let label = label_column(&result.columns, &geo);
+    // Typed values cover every non-geometry column (the label column too); the hover card keeps
+    // showing the first few as display strings.
+    let value_cols: Vec<usize> = (0..result.columns.len()).filter(|i| !geo.contains(i)).collect();
+    let names: Vec<String> = value_cols.iter().map(|&i| result.columns[i].name.clone()).collect();
     let layers: Vec<MapLayer> =
-        geo.iter().map(|&i| MapLayer { name: result.columns[i].name.clone(), visible: true }).collect();
+        geo.iter().map(|&i| MapLayer::new(result.columns[i].name.clone(), names.clone())).collect();
+    let prop_cols: Vec<usize> = value_cols.iter().copied().filter(|i| Some(*i) != label).collect();
     let mut features = Vec::new();
     for (row_idx, row) in result.rows.iter().enumerate() {
+        let mut values: Option<Vec<MapValue>> = None;
         for (layer, &col) in geo.iter().enumerate() {
             let Some(feature) = row.get(col).and_then(decode) else { continue };
             let label = label.and_then(|i| row.get(i)).filter(|v| !v.is_null()).map(|v| cap(v.display()));
-            let properties = (0..result.columns.len())
-                .filter(|i| !geo.contains(i) && Some(*i) != label_column(&result.columns, &geo))
-                .filter_map(|i| {
+            let properties = prop_cols
+                .iter()
+                .filter_map(|&i| {
                     let v = row.get(i)?;
                     (!v.is_null()).then(|| (result.columns[i].name.clone(), cap(v.display())))
                 })
                 .take(MAX_PROPERTIES)
                 .collect();
-            features.push(MapFeature { feature, row: row_idx, label, properties, layer });
+            // One row can feed several layers; its typed values are built once.
+            let values = values
+                .get_or_insert_with(|| value_cols.iter().map(|&i| row.get(i).map_or(MapValue::Null, typed)).collect())
+                .clone();
+            features.push(MapFeature { feature, row: row_idx, label, properties, values, layer });
         }
     }
-    (!features.is_empty()).then_some(GeoData { layers, features, columns: geo })
+    (!features.is_empty()).then_some(GeoData { layers, features: Arc::new(features), columns: geo })
 }
 
 #[cfg(test)]
@@ -124,6 +148,28 @@ mod tests {
         assert_eq!(g.features.len(), 1);
         assert_eq!(g.features[0].label.as_deref(), Some("A"));
         assert_eq!(g.features[0].properties, vec![("id".to_string(), "1".to_string())]);
+    }
+
+    #[test]
+    fn values_are_typed_and_aligned_with_the_layer_columns() {
+        let r = ResultSet {
+            columns: vec![
+                col("id", TypeKind::Integer),
+                col("name", TypeKind::Text),
+                col("w", TypeKind::Decimal),
+                col("geom", TypeKind::Other),
+            ],
+            rows: vec![vec![
+                Value::Int(7),
+                Value::Text("A".into()),
+                Value::Decimal("2.5".into()),
+                Value::Geometry(point_wkb(4.9, 52.37)),
+            ]],
+            truncated: false,
+        };
+        let g = extract(&r).unwrap();
+        assert_eq!(g.layers[0].columns, vec!["id", "name", "w"]);
+        assert_eq!(g.features[0].values, vec![MapValue::Num(7.0), MapValue::Text("A".into()), MapValue::Num(2.5)]);
     }
 
     #[test]

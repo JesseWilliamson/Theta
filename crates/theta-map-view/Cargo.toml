@@ -10,6 +10,7 @@ repository.workspace = true
 gpui-kit.workspace = true
 theta-geo.workspace = true
 theta-ui = { path = "../theta-ui" }
+serde.workspace = true
 serde_json.workspace = true
 dirs.workspace = true
 async-channel = "2"

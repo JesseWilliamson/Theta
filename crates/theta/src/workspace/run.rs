@@ -1439,6 +1439,7 @@ impl Workspace {
         match geo {
             Some(g) => {
                 self.map_badge = Some(g.features.len());
+                // The features are shared, not copied: a 500,000-row result must not stall this thread.
                 let (layers, features) = (g.layers.clone(), g.features.clone());
                 self.map.update(cx, |m, cx| m.set_features(layers, features, window, cx));
             }

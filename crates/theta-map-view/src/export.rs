@@ -53,6 +53,7 @@ mod tests {
             row: 0,
             label: Some("Vienna".into()),
             properties: vec![("country".into(), "AT".into())],
+            values: vec![],
             layer,
         }
     }
@@ -60,7 +61,7 @@ mod tests {
     fn core() -> Core {
         let mut c = Core::new("http://127.0.0.1:9/{z}/{x}/{y}.png".into());
         c.set_features(
-            vec![MapLayer { name: "a".into(), visible: true }, MapLayer { name: "b".into(), visible: false }],
+            vec![MapLayer::new("a", vec![]), MapLayer { visible: false, ..MapLayer::new("b", vec![]) }],
             vec![
                 feature(Geometry::Point(Some([601_800.0, 5_340_000.0])), Some(32633), 0),
                 feature(Geometry::Point(Some([1.0, 2.0])), Some(4326), 1),

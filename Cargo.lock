@@ -9080,6 +9080,7 @@ dependencies = [
  "dirs 6.0.0",
  "gpui-kit",
  "image",
+ "serde",
  "serde_json",
  "tempfile",
  "theta-geo",
