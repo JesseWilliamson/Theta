@@ -370,7 +370,7 @@ mod tests {
             name,
             "jump.example",
             "me",
-            SshAuth::KeyFile { path: "/k".into(), passphrase: Some("phrase".into()) },
+            SshAuth::KeyFile { path: "/k".into(), passphrase: Some("kp-secret-9".into()) },
         );
         p.id = id.into();
         p
@@ -389,7 +389,7 @@ mod tests {
     fn the_stored_form_has_no_secret_and_the_secret_round_trips() {
         let p = key_profile("a", "Bastion");
         let json = serde_json::to_string(&p.stripped()).unwrap();
-        assert!(!json.contains("phrase"), "{json}");
+        assert!(!json.contains("kp-secret-9"), "{json}");
         let back = p.stripped().with_secret(&p.secret());
         assert_eq!(back, p);
         let mut pw = key_profile("b", "pw");
@@ -425,7 +425,7 @@ mod tests {
         assert_eq!(cfg.auth, SshAuth::Password { password: "pw".into() });
         let hop = cfg.via.as_deref().unwrap();
         assert_eq!(hop.host, "jump.example");
-        assert_eq!(hop.auth, SshAuth::KeyFile { path: "/k".into(), passphrase: Some("phrase".into()) });
+        assert_eq!(hop.auth, SshAuth::KeyFile { path: "/k".into(), passphrase: Some("kp-secret-9".into()) });
         assert!(hop.via.is_none());
         assert!(resolve(&profiles, &secrets, "outer").unwrap().via.is_none());
     }
@@ -484,11 +484,11 @@ mod tests {
         let d = ConnectionConfig::new("d", "D", DatabaseKind::Postgres);
         // A and B share the passphrase, C has a password; the file holds none of them.
         for id in ["a", "b"] {
-            secrets.save(id, &Secret { ssh_passphrase: Some("phrase".into()), ..Default::default() });
+            secrets.save(id, &Secret { ssh_passphrase: Some("kp-secret-9".into()), ..Default::default() });
         }
         secrets.save("a", &Secret {
             password: Some("dbpw".into()),
-            ssh_passphrase: Some("phrase".into()),
+            ssh_passphrase: Some("kp-secret-9".into()),
             ..Default::default()
         });
         secrets.save("c", &Secret { ssh_password: Some("sshpw".into()), ..Default::default() });
@@ -505,13 +505,13 @@ mod tests {
         assert_eq!(profiles[1].name, "me@jump.example:22 (2)", "same address, different credentials");
 
         let key_id = conns[0].ssh_profile.clone().unwrap();
-        assert_eq!(secrets.load(&secret_key(&key_id)).ssh_passphrase.as_deref(), Some("phrase"));
+        assert_eq!(secrets.load(&secret_key(&key_id)).ssh_passphrase.as_deref(), Some("kp-secret-9"));
         let pw_id = conns[2].ssh_profile.clone().unwrap();
         assert_eq!(secrets.load(&secret_key(&pw_id)).ssh_password.as_deref(), Some("sshpw"));
         // The connection keeps its own password and nothing of the tunnel's.
         assert_eq!(secrets.load("a"), Secret { password: Some("dbpw".into()), ..Default::default() });
         assert!(secrets.load("b").is_empty() && secrets.load("c").is_empty());
-        assert!(!serde_json::to_string(&profiles).unwrap().contains("phrase"));
+        assert!(!serde_json::to_string(&profiles).unwrap().contains("kp-secret-9"));
 
         // Running it again changes nothing.
         assert!(!migrate_inline(&mut conns, &mut profiles, &secrets));

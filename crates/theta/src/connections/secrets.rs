@@ -312,12 +312,12 @@ mod tests {
     fn config_with_secrets() -> ConnectionConfig {
         let mut c = ConnectionConfig::new("c1", "prod", DatabaseKind::Postgres);
         c.password = Some("hunter2".into());
-        c.ssh = Some(SshConfig {
-            host: "jump".into(),
-            port: 22,
-            user: "me".into(),
-            auth: SshAuth::KeyFile { path: "/k".into(), passphrase: Some("phrase".into()) },
-        });
+        c.ssh = Some(SshConfig::new(
+            "jump",
+            22,
+            "me",
+            SshAuth::KeyFile { path: "/k".into(), passphrase: Some("phrase".into()) },
+        ));
         c
     }
 

@@ -260,8 +260,7 @@ async fn postgres_cancel_and_tls_verification_through_a_tunnel() {
 }
 
 /// The same sshd twice: the second SSH session runs inside a `direct-tcpip` channel of the first, which
-/// is what a `ProxyJump` does. Two TCP-level hops are not needed to prove the nesting; one TCP
-/// connection to the sshd carries both sessions.
+/// is what a `ProxyJump` does.
 fn two_hops() -> SshConfig {
     let mut inner = ssh(key("client_ed25519", None));
     inner.via = Some(Box::new(ssh(SshAuth::Password { password: "theta-test-pw".into() })));
@@ -275,7 +274,9 @@ async fn a_jump_host_carries_the_second_session() {
     let mut cfg = pg_config();
     cfg.ssh = Some(two_hops());
     let conn = theta_drivers::connect(&cfg).await.unwrap_or_else(|e| panic!("connect via two hops: {e:?}"));
-    assert_eq!(established_to_sshd(), 1, "the inner session rides on the outer one's TCP connection");
+    // The client's TCP connection to the sshd, plus the one the sshd opens to itself for the jump
+    // (the inner SSH session runs inside that forwarded connection).
+    assert_eq!(established_to_sshd(), 2, "outer session and the forwarded connection that carries the inner one");
     assert_eq!(scalar(conn.as_ref(), "SELECT 'two hops'").await, text("two hops"));
     conn.close().await.unwrap();
     wait_for(0).await;
